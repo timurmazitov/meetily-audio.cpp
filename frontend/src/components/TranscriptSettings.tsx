@@ -7,6 +7,8 @@ import { Label } from './ui/label';
 import { Eye, EyeOff, Lock, Unlock } from 'lucide-react';
 import { ModelManager } from './WhisperModelManager';
 import { ParakeetModelManager } from './ParakeetModelManager';
+import { AudioCppModelManager } from './AudioCppModelManager';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/accordion';
 
 
 export interface TranscriptModelProps {
@@ -171,6 +173,27 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
                             />
                         </div>
                     )}
+
+                    {/* audioCpp model management. The provider is not selectable yet
+                        (transcription lands in a later change), but its models are
+                        already downloadable here. */}
+                    <div className="mt-6">
+                        <Accordion type="single" collapsible>
+                            <AccordionItem value="audiocpp-models">
+                                <AccordionTrigger className="text-sm font-medium text-gray-700">
+                                    🎙️ audioCpp models (GigaAM + Nemotron)
+                                </AccordionTrigger>
+                                <AccordionContent>
+                                    <div className="mb-3 text-sm text-gray-600">
+                                        Models for the audioCpp engine: GigaAM v3 e2e CTC for Russian
+                                        transcription and Nemotron-3 Diarization BF16 for speaker labels.
+                                        Using audioCpp for transcription arrives in a later update.
+                                    </div>
+                                    <AudioCppModelManager />
+                                </AccordionContent>
+                            </AccordionItem>
+                        </Accordion>
+                    </div>
 
 
                     {requiresApiKey && (
