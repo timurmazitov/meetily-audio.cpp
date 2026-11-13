@@ -9,9 +9,7 @@ use tokio_util::sync::CancellationToken;
 use whisper_rs::{WhisperContext, WhisperContextParameters, FullParams, SamplingStrategy};
 use serde::{Serialize, Deserialize};
 use anyhow::{Result, anyhow};
-use reqwest::Client;
 use tokio::fs;
-use tokio::io::AsyncWriteExt;
 use crate::config::WHISPER_MODEL_CATALOG;
 use super::acceleration::{whisper_context_acceleration_for, WhisperCompiledBackend};
 
@@ -48,13 +46,7 @@ struct DownloadStateTestHook {
     continue_discovery: tokio::sync::Notify,
 }
 
-#[derive(Debug, thiserror::Error)]
-#[error("Download cancelled by user")]
-pub(crate) struct DownloadCancelled;
-
-pub(crate) fn is_download_cancelled(error: &anyhow::Error) -> bool {
-    error.downcast_ref::<DownloadCancelled>().is_some()
-}
+pub use crate::model_downloader::{is_download_cancelled, DownloadCancelled};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -215,7 +207,7 @@ impl WhisperEngine {
 
                         if file_size_mb >= expected_min_size_mb && file_size_mb > 1 {
                             // File size looks good, but let's also check if it's a valid GGML file
-                            match self.validate_model_file(&model_path).await {
+                            match crate::model_downloader::validate_model_magic(&model_path).await {
                                 Ok(_) => ModelStatus::Available,
                                 Err(_) => {
                                     log::warn!("Model file {} has correct size but appears corrupted (failed validation)",
@@ -724,28 +716,6 @@ impl WhisperEngine {
         self.models_dir.clone()
     }
 
-    /// Validate if a model file is a valid GGML file by checking its header
-    async fn validate_model_file(&self, model_path: &PathBuf) -> Result<()> {
-        use tokio::io::AsyncReadExt;
-
-        let mut file = fs::File::open(model_path).await
-            .map_err(|e| anyhow!("Failed to open model file: {}", e))?;
-
-        // Read the first 8 bytes to check for GGML magic number
-        let mut buffer = [0u8; 8];
-        file.read_exact(&mut buffer).await
-            .map_err(|e| anyhow!("Failed to read model file header: {}", e))?;
-
-        // Check for GGML magic number (various versions and endianness)
-        if buffer.starts_with(b"ggml") || buffer.starts_with(b"GGUF") || buffer.starts_with(b"ggmf") ||
-           buffer.starts_with(b"lmgg") || buffer.starts_with(b"FUGU") || buffer.starts_with(b"fmgg") {
-            Ok(())
-        } else {
-            Err(anyhow!("Invalid model file: missing GGML/GGUF magic number. Found: {:?}",
-                       String::from_utf8_lossy(&buffer[..4])))
-        }
-    }
-
     pub async fn delete_model(&self, model_name: &str) -> Result<String> {
         log::info!("Attempting to delete model: {}", model_name);
 
@@ -848,33 +818,21 @@ impl WhisperEngine {
         }
 
         if result.is_ok() && !active_download.cancellation.is_cancelled() {
-            result = self.validate_model_file(file_path).await;
+            let expected_min_size = WHISPER_MODEL_CATALOG
+                .iter()
+                .find(|model| model.0 == model_name)
+                .map(|model| ((model.2 as f64 * 0.9) as u64) * 1024 * 1024);
 
-            if result.is_ok() {
-                let expected_min_size = WHISPER_MODEL_CATALOG
-                    .iter()
-                    .find(|model| model.0 == model_name)
-                    .map(|model| ((model.2 as f64 * 0.9) as u64) * 1024 * 1024);
-
-                result = match expected_min_size {
-                    Some(expected_min_size) => match fs::metadata(file_path).await {
-                        Ok(metadata) if metadata.len() >= expected_min_size => Ok(()),
-                        Ok(metadata) => Err(anyhow!(
-                            "Downloaded model file is too small: {} bytes (expected at least {} bytes)",
-                            metadata.len(),
-                            expected_min_size
-                        )),
-                        Err(e) => Err(anyhow!(
-                            "Failed to read downloaded model file metadata: {}",
-                            e
-                        )),
-                    },
-                    None => Err(anyhow!(
-                        "Unsupported model for download validation: {}",
-                        model_name
-                    )),
-                };
-            }
+            result = match expected_min_size {
+                Some(expected_min_size) => {
+                    crate::model_downloader::validate_downloaded_model(file_path, expected_min_size)
+                        .await
+                }
+                None => Err(anyhow!(
+                    "Unsupported model for download validation: {}",
+                    model_name
+                )),
+            };
         }
 
         if result.is_err() && !active_download.cancellation.is_cancelled() && file_path.exists() {
@@ -1022,100 +980,34 @@ impl WhisperEngine {
             }
         }
 
-        let client = Client::builder()
-            .user_agent(concat!("Meetily/", env!("CARGO_PKG_VERSION")))
-            .build()
-            .map_err(|e| anyhow!("Failed to create download client: {}", e))?;
-        let response = tokio::select! {
-            biased;
-            _ = active_download.cancellation.cancelled() => return Err(DownloadCancelled.into()),
-            response = client.get(model_url).send() => response
-                .map_err(|e| anyhow!("Failed to start download: {}", e))?,
-        };
-
-        if !response.status().is_success() {
-            return Err(anyhow!("Download failed with status: {}", response.status()));
-        }
-
-        let total_size = response.content_length().unwrap_or(0);
-        let mut file = fs::File::create(file_path)
-            .await
-            .map_err(|e| anyhow!("Failed to create file: {}", e))?;
-
-        use futures_util::StreamExt;
-        let mut stream = response.bytes_stream();
-        let mut downloaded = 0u64;
-        let mut last_progress_report = 0u8;
-        let mut last_report_time = std::time::Instant::now();
-
-        if let Some(ref callback) = progress_callback {
-            callback(0);
-        }
-
-        loop {
-            let chunk_result = tokio::select! {
-                biased;
-                _ = active_download.cancellation.cancelled() => return Err(DownloadCancelled.into()),
-                chunk_result = stream.next() => chunk_result,
-            };
-
-            let Some(chunk_result) = chunk_result else {
-                break;
-            };
-
-            if active_download.cancellation.is_cancelled() {
-                return Err(DownloadCancelled.into());
-            }
-
-            let chunk = chunk_result.map_err(|e| anyhow!("Failed to read chunk: {}", e))?;
-            file.write_all(&chunk)
-                .await
-                .map_err(|e| anyhow!("Failed to write chunk to file: {}", e))?;
-
-            downloaded += chunk.len() as u64;
-            let progress = if total_size > 0 {
-                ((downloaded as f64 / total_size as f64) * 100.0) as u8
-            } else {
-                0
-            };
-
-            let time_since_last_report = last_report_time.elapsed().as_secs();
-            if progress >= last_progress_report + 1 || progress == 100 || time_since_last_report >= 2 {
-                let mut models = self.available_models.write().await;
-                if let Some(model_info) = models.get_mut(model_name) {
-                    model_info.status = ModelStatus::Downloading { progress };
+        let available_models = Arc::clone(&self.available_models);
+        let model_name = model_name.to_string();
+        let progress_callback = Arc::new(std::sync::Mutex::new(progress_callback));
+        crate::model_downloader::download_file(
+            model_url,
+            file_path,
+            &active_download.cancellation,
+            move |progress| {
+                let available_models = Arc::clone(&available_models);
+                let model_name = model_name.clone();
+                let progress_callback = Arc::clone(&progress_callback);
+                async move {
+                    {
+                        let mut models = available_models.write().await;
+                        if let Some(model_info) = models.get_mut(&model_name) {
+                            model_info.status = ModelStatus::Downloading { progress };
+                        }
+                    }
+                    if let Some(ref callback) = *progress_callback
+                        .lock()
+                        .expect("download progress callback mutex should not be poisoned")
+                    {
+                        callback(progress);
+                    }
                 }
-
-                if let Some(ref callback) = progress_callback {
-                    callback(progress);
-                }
-
-                last_progress_report = progress;
-                last_report_time = std::time::Instant::now();
-            }
-        }
-
-        {
-            let mut models = self.available_models.write().await;
-            if let Some(model_info) = models.get_mut(model_name) {
-                model_info.status = ModelStatus::Downloading { progress: 100 };
-            }
-        }
-
-        if let Some(ref callback) = progress_callback {
-            callback(100);
-        }
-
-        file.flush()
-            .await
-            .map_err(|e| anyhow!("Failed to flush file: {}", e))?;
-
-        if active_download.cancellation.is_cancelled() {
-            return Err(DownloadCancelled.into());
-        }
-
-
-        Ok(())
+            },
+        )
+        .await
     }
 
     pub async fn cancel_download(&self, model_name: &str) -> Result<CancelDownloadOutcome> {
