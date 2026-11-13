@@ -59,6 +59,7 @@ See [build and platform setup](docs/BUILDING.md), [development commands and debu
 | Transcription providers and workers | [transcription/](frontend/src-tauri/src/audio/transcription/) |
 | Whisper model loading and acceleration | [whisper_engine/](frontend/src-tauri/src/whisper_engine/) |
 | Parakeet model loading and inference | [parakeet_engine/](frontend/src-tauri/src/parakeet_engine/) |
+| audio.cpp engine FFI layer (native library loading, ABI gate) | [audio_cpp_engine/](frontend/src-tauri/src/audio_cpp_engine/) |
 | Summary providers and orchestration | [summary/](frontend/src-tauri/src/summary/) |
 | Recording UI and shared frontend state | [page.tsx](frontend/src/app/page.tsx), [SidebarProvider.tsx](frontend/src/components/Sidebar/SidebarProvider.tsx), [RecordingStateContext.tsx](frontend/src/contexts/RecordingStateContext.tsx) |
 

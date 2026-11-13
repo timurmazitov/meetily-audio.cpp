@@ -39,6 +39,7 @@ pub(crate) use perf_trace;
 pub mod analytics;
 pub mod api;
 pub mod audio;
+pub mod audio_cpp_engine;
 pub mod config;
 pub mod console_utils;
 pub mod database;
@@ -790,6 +791,8 @@ pub fn run() {
             parakeet_engine::commands::parakeet_cancel_download,
             parakeet_engine::commands::parakeet_delete_corrupted_model,
             parakeet_engine::commands::open_parakeet_models_folder,
+            // audio.cpp engine commands (FFI layer)
+            audio_cpp_engine::commands::audiocpp_diagnostics,
             // Parallel processing commands
             whisper_engine::parallel_commands::initialize_parallel_processor,
             whisper_engine::parallel_commands::start_parallel_processing,
