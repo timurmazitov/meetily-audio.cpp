@@ -18,6 +18,9 @@ pub enum TranscriptionEngine {
     Provider(Arc<dyn TranscriptionProvider>),  // Trait-based (preferred for new code)
 }
 
+/// Provider id for the audio.cpp engine (GLOSSARY: «провайдер транскрибации»).
+pub const AUDIO_CPP_PROVIDER: &str = "audioCpp";
+
 impl TranscriptionEngine {
     /// Check if the engine has a model loaded
     pub async fn is_model_loaded(&self) -> bool {
@@ -135,10 +138,27 @@ pub async fn validate_transcription_model_ready<R: Runtime>(app: &AppHandle<R>) 
                 }
             }
         }
+        AUDIO_CPP_PROVIDER => {
+            info!("🔍 Validating audioCpp model...");
+            match get_or_init_audio_cpp_provider(app).await {
+                Ok(provider) => {
+                    let model = provider
+                        .get_current_model()
+                        .await
+                        .unwrap_or_else(|| "unknown".to_string());
+                    info!("✅ audioCpp model validation successful: {} is ready", model);
+                    Ok(())
+                }
+                Err(e) => {
+                    warn!("❌ audioCpp model validation failed: {}", e);
+                    Err(e)
+                }
+            }
+        }
         other => {
             warn!("❌ Unsupported transcription provider for local recording: {}", other);
             Err(format!(
-                "Provider '{}' is not supported for local transcription. Please select 'localWhisper' or 'parakeet'.",
+                "Provider '{}' is not supported for local transcription. Please select 'localWhisper', 'parakeet' or 'audioCpp'.",
                 other
             ))
         }
@@ -212,10 +232,109 @@ pub async fn get_or_init_transcription_engine<R: Runtime>(
                 }
             }
         }
+        AUDIO_CPP_PROVIDER => {
+            info!("🎙️ Initializing audioCpp transcription engine");
+            let provider = get_or_init_audio_cpp_provider(app).await?;
+            Ok(TranscriptionEngine::Provider(provider))
+        }
         "localWhisper" | _ => {
             info!("🎤 Initializing Whisper transcription engine");
             let whisper_engine = get_or_init_whisper(app).await?;
             Ok(TranscriptionEngine::Whisper(whisper_engine))
+        }
+    }
+}
+
+/// Get or initialize the audioCpp transcription provider from the configured
+/// model.
+///
+/// The provider is cached process-wide, so a second recording reuses the
+/// already-loaded model. Failures are returned as user-facing messages: a
+/// missing, downloading or corrupted model never reaches the native session
+/// setup, and a native load/session error is reported instead of panicking.
+pub async fn get_or_init_audio_cpp_provider<R: Runtime>(
+    app: &AppHandle<R>,
+) -> Result<Arc<dyn TranscriptionProvider>, String> {
+    if let Some(provider) = crate::audio_cpp_engine::transcription::provider() {
+        if provider.is_model_loaded().await {
+            let model = provider
+                .get_current_model()
+                .await
+                .unwrap_or_else(|| "unknown".to_string());
+            info!("✅ audioCpp model '{}' already loaded, reusing", model);
+            return Ok(provider);
+        }
+    }
+
+    let configured_model = match crate::api::api::api_get_transcript_config(
+        app.clone(),
+        app.clone().state(),
+        None,
+    )
+    .await
+    {
+        Ok(Some(config)) if config.provider == AUDIO_CPP_PROVIDER => config.model,
+        Ok(Some(config)) => {
+            return Err(format!(
+                "Cannot initialize audioCpp: the transcript provider is '{}'. This is a bug in the transcription task initialization.",
+                config.provider
+            ))
+        }
+        Ok(None) => String::new(),
+        Err(e) => {
+            warn!("⚠️ Failed to get transcript config for audioCpp: {}", e);
+            String::new()
+        }
+    };
+
+    let manager = crate::audio_cpp_engine::commands::model_manager().ok_or_else(|| {
+        "The audioCpp model manager is not initialized. Restart Meetily and try again.".to_string()
+    })?;
+
+    let models = manager
+        .discover_models()
+        .await
+        .map_err(|e| format!("Failed to discover audioCpp models: {}", e))?;
+
+    let model = crate::audio_cpp_engine::transcription::select_transcription_model(
+        &models,
+        &configured_model,
+    )
+    .map_err(|not_ready| {
+        warn!("❌ audioCpp model not ready: {}", not_ready);
+        not_ready.to_string()
+    })?;
+
+    info!(
+        "Loading audioCpp model '{}' from {}",
+        model.name,
+        model.path.display()
+    );
+
+    // Library detection, registry creation and model load all block; keep
+    // them off the async runtime (docs/research/audio-cpp-c-api.md).
+    let load_result = tokio::task::spawn_blocking(move || {
+        let library =
+            crate::audio_cpp_engine::wrapper::AudioCpp::load().map_err(|e| e.to_string())?;
+        crate::audio_cpp_engine::transcription::load_native_provider(library, &model)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("audioCpp model load task failed: {}", e))?;
+
+    match load_result {
+        Ok(provider) => {
+            info!(
+                "✅ audioCpp provider ready: model '{}', family '{}'",
+                provider.model_name(),
+                provider.family()
+            );
+            let cached = crate::audio_cpp_engine::transcription::set_provider(provider);
+            Ok(cached)
+        }
+        Err(message) => {
+            warn!("❌ audioCpp model load failed: {}", message);
+            Err(message)
         }
     }
 }

@@ -35,6 +35,7 @@ describe('audio.cpp model manager types', () => {
       init: 'audiocpp_model_init',
       getAvailableModels: 'audiocpp_get_available_models',
       hasAvailableModels: 'audiocpp_has_available_models',
+      hasTranscriptionModel: 'audiocpp_has_transcription_model',
       getModelsDirectory: 'audiocpp_get_models_directory',
       downloadModel: 'audiocpp_download_model',
       cancelDownload: 'audiocpp_cancel_download',

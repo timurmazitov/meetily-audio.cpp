@@ -40,6 +40,9 @@ class FakeClient implements AudioCppModelClient {
   async init() { this.calls.push('init'); }
   async getAvailableModels() { this.calls.push('getAvailableModels'); return this.models.map(m => ({ ...m })); }
   async hasAvailableModels() { return this.models.some(m => m.status === 'Available'); }
+  async hasTranscriptionModel() {
+    return this.models.some(m => m.task === 'asr' && m.status === 'Available');
+  }
   async getModelsDirectory() { return '/models/audiocpp'; }
   async openModelsFolder() { this.calls.push('openModelsFolder'); }
 
@@ -108,6 +111,11 @@ function buttonWithText(root: ReactTestRenderer, text: string) {
     .find(button => JSON.stringify(button.children).includes(text));
 }
 
+/** Click a node the way React would: with an event that can stop propagation. */
+function click(node: { props: { onClick?: (event: unknown) => void } }) {
+  node.props.onClick?.({ stopPropagation() {} });
+}
+
 afterEach(async () => {
   if (renderer) await act(async () => renderer!.unmount());
   renderer = undefined;
@@ -150,7 +158,7 @@ test('downloading a model invokes the download command and shows progress', asyn
 
   const download = buttonWithText(view, 'Download');
   expect(download).toBeDefined();
-  await act(async () => { download!.props.onClick(); });
+  await act(async () => { click(download!); });
 
   expect(client.calls).toContain('download:gigaam-v3-e2e-ctc-f16');
 
@@ -175,7 +183,7 @@ test('a failed download surfaces the error and offers a retry', async () => {
   client.downloadError = new Error('Download failed');
   const view = await render(client);
 
-  await act(async () => { buttonWithText(view, 'Download')!.props.onClick(); });
+  await act(async () => { click(buttonWithText(view, 'Download')!); });
 
   expect(textOf(view)).toContain('Retry');
 });
@@ -185,7 +193,7 @@ test('cancelling an in-flight download calls the cancel command', async () => {
   client.models = [baseModel()];
   const view = await render(client);
 
-  await act(async () => { buttonWithText(view, 'Download')!.props.onClick(); });
+  await act(async () => { click(buttonWithText(view, 'Download')!); });
   await act(async () => {
     client.emitProgress({
       modelName: 'gigaam-v3-e2e-ctc-f16',
@@ -196,7 +204,7 @@ test('cancelling an in-flight download calls the cancel command', async () => {
 
   const cancel = buttonWithText(view, 'Cancel');
   expect(cancel).toBeDefined();
-  await act(async () => { cancel!.props.onClick(); });
+  await act(async () => { click(cancel!); });
   expect(client.calls).toContain('cancel:gigaam-v3-e2e-ctc-f16');
 
   await act(async () => {
@@ -223,7 +231,7 @@ test('an installed model can be deleted', async () => {
     .find(button => typeof button.props['aria-label'] === 'string'
       && button.props['aria-label'].startsWith('Delete'));
   expect(del).toBeDefined();
-  await act(async () => { del!.props.onClick(); });
+  await act(async () => { click(del!); });
 
   expect(client.calls).toContain('delete:gigaam-v3-e2e-ctc-f16');
   expect(textOf(view)).toContain('Download');
@@ -253,4 +261,73 @@ test('a corrupted artifact can be deleted or re-downloaded', async () => {
   const text = textOf(view);
   expect(text).toContain('Delete');
   expect(text).toContain('Re-download');
+});
+
+test('an installed transcription model can be selected from the settings', async () => {
+  const client = new FakeClient();
+  client.models = [baseModel({ status: 'Available' })];
+  const selected: string[] = [];
+  let view: ReactTestRenderer;
+  await act(async () => {
+    view = create(
+      <AudioCppModelManager client={client} onModelSelect={name => selected.push(name)} />,
+    );
+  });
+  renderer = view!;
+
+  const card = view!.root.findByProps({ 'data-testid': 'audiocpp-model-gigaam-v3-e2e-ctc-f16' });
+  expect(card.props['data-model-selected']).toBe('true');
+
+  await act(async () => { click(card); });
+  // Already selected: a click must not re-trigger the save path.
+  expect(selected).toEqual([]);
+});
+
+test('selecting another transcription model reports it to the settings', async () => {
+  const client = new FakeClient();
+  client.models = [
+    baseModel({ status: 'Available' }),
+    baseModel({ name: 'gigaam-v3-e2e-ctc-f16-alt', display_name: 'GigaAM alt', status: 'Available' }),
+  ];
+  const selected: string[] = [];
+  await act(async () => {
+    renderer = create(
+      <AudioCppModelManager
+        client={client}
+        selectedModel="gigaam-v3-e2e-ctc-f16"
+        onModelSelect={name => selected.push(name)}
+      />,
+    );
+  });
+
+  const other = renderer!.root.findByProps({ 'data-testid': 'audiocpp-model-gigaam-v3-e2e-ctc-f16-alt' });
+  await act(async () => { click(other); });
+
+  expect(selected).toEqual(['gigaam-v3-e2e-ctc-f16-alt']);
+});
+
+test('the diarization model cannot be selected as a transcription model', async () => {
+  const client = new FakeClient();
+  client.models = [
+    baseModel({
+      name: 'nemotron-3-diarization-bf16',
+      display_name: 'Nemotron-3 Diarization',
+      family: 'nemotron_3_diar',
+      task: 'diar',
+      quantization: 'BF16',
+      status: 'Available',
+    }),
+  ];
+  const selected: string[] = [];
+  await act(async () => {
+    renderer = create(
+      <AudioCppModelManager client={client} onModelSelect={name => selected.push(name)} />,
+    );
+  });
+
+  const card = renderer!.root.findByProps({ 'data-testid': 'audiocpp-model-nemotron-3-diarization-bf16' });
+  expect(card.props['data-model-selected']).toBe('false');
+  await act(async () => { click(card); });
+
+  expect(selected).toEqual([]);
 });

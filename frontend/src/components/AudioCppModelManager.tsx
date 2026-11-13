@@ -1,10 +1,16 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
 import {
+  AUDIO_CPP_PROVIDER,
+} from '../lib/transcription-provider';
+import {
+  defaultSelectedTranscriptionModel,
   downloadProgress,
   formatModelSize,
   isAvailableStatus,
   isDownloadingStatus,
+  isTranscriptionModel,
   taskLabel,
   type AudioCppDownloadCompleteEvent,
   type AudioCppDownloadErrorEvent,
@@ -23,8 +29,10 @@ import {
  * re-read from the native manager so persisted state (installed / missing)
  * survives restarts.
  *
- * Transcription is not wired up yet, so this component deliberately has no
- * model *selection*: it manages model files only.
+ * When `onModelSelect` is supplied the installed transcription models become
+ * selectable, and the selected model is persisted by the caller (the transcript
+ * settings save it as the `audioCpp` provider + model pair). The diarization
+ * model is never selectable: it cannot transcribe.
  */
 export interface AudioCppModelManagerProps {
   className?: string;
@@ -33,11 +41,20 @@ export interface AudioCppModelManagerProps {
    * this module (and its tests) do not pull in the Tauri bridge.
    */
   client?: AudioCppModelClient;
+  /** Currently configured model id (the catalog name). */
+  selectedModel?: string;
+  /** Called when the user picks a transcription model. */
+  onModelSelect?: (modelName: string) => void;
+  /** Persist the selection immediately, matching the other model managers. */
+  autoSave?: boolean;
 }
 
 export function AudioCppModelManager({
   className = '',
   client: injectedClient,
+  selectedModel,
+  onModelSelect,
+  autoSave = false,
 }: AudioCppModelManagerProps) {
   const [client, setClient] = useState<AudioCppModelClient | undefined>(injectedClient);
   const [models, setModels] = useState<AudioCppModelInfo[]>([]);
@@ -293,6 +310,33 @@ export function AudioCppModelManager({
     }
   };
 
+  const selectModel = async (modelName: string) => {
+    onModelSelect?.(modelName);
+    const name = nameOf(modelName);
+    toast.success(`Switched to ${name}`, { duration: 3000 });
+
+    if (autoSave) {
+      try {
+        await invoke('api_save_transcript_config', {
+          provider: AUDIO_CPP_PROVIDER,
+          model: modelName,
+          apiKey: null,
+        });
+      } catch (err) {
+        console.error('Failed to save audio.cpp model selection:', err);
+        toast.error('Failed to save model selection', {
+          description: err instanceof Error ? err.message : String(err),
+          duration: 4000,
+        });
+      }
+    }
+  };
+
+  // Which model is highlighted: the configured one, else the first installed
+  // transcription model. The diarization model is never selectable.
+  const selectedTranscriptionModel = defaultSelectedTranscriptionModel(models, selectedModel);
+  const selectionEnabled = typeof onModelSelect === 'function';
+
   if (loading) {
     return (
       <div className={`space-y-3 ${className}`} data-testid="audiocpp-model-manager-loading">
@@ -320,6 +364,13 @@ export function AudioCppModelManager({
           key={model.name}
           model={model}
           isCancelling={cancellingModels.has(model.name)}
+          selectable={selectionEnabled && isTranscriptionModel(model)}
+          isSelected={
+            selectionEnabled &&
+            isTranscriptionModel(model) &&
+            selectedTranscriptionModel?.name === model.name
+          }
+          onSelect={() => { void selectModel(model.name); }}
           onDownload={() => downloadModel(model.name)}
           onCancel={() => cancelDownload(model.name)}
           onDelete={() => deleteModel(model.name)}
@@ -344,6 +395,10 @@ function displayName(modelName: string, models: AudioCppModelInfo[]): string {
 interface AudioCppModelCardProps {
   model: AudioCppModelInfo;
   isCancelling: boolean;
+  /** Transcription models can be selected; diarization models cannot. */
+  selectable: boolean;
+  isSelected: boolean;
+  onSelect: () => void;
   onDownload: () => void;
   onCancel: () => void;
   onDelete: () => void;
@@ -352,6 +407,9 @@ interface AudioCppModelCardProps {
 function AudioCppModelCard({
   model,
   isCancelling,
+  selectable,
+  isSelected,
+  onSelect,
   onDownload,
   onCancel,
   onDelete,
@@ -370,17 +428,24 @@ function AudioCppModelCard({
   const taskColor = model.task === 'asr'
     ? 'bg-blue-100 text-blue-800'
     : 'bg-purple-100 text-purple-800';
+  const canSelect = selectable && available && !isCancelling;
 
   return (
     <div
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
+      onClick={() => { if (canSelect && !isSelected) onSelect(); }}
       className={`relative rounded-lg border-2 bg-white transition-all ${
-        available ? 'border-green-200' : 'border-gray-200'
-      }`}
+        isSelected
+          ? 'border-blue-500 ring-1 ring-blue-200'
+          : available
+            ? 'border-green-200'
+            : 'border-gray-200'
+      } ${canSelect && !isSelected ? 'cursor-pointer hover:border-blue-300' : ''}`}
       data-testid={`audiocpp-model-${model.name}`}
       data-model-family={model.family}
       data-model-task={model.task}
+      data-model-selected={isSelected ? 'true' : 'false'}
     >
       <div className="p-4">
         <div className="flex items-start justify-between gap-3">
@@ -402,14 +467,21 @@ function AudioCppModelCard({
           <div className="flex shrink-0 items-center gap-2">
             {available && !isCancelling && (
               <>
-                <div className="flex items-center gap-1.5 text-green-600">
-                  <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                  <span className="text-xs font-medium">Ready</span>
-                </div>
+                {isSelected ? (
+                  <div className="flex items-center gap-1.5 text-blue-600">
+                    <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                    <span className="text-xs font-medium">Selected</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1.5 text-green-600">
+                    <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                    <span className="text-xs font-medium">Ready</span>
+                  </div>
+                )}
                 {isHovered && (
                     <button
                       type="button"
-                      onClick={onDelete}
+                      onClick={(event) => { event.stopPropagation(); onDelete(); }}
                       className="text-gray-400 hover:text-red-600 transition-colors p-1"
                       title="Delete model to free up space"
                       aria-label={`Delete ${model.display_name}`}
@@ -425,7 +497,7 @@ function AudioCppModelCard({
             {!available && !downloading && !isCancelling && !isCorrupted && (
               <button
                 type="button"
-                onClick={onDownload}
+                onClick={(event) => { event.stopPropagation(); onDownload(); }}
                 className="bg-blue-600 text-white px-3 py-1.5 rounded-md text-sm font-medium hover:bg-blue-700 transition-colors"
               >
                 {isError ? 'Retry' : 'Download'}
@@ -436,14 +508,14 @@ function AudioCppModelCard({
               <div className="flex gap-2">
                 <button
                   type="button"
-                  onClick={onDelete}
+                  onClick={(event) => { event.stopPropagation(); onDelete(); }}
                   className="bg-orange-600 text-white px-3 py-1.5 rounded-md text-sm font-medium hover:bg-orange-700 transition-colors"
                 >
                   Delete
                 </button>
                 <button
                   type="button"
-                  onClick={onDownload}
+                  onClick={(event) => { event.stopPropagation(); onDownload(); }}
                   className="bg-blue-600 text-white px-3 py-1.5 rounded-md text-sm font-medium hover:bg-blue-700 transition-colors"
                 >
                   Re-download
@@ -469,7 +541,7 @@ function AudioCppModelCard({
               ) : (
                 <button
                   type="button"
-                  onClick={onCancel}
+                  onClick={(event) => { event.stopPropagation(); onCancel(); }}
                   className="text-xs text-gray-600 hover:text-red-600 font-medium transition-colors px-2 py-1 rounded hover:bg-red-50"
                   title="Cancel download"
                 >

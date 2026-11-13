@@ -16,6 +16,9 @@ pub enum TranscriptionError {
     AudioTooShort { samples: usize, minimum: usize },
     EngineFailed(String),
     UnsupportedLanguage(String),
+    /// The provider cannot translate audio; only Whisper can. The message
+    /// names the limitation so the UI can show it verbatim.
+    TranslationNotSupported,
 }
 
 impl std::fmt::Display for TranscriptionError {
@@ -31,11 +34,43 @@ impl std::fmt::Display for TranscriptionError {
             Self::UnsupportedLanguage(lang) => {
                 write!(f, "Language '{}' is not supported by this provider", lang)
             }
+            Self::TranslationNotSupported => write!(
+                f,
+                "Automatic translation is only available with the Whisper provider"
+            ),
         }
     }
 }
 
 impl std::error::Error for TranscriptionError {}
+
+/// Language value that asks a provider to translate to English.
+pub const AUTO_TRANSLATE_LANGUAGE: &str = "auto-translate";
+
+/// Whether a transcription provider can translate audio to English.
+///
+/// Only Whisper's decoder has a translate flag; audioCpp (GigaAM) and Parakeet
+/// transcribe in the language they hear.
+pub fn provider_supports_translation(provider_name: &str) -> bool {
+    provider_name == "Whisper"
+}
+
+/// The language hint to hand a provider.
+///
+/// Translation is a per-provider capability, so a stale "auto-translate"
+/// preference saved while Whisper was selected must not make another provider
+/// claim translated output: it degrades to auto-detect instead.
+pub fn language_hint_for_provider(
+    provider_name: &str,
+    preference: Option<String>,
+) -> Option<String> {
+    match preference.as_deref() {
+        Some(AUTO_TRANSLATE_LANGUAGE) if !provider_supports_translation(provider_name) => {
+            Some("auto".to_string())
+        }
+        _ => preference,
+    }
+}
 
 /// Unified transcription result across all providers
 #[derive(Debug, Clone)]
@@ -70,4 +105,48 @@ pub trait TranscriptionProvider: Send + Sync {
 
     /// Get the provider name (for logging/debugging)
     fn provider_name(&self) -> &'static str;
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_whisper_can_translate() {
+        assert!(provider_supports_translation("Whisper"));
+        assert!(!provider_supports_translation("audioCpp"));
+        assert!(!provider_supports_translation("Parakeet"));
+    }
+
+    #[test]
+    fn translation_error_names_the_whisper_limitation() {
+        let text = TranscriptionError::TranslationNotSupported.to_string();
+        assert!(text.contains("Whisper"), "text: {text}");
+        assert!(text.contains("translation"), "text: {text}");
+    }
+
+    #[test]
+    fn a_translate_preference_is_degraded_for_providers_without_translation() {
+        let translate = Some(AUTO_TRANSLATE_LANGUAGE.to_string());
+
+        assert_eq!(
+            language_hint_for_provider("Whisper", translate.clone()),
+            translate
+        );
+        assert_eq!(
+            language_hint_for_provider("audioCpp", translate.clone()),
+            Some("auto".to_string())
+        );
+        assert_eq!(
+            language_hint_for_provider("Parakeet", translate),
+            Some("auto".to_string())
+        );
+    }
+
+    #[test]
+    fn ordinary_language_hints_pass_through_unchanged() {
+        for hint in [None, Some("ru".to_string()), Some("auto".to_string())] {
+            assert_eq!(language_hint_for_provider("audioCpp", hint.clone()), hint);
+            assert_eq!(language_hint_for_provider("Whisper", hint.clone()), hint);
+        }
+    }
 }

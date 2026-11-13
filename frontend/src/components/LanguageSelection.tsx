@@ -3,7 +3,7 @@ import { Globe } from 'lucide-react';
 import Analytics from '@/lib/analytics';
 import { toast } from 'sonner';
 import { useConfig } from '@/contexts/ConfigContext';
-
+import { TRANSLATION_WHISPER_ONLY_MESSAGE, supportsTranslation } from '@/lib/transcription-provider';
 export interface Language {
   code: string;
   name: string;
@@ -118,8 +118,17 @@ interface LanguageSelectionProps {
   selectedLanguage: string;
   onLanguageChange: (language: string) => void;
   disabled?: boolean;
-  provider?: 'localWhisper' | 'parakeet' | 'deepgram' | 'elevenLabs' | 'groq' | 'openai';
+  provider?: 'localWhisper' | 'parakeet' | 'audioCpp' | 'deepgram' | 'elevenLabs' | 'groq' | 'openai';
 }
+
+/**
+ * Automatic translation is a Whisper-only capability: the local Whisper
+ * decoder translates to English through its `translate` flag, while audioCpp
+ * (GigaAM) and Parakeet only transcribe in the language they hear.
+ */
+
+/** The language option value that requests translation to English. */
+const AUTO_TRANSLATE_CODE = 'auto-translate';
 
 export function LanguageSelection({
   selectedLanguage,
@@ -132,9 +141,14 @@ export function LanguageSelection({
 
   // Parakeet only supports auto-detection (doesn't support manual language selection)
   const isParakeet = provider === 'parakeet';
+  // audioCpp transcribes in the model's trained language (Russian for GigaAM).
+  const isAudioCpp = provider === 'audioCpp';
+  const translationAvailable = supportsTranslation(provider);
   const availableLanguages = isParakeet
-    ? LANGUAGES.filter(lang => lang.code === 'auto' || lang.code === 'auto-translate')
-    : LANGUAGES;
+    ? LANGUAGES.filter(lang => lang.code === 'auto')
+    : translationAvailable
+      ? LANGUAGES
+      : LANGUAGES.filter(lang => lang.code !== AUTO_TRANSLATE_CODE);
 
   const handleLanguageChange = async (languageCode: string) => {
     setSaving(true);
@@ -150,7 +164,7 @@ export function LanguageSelection({
         language_code: languageCode,
         language_name: selectedLang?.name || 'Unknown',
         is_auto_detect: (languageCode === 'auto').toString(),
-        is_auto_translate: (languageCode === 'auto-translate').toString()
+        is_auto_translate: (languageCode === AUTO_TRANSLATE_CODE).toString()
       });
 
       // Show success toast
@@ -173,6 +187,12 @@ export function LanguageSelection({
     lang => lang.code === selectedLanguage
   )?.name || 'Auto Detect (Original Language)';
 
+  // A provider that cannot translate must not leave a stale translation
+  // preference active: the transcription would arrive untranslated while the
+  // UI claims English output.
+  const staleTranslation =
+    selectedLanguage === AUTO_TRANSLATE_CODE && !translationAvailable;
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -184,7 +204,7 @@ export function LanguageSelection({
 
       <div className="space-y-2">
         <select
-          value={selectedLanguage}
+          value={staleTranslation ? 'auto' : selectedLanguage}
           onChange={(e) => handleLanguageChange(e.target.value)}
           disabled={disabled || saving}
           className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-50 disabled:text-gray-500"
@@ -192,7 +212,7 @@ export function LanguageSelection({
           {availableLanguages.map((language) => (
             <option key={language.code} value={language.code}>
               {language.name}
-              {language.code !== 'auto' && language.code !== 'auto-translate' && ` (${language.code})`}
+              {language.code !== 'auto' && language.code !== AUTO_TRANSLATE_CODE && ` (${language.code})`}
             </option>
           ))}
         </select>
@@ -205,24 +225,40 @@ export function LanguageSelection({
           </div>
         )}
 
+        {/* audioCpp: translation is Whisper-only */}
+        {isAudioCpp && (
+          <div className="p-2 bg-amber-50 border border-amber-200 rounded text-amber-800" data-testid="audiocpp-translation-notice">
+            <p className="font-medium">ℹ️ audioCpp Language Support</p>
+            <p className="mt-1 text-xs">
+              {TRANSLATION_WHISPER_ONLY_MESSAGE}
+            </p>
+          </div>
+        )}
+
         {/* Info text */}
         <div className="text-xs space-y-2 pt-2">
           <p className="text-gray-600">
             <strong>Current:</strong> {selectedLanguageName}
           </p>
+          {staleTranslation && (
+            <div className="p-2 bg-amber-50 border border-amber-200 rounded text-amber-800">
+              <p className="font-medium">⚠️ Translation unavailable</p>
+              <p className="mt-1">{TRANSLATION_WHISPER_ONLY_MESSAGE}</p>
+            </div>
+          )}
           {selectedLanguage === 'auto' && (
             <div className="p-2 bg-yellow-50 border border-yellow-200 rounded text-yellow-800">
               <p className="font-medium">⚠️ Auto Detect may produce incorrect results</p>
               <p className="mt-1">For best accuracy, select your specific language (e.g., English, Spanish, etc.)</p>
             </div>
           )}
-          {selectedLanguage === 'auto-translate' && (
+          {selectedLanguage === AUTO_TRANSLATE_CODE && translationAvailable && (
             <div className="p-2 bg-blue-50 border border-blue-200 rounded text-blue-800">
               <p className="font-medium">🌐 Translation Mode Active</p>
               <p className="mt-1">All audio will be automatically translated to English. Best for multilingual meetings where you need English output.</p>
             </div>
           )}
-          {selectedLanguage !== 'auto' && selectedLanguage !== 'auto-translate' && (
+          {selectedLanguage !== 'auto' && selectedLanguage !== AUTO_TRANSLATE_CODE && (
             <p className="text-gray-600">
               Transcription will be optimized for <strong>{selectedLanguageName}</strong>
             </p>

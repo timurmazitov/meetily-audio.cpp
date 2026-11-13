@@ -62,6 +62,7 @@ export const AUDIOCPP_COMMANDS = {
   init: 'audiocpp_model_init',
   getAvailableModels: 'audiocpp_get_available_models',
   hasAvailableModels: 'audiocpp_has_available_models',
+  hasTranscriptionModel: 'audiocpp_has_transcription_model',
   getModelsDirectory: 'audiocpp_get_models_directory',
   downloadModel: 'audiocpp_download_model',
   cancelDownload: 'audiocpp_cancel_download',
@@ -109,6 +110,25 @@ export function formatModelSize(sizeMb: number): string {
 /** Unlisten handle returned by an event subscription. */
 export type UnlistenFn = () => void;
 
+/** Whether a model can transcribe (as opposed to diarize). */
+export function isTranscriptionModel(model: Pick<AudioCppModelInfo, 'task'>): boolean {
+  return model.task === 'asr';
+}
+
+/**
+ * The model the settings should offer for selection: the configured one when
+ * it is an installed transcription model, otherwise the first installed
+ * transcription model. Mirrors the native selection rules.
+ */
+export function defaultSelectedTranscriptionModel(
+  models: AudioCppModelInfo[],
+  configured?: string,
+): AudioCppModelInfo | undefined {
+  const transcription = models.filter(isTranscriptionModel);
+  return transcription.find(model => model.name === configured && isAvailableStatus(model.status))
+    ?? transcription.find(model => isAvailableStatus(model.status));
+}
+
 /**
  * The seam between the model manager UI and the native audio.cpp model
  * manager: commands plus the three download events. Production code uses
@@ -122,6 +142,8 @@ export interface AudioCppModelClient {
   init(): Promise<void>;
   getAvailableModels(): Promise<AudioCppModelInfo[]>;
   hasAvailableModels(): Promise<boolean>;
+  /** Whether an installed model can transcribe (asr), not just diarize. */
+  hasTranscriptionModel(): Promise<boolean>;
   getModelsDirectory(): Promise<string>;
   downloadModel(modelName: string): Promise<void>;
   cancelDownload(modelName: string): Promise<AudioCppCancelDownloadOutcome>;

@@ -8,11 +8,11 @@ import { Eye, EyeOff, Lock, Unlock } from 'lucide-react';
 import { ModelManager } from './WhisperModelManager';
 import { ParakeetModelManager } from './ParakeetModelManager';
 import { AudioCppModelManager } from './AudioCppModelManager';
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/accordion';
+import { modelForProviderSwitch } from '@/lib/transcription-provider';
 
 
 export interface TranscriptModelProps {
-    provider: 'localWhisper' | 'parakeet' | 'deepgram' | 'elevenLabs' | 'groq' | 'openai';
+    provider: 'localWhisper' | 'parakeet' | 'audioCpp' | 'deepgram' | 'elevenLabs' | 'groq' | 'openai';
     model: string;
     apiKey?: string | null;
 }
@@ -36,7 +36,7 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
     }, [transcriptModelConfig.provider]);
 
     useEffect(() => {
-        if (transcriptModelConfig.provider === 'localWhisper' || transcriptModelConfig.provider === 'parakeet') {
+        if (transcriptModelConfig.provider === 'localWhisper' || transcriptModelConfig.provider === 'parakeet' || transcriptModelConfig.provider === 'audioCpp') {
             setApiKey(null);
         }
     }, [transcriptModelConfig.provider]);
@@ -55,6 +55,7 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
     const modelOptions = {
         localWhisper: [], // Model selection handled by ModelManager component
         parakeet: [], // Model selection handled by ParakeetModelManager component
+        audioCpp: [], // Model selection handled by AudioCppModelManager component
         deepgram: ['nova-2-phonecall'],
         elevenLabs: ['eleven_multilingual_v2'],
         groq: ['llama-3.3-70b-versatile'],
@@ -97,6 +98,45 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
         }
     };
 
+    const handleAudioCppModelSelect = (modelName: string) => {
+        setTranscriptModelConfig({
+            ...transcriptModelConfig,
+            provider: 'audioCpp',
+            model: modelName
+        });
+        // Close modal after selection
+        if (onModelSelect) {
+            onModelSelect();
+        }
+    };
+
+    /**
+     * Persist a provider change immediately.
+     *
+     * Selecting a provider is a configuration change in its own right: without
+     * saving here the choice would be lost on restart unless the user also
+     * clicked a model. Local providers need no API key.
+     */
+    const handleProviderChange = async (provider: TranscriptModelProps['provider']) => {
+        setUiProvider(provider);
+        if (provider === 'localWhisper' || provider === 'parakeet' || provider === 'audioCpp') {
+            // Catalogue-backed: the model is chosen in the manager below.
+            const model = modelForProviderSwitch(
+                provider,
+                transcriptModelConfig.provider,
+                transcriptModelConfig.model,
+            );
+            setTranscriptModelConfig({ ...transcriptModelConfig, provider, model });
+            try {
+                await invoke('api_save_transcript_config', { provider, model, apiKey: null });
+            } catch (error) {
+                console.error('Failed to save transcript provider:', error);
+            }
+            return;
+        }
+        fetchApiKey(provider);
+    };
+
     return (
         <div>
             <div>
@@ -112,11 +152,7 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
                             <Select
                                 value={uiProvider}
                                 onValueChange={(value) => {
-                                    const provider = value as TranscriptModelProps['provider'];
-                                    setUiProvider(provider);
-                                    if (provider !== 'localWhisper' && provider !== 'parakeet') {
-                                        fetchApiKey(provider);
-                                    }
+                                    void handleProviderChange(value as TranscriptModelProps['provider']);
                                 }}
                             >
                                 <SelectTrigger className='focus:ring-1 focus:ring-blue-500 focus:border-blue-500'>
@@ -125,6 +161,7 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
                                 <SelectContent>
                                     <SelectItem value="parakeet">⚡ Parakeet (Recommended - Real-time / Accurate)</SelectItem>
                                     <SelectItem value="localWhisper">🏠 Local Whisper (High Accuracy)</SelectItem>
+                                    <SelectItem value="audioCpp">🎙️ audioCpp (GigaAM — Russian)</SelectItem>
                                     {/* <SelectItem value="deepgram">☁️ Deepgram (Backup)</SelectItem>
                                     <SelectItem value="elevenLabs">☁️ ElevenLabs</SelectItem>
                                     <SelectItem value="groq">☁️ Groq</SelectItem>
@@ -132,7 +169,7 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
                                 </SelectContent>
                             </Select>
 
-                            {uiProvider !== 'localWhisper' && uiProvider !== 'parakeet' && (
+                            {uiProvider !== 'localWhisper' && uiProvider !== 'parakeet' && uiProvider !== 'audioCpp' && (
                                 <Select
                                     value={transcriptModelConfig.model}
                                     onValueChange={(value) => {
@@ -174,26 +211,15 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
                         </div>
                     )}
 
-                    {/* audioCpp model management. The provider is not selectable yet
-                        (transcription lands in a later change), but its models are
-                        already downloadable here. */}
-                    <div className="mt-6">
-                        <Accordion type="single" collapsible>
-                            <AccordionItem value="audiocpp-models">
-                                <AccordionTrigger className="text-sm font-medium text-gray-700">
-                                    🎙️ audioCpp models (GigaAM + Nemotron)
-                                </AccordionTrigger>
-                                <AccordionContent>
-                                    <div className="mb-3 text-sm text-gray-600">
-                                        Models for the audioCpp engine: GigaAM v3 e2e CTC for Russian
-                                        transcription and Nemotron-3 Diarization BF16 for speaker labels.
-                                        Using audioCpp for transcription arrives in a later update.
-                                    </div>
-                                    <AudioCppModelManager />
-                                </AccordionContent>
-                            </AccordionItem>
-                        </Accordion>
-                    </div>
+                    {uiProvider === 'audioCpp' && (
+                        <div className="mt-6">
+                            <AudioCppModelManager
+                                selectedModel={transcriptModelConfig.provider === 'audioCpp' ? transcriptModelConfig.model : undefined}
+                                onModelSelect={handleAudioCppModelSelect}
+                                autoSave={true}
+                            />
+                        </div>
+                    )}
 
 
                     {requiresApiKey && (

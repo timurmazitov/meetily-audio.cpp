@@ -19,11 +19,21 @@ const PROVIDER_COMMANDS: Record<string, ProviderCommands> = {
     hasAvailableModels: 'parakeet_has_available_models',
     getAvailableModels: 'parakeet_get_available_models',
   },
+  audioCpp: {
+    initialize: 'audiocpp_model_init',
+    // Only a transcription model can record: a downloaded diarization model
+    // alone is not enough, so this is not the generic catalog check.
+    hasAvailableModels: 'audiocpp_has_transcription_model',
+    getAvailableModels: 'audiocpp_get_available_models',
+  },
 };
 
 export function getProviderCommands(provider: string): ProviderCommands | null {
   return PROVIDER_COMMANDS[provider] ?? null;
 }
+
+/** Provider id of the audio.cpp engine. */
+export const AUDIO_CPP_PROVIDER = 'audioCpp';
 
 export function hasDownloadingModel(models: ModelWithStatus[]): boolean {
   return models.some(({ status }) => (
