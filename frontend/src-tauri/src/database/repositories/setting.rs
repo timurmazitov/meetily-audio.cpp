@@ -180,6 +180,7 @@ impl SettingsRepository {
         let api_key_column = match provider {
             "localWhisper" => "whisperApiKey",
             "parakeet" => return Ok(()), // Parakeet doesn't need an API key, return early
+            "audioCpp" => return Ok(()), // audio.cpp models run locally, no API key
             "deepgram" => "deepgramApiKey",
             "elevenLabs" => "elevenLabsApiKey",
             "groq" => "groqApiKey",
@@ -212,6 +213,7 @@ impl SettingsRepository {
         let api_key_column = match provider {
             "localWhisper" => "whisperApiKey",
             "parakeet" => return Ok(None), // Parakeet doesn't need an API key
+            "audioCpp" => return Ok(None), // audio.cpp models run locally, no API key
             "deepgram" => "deepgramApiKey",
             "elevenLabs" => "elevenLabsApiKey",
             "groq" => "groqApiKey",
@@ -344,5 +346,122 @@ impl SettingsRepository {
         .await?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    async fn test_pool() -> SqlitePool {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::query(
+            r#"CREATE TABLE transcript_settings (
+                id TEXT PRIMARY KEY,
+                provider TEXT NOT NULL,
+                model TEXT NOT NULL,
+                whisperApiKey TEXT,
+                deepgramApiKey TEXT,
+                elevenLabsApiKey TEXT,
+                groqApiKey TEXT,
+                openaiApiKey TEXT
+            )"#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        pool
+    }
+
+    async fn saved_provider(pool: &SqlitePool) -> (String, String) {
+        let setting = SettingsRepository::get_transcript_config(pool)
+            .await
+            .unwrap()
+            .expect("transcript config saved");
+        (setting.provider, setting.model)
+    }
+
+    #[tokio::test]
+    async fn audiocpp_provider_and_model_survive_a_restart() {
+        // A "restart" is a fresh read through the same repository, exactly what
+        // the app does on launch.
+        let pool = test_pool().await;
+
+        SettingsRepository::save_transcript_config(
+            &pool,
+            "audioCpp",
+            "gigaam-v3-e2e-ctc-f16",
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            saved_provider(&pool).await,
+            ("audioCpp".to_string(), "gigaam-v3-e2e-ctc-f16".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn switching_away_from_audiocpp_persists_the_new_provider() {
+        let pool = test_pool().await;
+
+        SettingsRepository::save_transcript_config(&pool, "audioCpp", "gigaam-v3-e2e-ctc-f16")
+            .await
+            .unwrap();
+        SettingsRepository::save_transcript_config(&pool, "localWhisper", "large-v3-turbo")
+            .await
+            .unwrap();
+
+        assert_eq!(
+            saved_provider(&pool).await,
+            ("localWhisper".to_string(), "large-v3-turbo".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn audiocpp_needs_no_api_key_and_saving_one_is_a_no_op() {
+        let pool = test_pool().await;
+        SettingsRepository::save_transcript_config(&pool, "audioCpp", "gigaam-v3-e2e-ctc-f16")
+            .await
+            .unwrap();
+
+        // Neither call may fail with "Invalid provider": the settings modal
+        // saves the provider and an optional key together.
+        SettingsRepository::save_transcript_api_key(&pool, "audioCpp", "ignored")
+            .await
+            .unwrap();
+
+        assert_eq!(
+            SettingsRepository::get_transcript_api_key(&pool, "audioCpp")
+                .await
+                .unwrap(),
+            None
+        );
+        assert_eq!(
+            saved_provider(&pool).await,
+            ("audioCpp".to_string(), "gigaam-v3-e2e-ctc-f16".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn other_providers_keep_their_api_key_behaviour() {
+        let pool = test_pool().await;
+        SettingsRepository::save_transcript_config(&pool, "parakeet", "parakeet-tdt-0.6b-v3-int8")
+            .await
+            .unwrap();
+
+        SettingsRepository::save_transcript_api_key(&pool, "parakeet", "ignored")
+            .await
+            .unwrap();
+        assert_eq!(
+            SettingsRepository::get_transcript_api_key(&pool, "parakeet")
+                .await
+                .unwrap(),
+            None
+        );
+
+        assert!(SettingsRepository::get_transcript_api_key(&pool, "not-a-provider")
+            .await
+            .is_err());
     }
 }

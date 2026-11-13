@@ -138,6 +138,13 @@ fn manager() -> Option<Arc<AudioCppModelManager>> {
     AUDIOCPP_MODEL_MANAGER.lock().unwrap().as_ref().cloned()
 }
 
+/// The initialized model manager, for other native modules (the transcription
+/// dispatcher resolves the configured model through the same catalog state the
+/// settings UI shows).
+pub fn model_manager() -> Option<Arc<AudioCppModelManager>> {
+    manager()
+}
+
 /// Initialize the audio.cpp model manager. Idempotent: a second call is a
 /// no-op so the frontend can safely call it on every settings visit.
 #[command]
@@ -182,6 +189,24 @@ pub async fn audiocpp_has_available_models() -> Result<bool, String> {
     Ok(models
         .iter()
         .any(|model| matches!(model.status, ModelStatus::Available)))
+}
+
+/// Whether at least one installed model can transcribe.
+///
+/// Readiness for recording is stricter than "a model is downloaded": a
+/// downloaded diarization model cannot produce a transcript, so the recording
+/// gate must not accept it.
+#[command]
+pub async fn audiocpp_has_transcription_model() -> Result<bool, String> {
+    let manager = manager().ok_or_else(|| "audio.cpp model manager not initialized".to_string())?;
+    let models = manager
+        .discover_models()
+        .await
+        .map_err(|error| format!("Failed to discover audio.cpp models: {error}"))?;
+    Ok(models.iter().any(|model| {
+        model.task == crate::audio_cpp_engine::ModelTask::Asr
+            && matches!(model.status, ModelStatus::Available)
+    }))
 }
 
 /// The directory holding the audio.cpp artifacts.

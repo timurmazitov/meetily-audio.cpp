@@ -316,6 +316,12 @@ pub fn start_transcription_task<R: Runtime>(
                                 let _ =
                                     app_clone.emit("transcription-warning", error.to_string());
                             }
+                            Err(error @ TranscriptionError::TranslationNotSupported) => {
+                                // audioCpp cannot translate; the frontend blocks the
+                                // option, so this only fires for a stale preference.
+                                stats.record_failure(WorkerFailureCategory::UnsupportedLanguage);
+                                let _ = app_clone.emit("transcription-warning", error.to_string());
+                            }
                         }
                     }
 
@@ -464,7 +470,12 @@ async fn transcribe_chunk_with_provider<R: Runtime>(
             }
         }
         TranscriptionEngine::Provider(provider) => {
-            let language = crate::get_language_preference_internal();
+            // Translation is per-provider: a stale auto-translate preference
+            // must not be handed to a provider that cannot translate.
+            let language = super::provider::language_hint_for_provider(
+                provider.provider_name(),
+                crate::get_language_preference_internal(),
+            );
             match provider.transcribe(speech_samples, language).await {
                 Ok(result) => Ok((
                     result.text.trim().to_string(),

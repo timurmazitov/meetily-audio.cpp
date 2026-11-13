@@ -25,12 +25,23 @@ mod ffi;
 
 pub mod catalog;
 pub mod commands;
+pub mod engine;
 pub mod error;
 pub mod models;
+pub mod transcription;
 pub mod wrapper;
 
 pub use catalog::{ModelInfo, ModelSpec, ModelStatus, ModelTask};
 pub use commands::*;
+pub use engine::{
+    AudioCppEngine, AudioCppModel, NativeAudioCppEngine, TranscriptionOutput, ASR_TASK,
+    OFFLINE_MODE,
+};
+pub use transcription::{
+    load_native_provider, provider as audio_cpp_provider, select_transcription_model,
+    set_provider as set_audio_cpp_provider, unload_provider as unload_audio_cpp_provider,
+    ModelNotReady,
+};
 pub use error::{AbiVersion, AudioCppError, Status};
 pub use models::{AudioCppModelManager, CancelDownloadOutcome};
 pub use wrapper::{

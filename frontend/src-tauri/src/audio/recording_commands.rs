@@ -1047,8 +1047,19 @@ async fn stop_recording_for_session<R: Runtime>(
     };
 
     match config.as_deref() {
-        Some("parakeet") => {
-            info!("🦜 Unloading Parakeet model...");
+        Some("audioCpp") => {
+            info!("🎙️ Unloading audioCpp model...");
+            let loaded = crate::audio_cpp_engine::transcription::provider();
+            if let Some(provider) = loaded {
+                let current_model = provider.model_name().to_string();
+                info!("Current audioCpp model before unload: '{}'", current_model);
+                crate::audio_cpp_engine::transcription::unload_provider();
+                info!("✅ audioCpp model '{}' unloaded successfully", current_model);
+            } else {
+                warn!("⚠️ No audioCpp provider found to unload model");
+            }
+        }
+        Some("parakeet") => {            info!("🦜 Unloading Parakeet model...");
             let engine_clone = {
                 let engine_guard = crate::parakeet_engine::commands::PARAKEET_ENGINE
                     .lock()
