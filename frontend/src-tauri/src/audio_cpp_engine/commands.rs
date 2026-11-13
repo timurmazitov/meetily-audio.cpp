@@ -83,29 +83,10 @@ fn collect_diagnostics() -> AudioCppDiagnostics {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn unavailable_report_carries_error_text() {
-        let error = AudioCppError::LibraryNotFound {
-            searched_paths: vec![PathBuf::from("/opt/meetily/libaudiocpp.so")],
-        };
-        let report = AudioCppDiagnostics::unavailable(&error);
-        assert!(!report.available);
-        assert!(report.library_path.is_none());
-        assert!(report.abi_version.is_none());
-        assert!(report.families.is_empty());
-        assert!(report.tasks.is_empty());
-        let text = report.error.expect("error text");
-        assert!(text.contains("not found"), "text: {text}");
-    }
-}
-
-// Audit note: the model management commands below only touch files under the
-// app-data models directory. They never load the native library, so they work
-// even when `libaudiocpp` is absent.
+// Model management commands.
+//
+// They only touch files under the app-data models directory and never load
+// the native library, so they work even when `libaudiocpp` is absent.
 
 /// Global audio.cpp model manager, created during app setup.
 pub static AUDIOCPP_MODEL_MANAGER: Mutex<Option<Arc<AudioCppModelManager>>> = Mutex::new(None);
@@ -332,4 +313,24 @@ pub async fn open_audiocpp_models_folder() -> Result<(), String> {
 
     log::info!("Opened audio.cpp models folder: {}", folder_path);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unavailable_report_carries_error_text() {
+        let error = AudioCppError::LibraryNotFound {
+            searched_paths: vec![PathBuf::from("/opt/meetily/libaudiocpp.so")],
+        };
+        let report = AudioCppDiagnostics::unavailable(&error);
+        assert!(!report.available);
+        assert!(report.library_path.is_none());
+        assert!(report.abi_version.is_none());
+        assert!(report.families.is_empty());
+        assert!(report.tasks.is_empty());
+        let text = report.error.expect("error text");
+        assert!(text.contains("not found"), "text: {text}");
+    }
 }
