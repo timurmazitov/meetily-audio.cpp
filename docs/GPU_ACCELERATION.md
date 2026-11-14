@@ -17,8 +17,7 @@ Meetily uses the `whisper-rs` library, which supports several GPU acceleration b
 The audioCpp provider (GigaAM / Nemotron via the audio.cpp engine) uses GPU
 acceleration differently from Whisper: instead of a compile-time feature flag,
 the audio.cpp library is loaded at runtime and its compute backend is chosen
-automatically from the same hardware detection (priority **CUDA → Vulkan →
-CPU**) that the rest of the app uses:
+automatically from the same hardware detection that the rest of the app uses:
 
 *   **NVIDIA GPU detected** — the engine runs on GPU through the Vulkan
     variant of the audio.cpp library (Vulkan is served by the NVIDIA driver
@@ -27,12 +26,16 @@ CPU**) that the rest of the app uses:
 *   **No supported GPU** — the CPU variant is used and the app keeps working;
     transcription is just slower.
 
-The pinned audio.cpp release archives ship one library per flavour
-(`lib-<platform>-cpu`, `lib-<platform>-vulkan`). Packaging places them next to
-the executable as `audiocpp-libs/cpu/` and `audiocpp-libs/vulkan/`; the loader
-picks the directory matching the autodetected backend (single-variant and
-development installs keep working via the flat layout, and the
-`AUDIOCPP_LIBRARY_PATH` environment variable still overrides everything).
+There is **no CUDA codepath** for audioCpp. The C ABI accepts a `"cuda"`
+backend token, but the pinned audio.cpp release archives ship only `cpu` and
+`vulkan` library flavours, so this app never selects or loads a CUDA library.
+NVIDIA hardware is accelerated through Vulkan; that is the supported path.
+
+Packaging places each shipped flavour next to the executable as
+`audiocpp-libs/cpu/` and `audiocpp-libs/vulkan/`; the loader picks the
+directory matching the autodetected backend (single-variant and development
+installs keep working via the flat layout, and the `AUDIOCPP_LIBRARY_PATH`
+environment variable still overrides everything).
 
 Downloaded models are backend-agnostic GGUF files: every library variant
 loads the same catalog, so switching the compute backend (or moving a model

@@ -139,16 +139,19 @@ export function LanguageSelection({
   const [saving, setSaving] = useState(false);
   const { setSelectedLanguage } = useConfig();
 
-  // Parakeet only supports auto-detection (doesn't support manual language selection)
+  // Parakeet only supports auto-detection (doesn't support manual language
+  // selection), but it kept the auto-translate option before audioCpp landed,
+  // so that behaviour is preserved verbatim.
   const isParakeet = provider === 'parakeet';
-  // audioCpp transcribes in the model's trained language (Russian for GigaAM).
+  // audioCpp transcribes in the model's trained language (Russian for GigaAM)
+  // and is the only provider that loses the translation option.
   const isAudioCpp = provider === 'audioCpp';
   const translationAvailable = supportsTranslation(provider);
   const availableLanguages = isParakeet
-    ? LANGUAGES.filter(lang => lang.code === 'auto')
-    : translationAvailable
-      ? LANGUAGES
-      : LANGUAGES.filter(lang => lang.code !== AUTO_TRANSLATE_CODE);
+    ? LANGUAGES.filter(lang => lang.code === 'auto' || lang.code === AUTO_TRANSLATE_CODE)
+    : isAudioCpp
+      ? LANGUAGES.filter(lang => lang.code !== AUTO_TRANSLATE_CODE)
+      : LANGUAGES;
 
   const handleLanguageChange = async (languageCode: string) => {
     setSaving(true);
@@ -187,11 +190,11 @@ export function LanguageSelection({
     lang => lang.code === selectedLanguage
   )?.name || 'Auto Detect (Original Language)';
 
-  // A provider that cannot translate must not leave a stale translation
-  // preference active: the transcription would arrive untranslated while the
-  // UI claims English output.
+  // audioCpp must not leave a stale translation preference active: the
+  // transcription would arrive untranslated while the UI claims English
+  // output. Parakeet's previous behaviour is untouched.
   const staleTranslation =
-    selectedLanguage === AUTO_TRANSLATE_CODE && !translationAvailable;
+    isAudioCpp && selectedLanguage === AUTO_TRANSLATE_CODE && !translationAvailable;
 
   return (
     <div className="space-y-4">

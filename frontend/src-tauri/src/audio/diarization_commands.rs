@@ -13,7 +13,9 @@ use log::{info, warn};
 use serde::Serialize;
 use tauri::{command, AppHandle, Emitter, Runtime};
 
-use crate::audio::transcription::diarization_service::diarize_recording_folder;
+use crate::audio::transcription::diarization_service::{
+    diarize_recording_folder, DIARIZATION_UNAVAILABLE_MESSAGE,
+};
 use crate::state::AppState;
 
 /// Result of diarizing a saved meeting.
@@ -41,12 +43,11 @@ pub async fn audiocpp_diarize_meeting<R: Runtime>(
 ) -> Result<DiarizationResult, String> {
     let pool = state.db_manager.pool();
 
-    let meeting = crate::database::repositories::meeting::MeetingsRepository::get_meeting(
-        pool, &meeting_id,
-    )
-    .await
-    .map_err(|error| format!("Failed to load meeting: {error}"))?
-    .ok_or_else(|| format!("Meeting not found: {meeting_id}"))?;
+    let meeting =
+        crate::database::repositories::meeting::MeetingsRepository::get_meeting(pool, &meeting_id)
+            .await
+            .map_err(|error| format!("Failed to load meeting: {error}"))?
+            .ok_or_else(|| format!("Meeting not found: {meeting_id}"))?;
 
     let folder = meeting
         .folder_path
@@ -105,7 +106,7 @@ pub async fn audiocpp_diarize_meeting<R: Runtime>(
             serde_json::json!({
                 "meeting_id": meeting_id,
                 "reason": outcome.error,
-                "message": "Speaker labels were skipped. Download the Nemotron-3-Diarization model in Settings to see who said what.",
+                "message": DIARIZATION_UNAVAILABLE_MESSAGE,
             }),
         );
     }

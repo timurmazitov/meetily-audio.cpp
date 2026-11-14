@@ -121,9 +121,7 @@ impl AudioCpp {
     /// incompatible ABI is rejected with [`AudioCppError::IncompatibleAbi`]
     /// before any other call is made.
     pub fn load() -> Result<AudioCpp, AudioCppError> {
-        Self::load_backend(super::backend::shipped_variant(
-            super::backend::autodetect_backend(),
-        ))
+        Self::load_backend(super::backend::autodetect_backend())
     }
 
     /// Finds and loads the given library variant (the `cpu`/`vulkan`/…
@@ -717,14 +715,14 @@ mod tests {
         std::fs::write(&lib, b"not a real library").expect("write fixture");
 
         std::env::set_var(AUDIOCPP_LIBRARY_ENV, &lib);
-        let resolved = resolve_library_path_for(AudioCppBackend::Cpu)
-            .expect("existing override resolves");
+        let resolved =
+            resolve_library_path_for(AudioCppBackend::Cpu).expect("existing override resolves");
         assert_eq!(resolved, lib);
 
         let missing = dir.path().join("missing.so");
         std::env::set_var(AUDIOCPP_LIBRARY_ENV, &missing);
-        let err = resolve_library_path_for(AudioCppBackend::Cpu)
-            .expect_err("missing override errors");
+        let err =
+            resolve_library_path_for(AudioCppBackend::Cpu).expect_err("missing override errors");
         assert!(
             matches!(err, AudioCppError::LibraryLoad { .. }),
             "got {err:?}"
@@ -756,9 +754,8 @@ mod tests {
         let flat = dir.path().join("libaudiocpp.so.0");
         std::fs::write(&flat, b"flat").expect("write fixture");
 
-        let resolved =
-            resolve_library_path_in(&[dir.path().to_path_buf()], AudioCppBackend::Cpu)
-                .expect("flat library resolves");
+        let resolved = resolve_library_path_in(&[dir.path().to_path_buf()], AudioCppBackend::Cpu)
+            .expect("flat library resolves");
 
         assert_eq!(resolved, flat);
     }
@@ -767,9 +764,8 @@ mod tests {
     fn a_missing_variant_reports_every_searched_path() {
         let dir = tempfile::tempdir().expect("tempdir");
 
-        let error =
-            resolve_library_path_in(&[dir.path().to_path_buf()], AudioCppBackend::Vulkan)
-                .expect_err("nothing to load");
+        let error = resolve_library_path_in(&[dir.path().to_path_buf()], AudioCppBackend::Vulkan)
+            .expect_err("nothing to load");
 
         let searched = match error {
             AudioCppError::LibraryNotFound { searched_paths } => searched_paths,

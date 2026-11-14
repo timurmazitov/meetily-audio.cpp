@@ -19,9 +19,7 @@ use std::sync::Mutex;
 
 use super::backend::{session_config, AudioCppBackend};
 use super::error::AudioCppError;
-use super::wrapper::{
-    AudioCpp, AudioCppResult, Model, Request, Segment, Session, SpeakerTurn,
-};
+use super::wrapper::{AudioCpp, AudioCppResult, Model, Request, Segment, Session, SpeakerTurn};
 
 /// audio.cpp task token for speech recognition.
 pub const ASR_TASK: &str = "asr";
@@ -29,6 +27,13 @@ pub const ASR_TASK: &str = "asr";
 pub const DIAR_TASK: &str = "diar";
 /// audio.cpp mode token for offline (whole-buffer) requests.
 pub const OFFLINE_MODE: &str = "offline";
+
+/// The audio pipeline delivers 16 kHz mono f32; the engine takes that same
+/// contract for both transcription and diarization.
+pub const SAMPLE_RATE: i32 = 16_000;
+
+/// Shortest input worth sending to the engine (10 ms at 16 kHz).
+pub const MIN_SAMPLES: usize = 160;
 
 /// Output of one offline transcription request.
 #[derive(Debug, Clone, Default, PartialEq)]

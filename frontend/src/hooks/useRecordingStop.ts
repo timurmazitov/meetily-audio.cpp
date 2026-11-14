@@ -6,8 +6,10 @@ import { useTranscripts } from '@/contexts/TranscriptContext';
 import { useSidebar } from '@/components/Sidebar/SidebarProvider';
 import { useRecordingState, RecordingStatus } from '@/contexts/RecordingStateContext';
 import { storageService } from '@/services/storageService';
-import { transcriptService } from '@/services/transcriptService';
+import { configService } from '@/services/configService';import { transcriptService } from '@/services/transcriptService';
 import Analytics from '@/lib/analytics';
+import { diarizationClient } from '@/lib/diarizationClient';
+import { DIARIZATION_UNAVAILABLE_HINT, diarizeIfAudioCpp } from '@/lib/diarization';
 import {
   applyPinnedSummaryLanguageToMeeting,
   detectAndCacheSummaryLanguage,
@@ -68,6 +70,41 @@ export function useRecordingStop(
   } = useSidebar();
 
   const router = useRouter();
+
+  // Diarization of a just-saved live recording: a post-transcription pass over
+  // the saved audio (audioCpp only). Fire-and-forget so the stop flow and
+  // navigation never wait for it; failures are non-fatal because the meeting
+  // and its transcript are already saved.
+  const applyLiveDiarization = useCallback((meetingId: string) => {
+    void (async () => {
+      let provider: string | undefined;
+      try {
+        provider = (await configService.getTranscriptConfig()).provider;
+      } catch (error) {
+        console.warn('Could not read the transcript provider for diarization:', error);
+        return;
+      }
+
+      const result = await diarizeIfAudioCpp(diarizationClient, provider, meetingId);
+      if (result === null) {
+        // The provider is not audioCpp (Whisper/Parakeet) or the pass failed
+        // outright; the meeting stays saved without speaker labels.
+        return;
+      }
+      if (result.speakers_available) {
+        // The transcript detail view refetches on this event; nothing else
+        // needs to know that the labels changed.
+        window.dispatchEvent(
+          new CustomEvent('transcripts-updated', { detail: { meetingId } })
+        );
+      } else {
+        // The meeting is saved and complete; only the labels are missing.
+        toast.info('Speaker labels not assigned', {
+          description: DIARIZATION_UNAVAILABLE_HINT,
+        });
+      }
+    })();
+  }, []);
 
   // Guard to prevent duplicate/concurrent stop calls (e.g., from UI and tray simultaneously)
   const stopInProgressRef = useRef(false);
@@ -296,6 +333,10 @@ export function useRecordingStop(
           // Mark meeting as saved in IndexedDB (for recovery system)
           await markMeetingAsSaved();
 
+          // Live diarization runs after the meeting exists; it is async and
+          // non-fatal, so the UI is not held up by a long pass.
+          applyLiveDiarization(meetingId);
+
           // Clean up session storage
           sessionStorage.removeItem('last_recording_folder_path');
           sessionStorage.removeItem('last_recording_meeting_name');
@@ -435,6 +476,7 @@ export function useRecordingStop(
     meetings,
     setIsMeetingActive,
     router,
+    applyLiveDiarization,
   ]);
 
   // Expose handleRecordingStop function to window for Rust callbacks

@@ -13,7 +13,10 @@ use async_trait::async_trait;
 #[derive(Debug, Clone)]
 pub enum TranscriptionError {
     ModelNotLoaded,
-    AudioTooShort { samples: usize, minimum: usize },
+    AudioTooShort {
+        samples: usize,
+        minimum: usize,
+    },
     EngineFailed(String),
     UnsupportedLanguage(String),
     /// The provider cannot translate audio; only Whisper can. The message
@@ -34,10 +37,7 @@ impl std::fmt::Display for TranscriptionError {
             Self::UnsupportedLanguage(lang) => {
                 write!(f, "Language '{}' is not supported by this provider", lang)
             }
-            Self::TranslationNotSupported => write!(
-                f,
-                "Automatic translation is only available with the Whisper provider"
-            ),
+            Self::TranslationNotSupported => write!(f, "{TRANSLATION_WHISPER_ONLY_MESSAGE}"),
         }
     }
 }
@@ -47,12 +47,35 @@ impl std::error::Error for TranscriptionError {}
 /// Language value that asks a provider to translate to English.
 pub const AUTO_TRANSLATE_LANGUAGE: &str = "auto-translate";
 
+/// User-facing explanation for the missing translation option, shown by the
+/// settings UI and available to backend error paths.
+pub const TRANSLATION_WHISPER_ONLY_MESSAGE: &str =
+    "Automatic translation is only available with the Whisper provider. Select another language, or switch the transcript provider to Whisper.";
+
 /// Whether a transcription provider can translate audio to English.
 ///
 /// Only Whisper's decoder has a translate flag; audioCpp (GigaAM) and Parakeet
-/// transcribe in the language they hear.
+/// transcribe in the language they hear. This is the single source of truth
+/// for the capability on the Rust side.
 pub fn provider_supports_translation(provider_name: &str) -> bool {
     provider_name == "Whisper"
+}
+
+/// Refuses an automatic-translation hint for a provider that cannot translate.
+///
+/// The frontend disables the option; this is the backend half of the same
+/// contract, so a stale saved preference cannot silently produce untranslated
+/// text that the user expects to be English.
+pub fn check_translation_support(
+    provider_name: &str,
+    language: Option<&str>,
+) -> Result<(), TranscriptionError> {
+    match language {
+        Some(AUTO_TRANSLATE_LANGUAGE) if !provider_supports_translation(provider_name) => {
+            Err(TranscriptionError::TranslationNotSupported)
+        }
+        _ => Ok(()),
+    }
 }
 
 /// The language hint to hand a provider.
@@ -140,6 +163,21 @@ mod tests {
             language_hint_for_provider("Parakeet", translate),
             Some("auto".to_string())
         );
+    }
+
+    #[test]
+    fn a_stale_translate_preference_is_refused_for_providers_without_translation() {
+        // The backend half of the frontend capability rule.
+        assert!(check_translation_support("Whisper", Some(AUTO_TRANSLATE_LANGUAGE)).is_ok());
+        for provider in ["audioCpp", "Parakeet"] {
+            let result = check_translation_support(provider, Some(AUTO_TRANSLATE_LANGUAGE));
+            assert!(
+                matches!(result, Err(TranscriptionError::TranslationNotSupported)),
+                "provider: {provider}"
+            );
+        }
+        assert!(check_translation_support("audioCpp", Some("ru")).is_ok());
+        assert!(check_translation_support("audioCpp", None).is_ok());
     }
 
     #[test]

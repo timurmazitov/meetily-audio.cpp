@@ -33,14 +33,14 @@
 
 **Встраивание в потоки.**
 - Импорт и ретранскрибация: при `BatchEngine::AudioCpp` 16-кГц аудио сохраняется до VAD, после транскрибации вызывается `diarize_segments`, метки пишутся в БД вместе с сегментами. Другие провайдеры диаризацию не запускают.
-- Живой пайплайн: команда `audiocpp_diarize_meeting` (идемпотентная) диаризует сохранённую встречу по её папке и обновляет `transcripts.speaker`.
+- Живой пайплайн: после того как stop-flow сохранил встречу (`api_save_transcript` вернул `meeting_id`), `useRecordingStop` при провайдере `audioCpp` вызывает команду `audiocpp_diarize_meeting` (идемпотентная: диаризует сохранённую встречу по её папке и обновляет `transcripts.speaker`). Вызов fire-and-forget, навигация его не ждёт; ошибка не фатальна (встреча уже сохранена), а по завершении рассылается событие `transcripts-updated`, на которое страница встречи отвечает refetch'ем. Для Whisper/Parakeet команда не вызывается (тест в `tests/lib/live-diarization.test.ts`).
 - Если модели нет или проход упал — транскрипт сохраняется без меток, а в UI уходит событие `diarization-unavailable` с подсказкой скачать Nemotron (тосты в `useImportAudio` и `RetranscribeDialog`).
 
 **UI.**
-- `VirtualizedTranscriptView` показывает у сегмента чип `Speaker N` (1-based, из `speaker_N`; неизвестные id выводятся как есть), `TranscriptSegmentData`/`Transcript`/`MeetingTranscript` прокидывают `speaker` через `usePaginatedTranscripts`, обе `TranscriptPanel`.
+- `VirtualizedTranscriptView` показывает у сегмента чип `Speaker N` (1-based, только для `speaker_N`; легаси-значения `mic`/`system` из переиспользованной колонки и любые неизвестные id чип не получают), `TranscriptSegmentData`/`Transcript`/`MeetingTranscript` прокидывают `speaker` через `usePaginatedTranscripts`, обе `TranscriptPanel`.
 
 **Верификация.**
-- `cargo test --lib`: **498 passed, 0 failed, 7 ignored** (включая 11 тестов правила наложения, 5 тестов выбора/service-слоя, 3 теста миграций).
-- `bun test`: 92 pass; 4 новых UI-теста меток спикера зелёные. Единственное падение (`empty summary state > renders a persistent retryable error`) и 5 межфайловых ошибок моков — предсуществующие, воспроизводятся на чистой интеграционной ветке.
+- `cargo test --lib`: **495 passed, 0 failed, 7 ignored** (включая 11 тестов правила наложения, 5 тестов выбора/service-слоя, 3 теста миграций).
+- `bun test`: baseline + новые UI-тесты меток спикера (включая легаси `mic`/`system` без чипа) и тесты live-диаризации зелёные. Единственное падение (`empty summary state > renders a persistent retryable error`) и 5 межфайловых ошибок моков — предсуществующие, воспроизводятся на чистой интеграционной ветке.
 - `tsc --noEmit` чист.
 - **Не проверено:** живой прогон Nemotron на реальной длинной записи (нет весов/нативной библиотеки на этой машине) и качество разметки спикеров на реальных встречах; UI проверен компонентными тестами, не в живом окне Tauri.

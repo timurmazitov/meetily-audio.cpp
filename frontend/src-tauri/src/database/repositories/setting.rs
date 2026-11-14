@@ -1,3 +1,4 @@
+use crate::audio::transcription::engine::AUDIO_CPP_PROVIDER;
 use crate::database::models::{Setting, TranscriptSetting};
 use crate::summary::CustomOpenAIConfig;
 use sqlx::SqlitePool;
@@ -147,7 +148,6 @@ impl SettingsRepository {
                 .fetch_optional(pool)
                 .await?;
         Ok(setting)
-
     }
 
     pub async fn save_transcript_config(
@@ -180,7 +180,7 @@ impl SettingsRepository {
         let api_key_column = match provider {
             "localWhisper" => "whisperApiKey",
             "parakeet" => return Ok(()), // Parakeet doesn't need an API key, return early
-            "audioCpp" => return Ok(()), // audio.cpp models run locally, no API key
+            AUDIO_CPP_PROVIDER => return Ok(()), // audio.cpp models run locally, no API key
             "deepgram" => "deepgramApiKey",
             "elevenLabs" => "elevenLabsApiKey",
             "groq" => "groqApiKey",
@@ -199,7 +199,9 @@ impl SettingsRepository {
             ON CONFLICT(id) DO UPDATE SET
                 "{}" = $1
             "#,
-            api_key_column, crate::config::DEFAULT_PARAKEET_MODEL, api_key_column
+            api_key_column,
+            crate::config::DEFAULT_PARAKEET_MODEL,
+            api_key_column
         );
         sqlx::query(&query).bind(api_key).execute(pool).await?;
 
@@ -213,7 +215,7 @@ impl SettingsRepository {
         let api_key_column = match provider {
             "localWhisper" => "whisperApiKey",
             "parakeet" => return Ok(None), // Parakeet doesn't need an API key
-            "audioCpp" => return Ok(None), // audio.cpp models run locally, no API key
+            AUDIO_CPP_PROVIDER => return Ok(None), // audio.cpp models run locally, no API key
             "deepgram" => "deepgramApiKey",
             "elevenLabs" => "elevenLabsApiKey",
             "groq" => "groqApiKey",
@@ -287,7 +289,7 @@ impl SettingsRepository {
             FROM settings
             WHERE id = '1'
             LIMIT 1
-            "#
+            "#,
         )
         .fetch_optional(pool)
         .await?;
@@ -298,10 +300,11 @@ impl SettingsRepository {
 
                 if let Some(json) = config_json {
                     // Parse JSON into CustomOpenAIConfig
-                    let config: CustomOpenAIConfig = serde_json::from_str(&json)
-                        .map_err(|e| sqlx::Error::Protocol(
-                            format!("Invalid JSON in customOpenAIConfig: {}", e).into()
-                        ))?;
+                    let config: CustomOpenAIConfig = serde_json::from_str(&json).map_err(|e| {
+                        sqlx::Error::Protocol(
+                            format!("Invalid JSON in customOpenAIConfig: {}", e).into(),
+                        )
+                    })?;
 
                     Ok(Some(config))
                 } else {
@@ -326,10 +329,9 @@ impl SettingsRepository {
         config: &CustomOpenAIConfig,
     ) -> std::result::Result<(), sqlx::Error> {
         // Serialize config to JSON
-        let config_json = serde_json::to_string(config)
-            .map_err(|e| sqlx::Error::Protocol(
-                format!("Failed to serialize config to JSON: {}", e).into()
-            ))?;
+        let config_json = serde_json::to_string(config).map_err(|e| {
+            sqlx::Error::Protocol(format!("Failed to serialize config to JSON: {}", e).into())
+        })?;
 
         // Upsert into settings table
         sqlx::query(
@@ -387,13 +389,9 @@ mod tests {
         // the app does on launch.
         let pool = test_pool().await;
 
-        SettingsRepository::save_transcript_config(
-            &pool,
-            "audioCpp",
-            "gigaam-v3-e2e-ctc-f16",
-        )
-        .await
-        .unwrap();
+        SettingsRepository::save_transcript_config(&pool, "audioCpp", "gigaam-v3-e2e-ctc-f16")
+            .await
+            .unwrap();
 
         assert_eq!(
             saved_provider(&pool).await,
@@ -460,8 +458,10 @@ mod tests {
             None
         );
 
-        assert!(SettingsRepository::get_transcript_api_key(&pool, "not-a-provider")
-            .await
-            .is_err());
+        assert!(
+            SettingsRepository::get_transcript_api_key(&pool, "not-a-provider")
+                .await
+                .is_err()
+        );
     }
 }

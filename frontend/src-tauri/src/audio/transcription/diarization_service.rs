@@ -11,21 +11,21 @@
 // the transcription.
 
 use std::path::Path;
-use std::sync::Arc;
 use std::time::Instant;
 
 use log::{info, warn};
 
 use super::audio_cpp_diarizer::{AudioCppDiarizer, DiarizerLoadError};
 use super::diarization::{attribute_segments_to_speakers, SpeakerTurnInterval};
-use crate::audio_cpp_engine::backend::{autodetect_backend, shipped_variant};
 use crate::audio_cpp_engine::catalog::{ModelInfo, ModelStatus, ModelTask};
-use crate::audio_cpp_engine::engine::NativeAudioCppEngine;
-use crate::audio_cpp_engine::wrapper::AudioCpp;
+use crate::audio_cpp_engine::engine::SAMPLE_RATE;
+use crate::audio_cpp_engine::transcription::load_native_engine;
 
-/// The audio pipeline delivers 16 kHz mono f32; speaker-turn samples are
-/// converted to seconds with this rate.
-pub const SAMPLE_RATE: i32 = 16_000;
+/// Hint emitted (and shown to the user) when speaker labels were skipped.
+/// One constant so the import, retranscription and saved-recording paths
+/// cannot drift apart.
+pub const DIARIZATION_UNAVAILABLE_MESSAGE: &str =
+    "Speaker labels were skipped. Download the Nemotron-3-Diarization model in Settings to see who said what.";
 
 /// Outcome of an optional diarization pass over a finished transcript.
 #[derive(Debug, Clone, PartialEq)]
@@ -39,17 +39,6 @@ pub struct DiarizationOutcome {
     /// Diagnostic detail when diarization was attempted and failed. The
     /// transcript is still usable; this is for logs and the hint text.
     pub error: Option<String>,
-}
-
-impl DiarizationOutcome {
-    /// Diarization did not run because no model is installed.
-    pub fn unavailable() -> Self {
-        Self {
-            speakers: Vec::new(),
-            speakers_available: false,
-            error: None,
-        }
-    }
 }
 
 /// Picks the installed diarization model, if any.
@@ -73,43 +62,22 @@ pub async fn installed_diarization_model() -> Option<ModelInfo> {
     select_diarization_model(&models).cloned()
 }
 
-/// Finds the recording's audio file inside `folder`.
-///
-/// Mirrors the retranscription lookup: the known names first, then any file
-/// with a supported audio extension.
-pub fn find_recording_audio(folder: &Path) -> Option<std::path::PathBuf> {
-    const CANDIDATES: [&str; 10] = [
-        "audio.mp4",
-        "audio.m4a",
-        "audio.wav",
-        "audio.mp3",
-        "audio.flac",
-        "audio.ogg",
-        "recording.mp4",
-        "audio.mkv",
-        "audio.webm",
-        "audio.wma",
-    ];
-    for name in CANDIDATES {
-        let path = folder.join(name);
-        if path.exists() {
-            return Some(path);
-        }
-    }
-
-    std::fs::read_dir(folder).ok()?.flatten().find_map(|entry| {
-        let path = entry.path();
-        let extension = path.extension()?.to_string_lossy().to_lowercase();
-        crate::audio::constants::AUDIO_EXTENSIONS
-            .contains(&extension.as_str())
-            .then_some(path)
-    })
-}
-
 /// Applies an outcome's speaker labels to `segments` in order.
-pub fn apply_speaker_labels(segments: &mut [crate::api::TranscriptSegment], outcome: &DiarizationOutcome) {
+pub fn apply_speaker_labels(
+    segments: &mut [crate::api::TranscriptSegment],
+    outcome: &DiarizationOutcome,
+) {
     for (segment, speaker) in segments.iter_mut().zip(outcome.speakers.iter()) {
         segment.speaker = speaker.clone();
+    }
+}
+
+/// An outcome with no labels, for a pass that could not run at all.
+pub fn unavailable_segments(count: usize, error: Option<String>) -> DiarizationOutcome {
+    DiarizationOutcome {
+        speakers: vec![None; count],
+        speakers_available: false,
+        error,
     }
 }
 
@@ -121,7 +89,6 @@ pub async fn diarize_segments(
     segments: &mut [crate::api::TranscriptSegment],
     audio: Vec<f32>,
 ) -> DiarizationOutcome {
-    let model = installed_diarization_model().await;
     let bounds: Vec<(f64, f64)> = segments
         .iter()
         .map(|segment| {
@@ -131,7 +98,7 @@ pub async fn diarize_segments(
             )
         })
         .collect();
-    let outcome = diarize_transcript(model.as_ref(), audio, &bounds).await;
+    let outcome = diarize_transcript(audio, &bounds).await;
     apply_speaker_labels(segments, &outcome);
     outcome
 }
@@ -143,16 +110,15 @@ pub async fn diarize_recording_folder(
     folder: &Path,
     segments: &mut [crate::api::TranscriptSegment],
 ) -> DiarizationOutcome {
-    let Some(audio_path) = find_recording_audio(folder) else {
+    let Some(audio_path) = crate::audio::common::find_audio_file(folder) else {
         warn!(
             "No audio file in {}; skipping diarization",
             folder.display()
         );
-        return DiarizationOutcome {
-            speakers: vec![None; segments.len()],
-            speakers_available: false,
-            error: Some("recording audio not found".to_string()),
-        };
+        return unavailable_segments(
+            segments.len(),
+            Some("recording audio not found".to_string()),
+        );
     };
 
     let audio = match tokio::task::spawn_blocking(move || {
@@ -164,19 +130,14 @@ pub async fn diarize_recording_folder(
         Ok(Ok(audio)) => audio,
         Ok(Err(error)) => {
             warn!("Failed to decode recording for diarization: {}", error);
-            return DiarizationOutcome {
-                speakers: vec![None; segments.len()],
-                speakers_available: false,
-                error: Some(error.to_string()),
-            };
+            return unavailable_segments(segments.len(), Some(error.to_string()));
         }
         Err(error) => {
             warn!("Diarization decode task failed: {}", error);
-            return DiarizationOutcome {
-                speakers: vec![None; segments.len()],
-                speakers_available: false,
-                error: Some(format!("decode task failed: {error}")),
-            };
+            return unavailable_segments(
+                segments.len(),
+                Some(format!("decode task failed: {error}")),
+            );
         }
     };
 
@@ -186,20 +147,15 @@ pub async fn diarize_recording_folder(
 /// Runs diarization for `audio` (16 kHz mono f32) and overlays the resulting
 /// speaker turns onto `segment_bounds` (`(start_sec, end_sec)` per segment).
 ///
-/// When `model` is `None` the segments are returned unattributed with
-/// `speakers_available == false`. Failures are reported in `error` and never
-/// discard the transcript.
+/// When no diarization model is installed the segments are returned
+/// unattributed with `speakers_available == false`. Failures are reported in
+/// `error` and never discard the transcript.
 pub async fn diarize_transcript(
-    model: Option<&ModelInfo>,
     audio: Vec<f32>,
     segment_bounds: &[(f64, f64)],
 ) -> DiarizationOutcome {
-    let Some(model) = model else {
-        return DiarizationOutcome {
-            speakers: vec![None; segment_bounds.len()],
-            speakers_available: false,
-            error: None,
-        };
+    let Some(model) = installed_diarization_model().await else {
+        return unavailable_segments(segment_bounds.len(), None);
     };
 
     match run_diarization(&model.path, audio).await {
@@ -225,11 +181,7 @@ pub async fn diarize_transcript(
                 "audioCpp diarization failed; transcript keeps no speaker labels: {}",
                 error
             );
-            DiarizationOutcome {
-                speakers: vec![None; segment_bounds.len()],
-                speakers_available: false,
-                error: Some(error),
-            }
+            unavailable_segments(segment_bounds.len(), Some(error))
         }
     }
 }
@@ -238,25 +190,23 @@ pub async fn diarize_transcript(
 ///
 /// The library and model are released before returning, so a long diarization
 /// does not pin the GPU/CPU memory of the transcription model.
-async fn run_diarization(path: &Path, audio: Vec<f32>) -> Result<Vec<crate::audio_cpp_engine::wrapper::SpeakerTurn>, String> {
+async fn run_diarization(
+    path: &Path,
+    audio: Vec<f32>,
+) -> Result<Vec<crate::audio_cpp_engine::wrapper::SpeakerTurn>, String> {
     let path = path.to_path_buf();
-    let desired = autodetect_backend();
-    let variant = shipped_variant(desired);
     let model_name = path
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_else(|| "diarization model".to_string());
 
     let diarizer = tokio::task::spawn_blocking(move || {
-        let library = AudioCpp::load_backend(variant).map_err(|error| error.to_string())?;
-        let engine: Arc<dyn crate::audio_cpp_engine::engine::AudioCppEngine> =
-            Arc::new(NativeAudioCppEngine::new(library, variant));
+        let engine = load_native_engine().map_err(|error| error.to_string())?;
         AudioCppDiarizer::load_blocking(engine, model_name, &path)
             .map_err(|error: DiarizerLoadError| error.to_string())
     })
     .await
-    .map_err(|error| format!("diarization load task failed: {error}"))?
-    .map_err(|error: String| error)?;
+    .map_err(|error| format!("diarization load task failed: {error}"))??;
 
     let started = Instant::now();
     let turns = diarizer
@@ -272,12 +222,6 @@ async fn run_diarization(path: &Path, audio: Vec<f32>) -> Result<Vec<crate::audi
     diarizer.unload();
     Ok(turns)
 }
-
-fn diarizer_error_message(error: DiarizerLoadError) -> String {
-    error.to_string()
-}
-
-#[allow(dead_code)]
 
 #[cfg(test)]
 mod tests {
@@ -334,11 +278,35 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn no_model_leaves_every_segment_without_a_speaker_and_is_unavailable() {
-        let outcome = diarize_transcript(None, vec![0.0; 160], &[(0.0, 1.0), (1.0, 2.0)]).await;
+    async fn no_installed_model_leaves_every_segment_without_a_speaker_and_is_unavailable() {
+        // The catalog manager is uninitialized in unit tests, exactly like a
+        // Whisper/Parakeet session: no model, no labels, no hard error.
+        let outcome = diarize_transcript(vec![0.0; 160], &[(0.0, 1.0), (1.0, 2.0)]).await;
 
         assert_eq!(outcome.speakers, vec![None, None]);
         assert!(!outcome.speakers_available);
         assert!(outcome.error.is_none());
+    }
+
+    #[test]
+    fn an_unavailable_outcome_keeps_existing_segments_unlabeled() {
+        let mut segments = vec![crate::api::TranscriptSegment {
+            id: "t1".to_string(),
+            text: "hello".to_string(),
+            timestamp: "2026-01-01T00:00:00Z".to_string(),
+            audio_start_time: Some(0.0),
+            audio_end_time: Some(1.0),
+            duration: Some(1.0),
+            speaker: None,
+        }];
+
+        let outcome =
+            unavailable_segments(segments.len(), Some("recording audio not found".into()));
+        apply_speaker_labels(&mut segments, &outcome);
+
+        assert!(!outcome.speakers_available);
+        assert_eq!(outcome.speakers, vec![None]);
+        assert_eq!(segments[0].speaker, None);
+        assert_eq!(outcome.error.as_deref(), Some("recording audio not found"));
     }
 }

@@ -6,7 +6,7 @@ These instructions apply to AI coding agents working in this repository.
 
 - Meetily is a desktop application for recording meetings, transcribing audio, and generating summaries.
 - The supported app lives in `frontend/`: Next.js/React provides the UI, and the Rust/Tauri core handles native behavior, audio, persistence, transcription, and summary orchestration.
-- Local transcription uses Whisper or Parakeet. Summaries use the configured local or cloud provider; do not assume every provider runs locally.
+- Local transcription uses one of three engines: Whisper, Parakeet, or audioCpp (audio.cpp / GigaAM). Summaries use the configured local or cloud provider; do not assume every provider runs locally.
 - Frontend code invokes Tauri commands; Rust emits events that update frontend state. Preserve existing command contracts, event payloads, and state ownership.
 - `backend/` is an unsupported legacy archive, not a runtime dependency or a place to add new application behavior. Its FastAPI/CORS behavior is not a supported production API.
 

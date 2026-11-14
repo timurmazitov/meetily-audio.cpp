@@ -151,6 +151,22 @@ function MeetingDetailsContent() {
     }
   }, [transcriptError]);
 
+  // Live diarization finishes after the meeting is saved (audioCpp only).
+  // The labels are written straight to the database, so refetch when the stop
+  // flow reports the pass is done, unless the user already navigated away.
+  useEffect(() => {
+    if (!meetingId) return;
+
+    const onTranscriptsUpdated = (event: Event) => {
+      const updatedMeetingId = (event as CustomEvent<{ meetingId?: string }>).detail?.meetingId;
+      if (updatedMeetingId && updatedMeetingId !== meetingId) return;
+      void refetch();
+    };
+
+    window.addEventListener('transcripts-updated', onTranscriptsUpdated);
+    return () => window.removeEventListener('transcripts-updated', onTranscriptsUpdated);
+  }, [meetingId, refetch]);
+
   // Extract fetchMeetingDetails for use in child components (now refetches via hook)
   const fetchMeetingDetails = useCallback(async () => {
     if (!meetingId || meetingId === 'intro-call') {

@@ -22,53 +22,21 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
-use std::thread::JoinHandle;
 
 use async_trait::async_trait;
-use log::{info, warn};
+use log::info;
 use serde::Serialize;
 
-use super::provider::{TranscriptionError, TranscriptionProvider, TranscriptResult};
+use super::engine::AUDIO_CPP_PROVIDER;
+use super::provider::{
+    check_translation_support, TranscriptResult, TranscriptionError, TranscriptionProvider,
+};
 use crate::audio_cpp_engine::engine::{
-    AudioCppEngine, TranscriptionOutput, ASR_TASK, OFFLINE_MODE,
+    AudioCppEngine, AudioCppModel, TranscriptionOutput, ASR_TASK, MIN_SAMPLES, OFFLINE_MODE,
 };
 use crate::audio_cpp_engine::error::AudioCppError;
-
-/// Provider identifier used in the transcript configuration and the engine
-/// dispatcher (GLOSSARY: «провайдер транскрибации»).
-pub const PROVIDER_ID: &str = "audioCpp";
-
-/// The audio pipeline delivers 16 kHz mono f32.
-pub const SAMPLE_RATE: i32 = 16_000;
-
-/// Shortest input worth sending to the engine (10 ms at 16 kHz).
-pub const MIN_SAMPLES: usize = 160;
-
-/// Language hint value that asks Whisper to translate to English.
-pub const AUTO_TRANSLATE: &str = "auto-translate";
-
-/// User-facing explanation for the missing translation option.
-pub const TRANSLATION_WHISPER_ONLY_MESSAGE: &str =
-    "Automatic translation is only available with the Whisper provider. Select another language, or switch the transcript provider to Whisper.";
-
-/// Whether a transcript provider can translate to English.
-pub fn supports_translation(provider: &str) -> bool {
-    matches!(provider, "localWhisper" | "whisper")
-}
-
-/// Refuses an automatic-translation hint for providers that cannot translate.
-///
-/// The frontend disables the option; this is the backend half of the same
-/// contract, so a stale saved preference cannot silently produce untranslated
-/// text that the user expects to be English.
-pub fn check_translation_support(language: Option<&str>) -> Result<(), TranscriptionError> {
-    match language {
-        Some(AUTO_TRANSLATE) => Err(TranscriptionError::TranslationNotSupported),
-        _ => Ok(()),
-    }
-}
+use crate::audio_cpp_engine::session_thread::{SessionLoadError, SessionTask, SessionThread};
 
 /// Failure of a model load, with a user-facing message for each case.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -94,11 +62,29 @@ impl std::fmt::Display for ProviderLoadError {
 
 impl std::error::Error for ProviderLoadError {}
 
-/// One transcription request handed to the session thread.
-struct SessionRequest {
-    audio: Vec<f32>,
-    reply: tokio::sync::oneshot::Sender<Result<TranscriptionOutput, AudioCppError>>,
+/// Maps a session-thread load failure onto the provider's user-facing error.
+fn load_error(error: SessionLoadError) -> ProviderLoadError {
+    ProviderLoadError::Engine(error.detail)
 }
+
+/// The transcription work a [`SessionThread`] runs: `asr` / `offline`.
+struct AsrTask;
+
+impl SessionTask for AsrTask {
+    type Output = TranscriptionOutput;
+
+    const TASK: &'static str = ASR_TASK;
+
+    fn run(
+        model: &mut dyn AudioCppModel,
+        audio: &[f32],
+        sample_rate: i32,
+    ) -> Result<TranscriptionOutput, AudioCppError> {
+        model.transcribe_asr(audio, sample_rate)
+    }
+}
+
+type Session = SessionThread<TranscriptionOutput>;
 
 /// audioCpp provider backed by the audio.cpp engine.
 ///
@@ -107,7 +93,7 @@ struct SessionRequest {
 pub struct AudioCppProvider {
     model_name: String,
     family: String,
-    session: Mutex<Option<SessionThread>>,
+    session: Mutex<Option<Session>>,
     loaded: AtomicBool,
 }
 
@@ -135,12 +121,13 @@ impl AudioCppProvider {
         path: &Path,
     ) -> Result<Self, ProviderLoadError> {
         let model_name = model_name.into();
-        let session = SessionThread::spawn(engine, path)?;
+        let session =
+            Session::spawn::<AsrTask>(engine, path, "audiocpp-session").map_err(load_error)?;
 
         // Family-agnostic capability gate: never assume a family, ask the
         // model what it supports, on the thread that owns it.
         let family = session.family.clone();
-        if !session.supports_asr_offline {
+        if !session.supports_offline {
             // No provider is constructed, so release the model here.
             session.shutdown();
             return Err(ProviderLoadError::UnsupportedCapability {
@@ -207,137 +194,24 @@ impl AudioCppProvider {
         &self,
         audio: Vec<f32>,
     ) -> Result<TranscriptionOutput, TranscriptionError> {
-        let sender = {
+        // Clone the Send handle rather than holding the std mutex across the
+        // await.
+        let handle = {
             let guard = self
                 .session
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             match guard.as_ref() {
-                Some(session) => session.sender.clone(),
+                Some(session) => session.handle(),
                 None => return Err(TranscriptionError::ModelNotLoaded),
             }
         };
 
-        let (reply, receiver) = tokio::sync::oneshot::channel();
-        sender
-            .send(SessionRequest {
-                audio,
-                reply,
-            })
-            .map_err(|_| {
-                TranscriptionError::EngineFailed(
-                    "audio.cpp session thread is no longer running; reload the model in Settings"
-                        .to_string(),
-                )
-            })?;
-
-        receiver.await.map_err(|_| {
-            TranscriptionError::EngineFailed(
-                "audio.cpp session thread stopped before returning a result".to_string(),
-            )
-        })?
-        .map_err(|error| TranscriptionError::EngineFailed(error.to_string()))
+        handle
+            .request(audio)
+            .await
+            .map_err(|error| TranscriptionError::EngineFailed(error.to_string()))
     }
-}
-
-/// The dedicated thread that owns one model and one session.
-///
-/// The thread loop is the only place the model handle is touched; every
-/// request is answered on the caller's awaiter through a oneshot channel.
-struct SessionThread {
-    sender: Sender<SessionRequest>,
-    join: Mutex<Option<JoinHandle<()>>>,
-    family: String,
-    supports_asr_offline: bool,
-}
-
-impl SessionThread {
-    fn spawn(engine: Arc<dyn AudioCppEngine>, path: &Path) -> Result<Self, ProviderLoadError> {
-        let path = path.to_path_buf();
-        let (sender, receiver) = mpsc::channel::<SessionRequest>();
-        let (ready_tx, ready_rx) = mpsc::channel::<Result<SessionMetadata, ProviderLoadError>>();
-
-        let join = std::thread::Builder::new()
-            .name("audiocpp-session".to_string())
-            .spawn(move || run_session_thread(engine, path, receiver, ready_tx))
-            .map_err(|error| {
-                ProviderLoadError::Engine(format!("Failed to start audio.cpp session thread: {error}"))
-            })?;
-
-        // The load happens on the session thread; wait for its verdict here so
-        // a bad model is reported as a load failure, not a later request error.
-        let metadata = ready_rx.recv().map_err(|_| {
-            ProviderLoadError::Engine(
-                "audio.cpp session thread stopped during model load".to_string(),
-            )
-        })??;
-
-        Ok(Self {
-            sender,
-            join: Mutex::new(Some(join)),
-            family: metadata.family,
-            supports_asr_offline: metadata.supports_asr_offline,
-        })
-    }
-
-    fn shutdown(self) {
-        // Dropping the sender ends the loop (`recv` returns Err); the thread
-        // then frees the model on the thread that owns it.
-        let SessionThread { sender, join, .. } = self;
-        drop(sender);
-        let join = join
-            .into_inner()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if let Some(join) = join {
-            let _ = join.join();
-        }
-    }
-}
-
-struct SessionMetadata {
-    family: String,
-    supports_asr_offline: bool,
-}
-
-fn run_session_thread(
-    engine: Arc<dyn AudioCppEngine>,
-    path: PathBuf,
-    receiver: Receiver<SessionRequest>,
-    ready: Sender<Result<SessionMetadata, ProviderLoadError>>,
-) {
-    let model = match engine.load_model(&path) {
-        Ok(model) => model,
-        Err(error) => {
-            let _ = ready.send(Err(ProviderLoadError::Engine(error.to_string())));
-            return;
-        }
-    };
-
-    let family = model.family();
-    let supports_asr_offline = match model.supports(ASR_TASK, OFFLINE_MODE) {
-        Ok(supported) => supported,
-        Err(error) => {
-            let _ = ready.send(Err(ProviderLoadError::Engine(error.to_string())));
-            return;
-        }
-    };
-    if ready
-        .send(Ok(SessionMetadata {
-            family,
-            supports_asr_offline,
-        }))
-        .is_err()
-    {
-        return;
-    }
-
-    let mut model = model;
-    while let Ok(request) = receiver.recv() {
-        let result = model.transcribe_asr(&request.audio, SAMPLE_RATE);
-        let _ = request.reply.send(result);
-    }
-
-    drop(model);
 }
 
 impl Drop for AudioCppProvider {
@@ -362,13 +236,14 @@ impl TranscriptionProvider for AudioCppProvider {
         audio: Vec<f32>,
         language: Option<String>,
     ) -> std::result::Result<TranscriptResult, TranscriptionError> {
-        check_translation_support(language.as_deref())?;
+        check_translation_support(AUDIO_CPP_PROVIDER, language.as_deref())?;
 
         if let Some(ref hint) = language {
             if hint != "auto" {
-                // GigaAM is a Russian ASR model and ignores language hints;
-                // keep the user-visible behaviour honest in the logs.
-                warn!(
+                // GigaAM is a Russian ASR model and ignores language hints.
+                // This runs once per VAD segment, so it is a hot path: keep
+                // the diagnostic in the debug-only perf macro.
+                perf_debug!(
                     "audioCpp ignores language hint '{}': the model transcribes in its trained language",
                     hint
                 );
@@ -406,7 +281,7 @@ impl TranscriptionProvider for AudioCppProvider {
     }
 
     fn provider_name(&self) -> &'static str {
-        PROVIDER_ID
+        AUDIO_CPP_PROVIDER
     }
 }
 
@@ -446,7 +321,8 @@ mod tests {
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     use super::*;
-    use crate::audio_cpp_engine::engine::AudioCppModel;
+    use crate::audio::transcription::provider::AUTO_TRANSLATE_LANGUAGE;
+    use crate::audio_cpp_engine::engine::{AudioCppModel, SAMPLE_RATE};
     use crate::audio_cpp_engine::error::Status;
     use crate::audio_cpp_engine::wrapper::Segment;
 
@@ -549,9 +425,7 @@ mod tests {
 
         fn supports(&self, task: &str, mode: &str) -> Result<bool, AudioCppError> {
             let mut calls = self.calls.lock().unwrap();
-            calls
-                .supports
-                .push((task.to_string(), mode.to_string()));
+            calls.supports.push((task.to_string(), mode.to_string()));
             calls.threads.push(std::thread::current().id());
             drop(calls);
             if self.supports_error {
@@ -616,9 +490,13 @@ mod tests {
     }
 
     async fn provider(engine: Arc<FakeEngine>) -> AudioCppProvider {
-        AudioCppProvider::load(engine, "gigaam-v3-e2e-ctc-f16", PathBuf::from("/models/m.gguf"))
-            .await
-            .expect("fake model loads")
+        AudioCppProvider::load(
+            engine,
+            "gigaam-v3-e2e-ctc-f16",
+            PathBuf::from("/models/m.gguf"),
+        )
+        .await
+        .expect("fake model loads")
     }
 
     fn audio(samples: usize) -> Vec<f32> {
@@ -753,7 +631,10 @@ mod tests {
         .unwrap_err();
 
         let text = error.to_string();
-        assert!(text.contains("Failed to load audio.cpp model"), "text: {text}");
+        assert!(
+            text.contains("Failed to load audio.cpp model"),
+            "text: {text}"
+        );
         assert!(text.contains("AUDIOCPP_ERR_RUNTIME"), "text: {text}");
     }
 
@@ -782,10 +663,7 @@ mod tests {
         let provider = provider(Arc::clone(&engine)).await;
 
         for samples in [0, 1, MIN_SAMPLES - 1] {
-            let error = provider
-                .transcribe(audio(samples), None)
-                .await
-                .unwrap_err();
+            let error = provider.transcribe(audio(samples), None).await.unwrap_err();
             match error {
                 TranscriptionError::AudioTooShort {
                     samples: reported,
@@ -825,29 +703,17 @@ mod tests {
         let provider = provider(Arc::clone(&engine)).await;
 
         let error = provider
-            .transcribe(audio(SAMPLE_RATE as usize), Some(AUTO_TRANSLATE.to_string()))
+            .transcribe(
+                audio(SAMPLE_RATE as usize),
+                Some(AUTO_TRANSLATE_LANGUAGE.to_string()),
+            )
             .await
             .unwrap_err();
 
-        assert!(matches!(
-            error,
-            TranscriptionError::TranslationNotSupported
-        ));
+        assert!(matches!(error, TranscriptionError::TranslationNotSupported));
         let text = error.to_string();
         assert!(text.contains("Whisper"), "text: {text}");
         assert!(!engine.ran(), "translation must not silently transcribe");
-    }
-
-    #[test]
-    fn translation_is_available_only_for_whisper() {
-        assert!(supports_translation("localWhisper"));
-        assert!(supports_translation("whisper"));
-        for provider in ["audioCpp", "parakeet"] {
-            assert!(!supports_translation(provider), "provider: {provider}");
-            assert!(check_translation_support(Some(AUTO_TRANSLATE)).is_err());
-        }
-        assert!(check_translation_support(Some("ru")).is_ok());
-        assert!(check_translation_support(None).is_ok());
     }
 
     #[tokio::test]
