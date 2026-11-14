@@ -876,6 +876,7 @@ pub fn run() {
             api::api_get_meeting_transcripts,
             api::api_save_meeting_title,
             api::api_save_transcript,
+            audio::diarization_commands::audiocpp_diarize_meeting,
             api::open_meeting_folder,
             api::test_backend_connection,
             api::debug_backend_connection,

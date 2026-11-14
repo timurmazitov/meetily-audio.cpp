@@ -49,6 +49,9 @@ pub mod retranscription;
 // Import module (import external audio files as new meetings)
 pub mod import;
 
+// Post-transcription diarization for saved meetings
+pub mod diarization_commands;
+
 pub use devices::{
     default_input_device, default_output_device, device_from_id, get_device_and_config, list_audio_devices,
     parse_audio_device, trigger_audio_permission,

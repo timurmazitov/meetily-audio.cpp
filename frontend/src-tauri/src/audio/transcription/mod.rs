@@ -8,6 +8,7 @@ pub mod parakeet_provider;
 pub mod audio_cpp_provider;
 pub mod audio_cpp_diarizer;
 pub mod diarization;
+pub mod diarization_service;
 pub mod engine;
 pub mod worker;
 
@@ -21,6 +22,11 @@ pub use audio_cpp_provider::{
 };
 pub use audio_cpp_diarizer::{AudioCppDiarizer, DiarizationError, DiarizerLoadError};
 pub use diarization::{attribute_segments_to_speakers, SpeakerTurnInterval};
+pub use diarization_service::{
+    apply_speaker_labels, diarize_recording_folder, diarize_segments, diarize_transcript,
+    find_recording_audio, installed_diarization_model, select_diarization_model,
+    DiarizationOutcome,
+};
 pub use engine::{
     TranscriptionEngine,
     validate_transcription_model_ready,

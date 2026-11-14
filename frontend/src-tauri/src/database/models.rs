@@ -35,6 +35,10 @@ pub struct Transcript {
     pub audio_start_time: Option<f64>,
     pub audio_end_time: Option<f64>,
     pub duration: Option<f64>,
+    /// Diarization speaker label (`speaker_0`, `speaker_1`, …), `NULL` for
+    /// transcripts that were never diarized (Whisper/Parakeet, or a missing
+    /// audioCpp diarization model). See GLOSSARY: «спикер».
+    pub speaker: Option<String>,
 }
 
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]

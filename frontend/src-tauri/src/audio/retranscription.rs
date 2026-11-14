@@ -228,6 +228,14 @@ async fn run_retranscription<R: Runtime>(
     .map_err(|e| anyhow!("Resample task panicked: {}", e))?;
     info!("Converted to 16kHz mono format: {} samples", audio_samples.len());
 
+    // Keep the 16 kHz audio for a post-transcription diarization pass when
+    // the audioCpp provider is in use (VAD below consumes the original).
+    let audio_for_diarization = if engine_kind == BatchEngine::AudioCpp {
+        Some(audio_samples.clone())
+    } else {
+        None
+    };
+
     emit_progress(&app, &meeting_id, "vad", 20, "Detecting speech segments...");
 
     // Check for cancellation
@@ -442,7 +450,31 @@ async fn run_retranscription<R: Runtime>(
     emit_progress(&app, &meeting_id, "saving", 80, "Saving transcripts...");
 
     // Create transcript segments with proper timestamps from VAD
-    let segments = create_transcript_segments(&all_transcripts);
+    let mut segments = create_transcript_segments(&all_transcripts);
+
+    // Diarization is an audioCpp feature: when the user picked audioCpp and
+    // the Nemotron model is installed, overlay speaker turns onto the
+    // segments before saving. A missing model or a failed pass leaves the
+    // transcript intact without labels.
+    if engine_kind == BatchEngine::AudioCpp {
+        emit_progress(&app, &meeting_id, "saving", 82, "Assigning speakers...");
+        let outcome =
+            super::transcription::diarization_service::diarize_segments(
+                &mut segments,
+                audio_for_diarization.unwrap_or_default(),
+            )
+            .await;
+        if !outcome.speakers_available {
+            let _ = app.emit(
+                "diarization-unavailable",
+                serde_json::json!({
+                    "meeting_id": meeting_id,
+                    "reason": outcome.error,
+                    "message": "Speaker labels were skipped. Download the Nemotron-3-Diarization model in Settings to see who said what.",
+                }),
+            );
+        }
+    }
 
     // Save to database
     let app_state = app
@@ -464,8 +496,8 @@ async fn run_retranscription<R: Runtime>(
 
     for segment in &segments {
         sqlx::query(
-            "INSERT INTO transcripts (id, meeting_id, transcript, timestamp, audio_start_time, audio_end_time, duration)
-             VALUES (?, ?, ?, ?, ?, ?, ?)"
+            "INSERT INTO transcripts (id, meeting_id, transcript, timestamp, audio_start_time, audio_end_time, duration, speaker)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
         )
         .bind(&segment.id)
         .bind(&meeting_id)
@@ -474,6 +506,7 @@ async fn run_retranscription<R: Runtime>(
         .bind(segment.audio_start_time)
         .bind(segment.audio_end_time)
         .bind(segment.duration)
+        .bind(&segment.speaker)
         .execute(&mut *tx)
         .await
         .map_err(|e| anyhow!("Failed to insert transcript: {}", e))?;
