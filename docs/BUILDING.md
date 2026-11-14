@@ -404,4 +404,6 @@ The commands above create a local source build. Use the production Windows build
 
 The distribution workflows (`build.yml`, `build-windows.yml`, and `build-devtest.yml`) set `CMAKE_PROJECT_INCLUDE` to `.github/force-portable-ggml.cmake`, which forces `GGML_NATIVE=OFF`, and use `RUSTFLAGS=-C target-cpu=x86-64-v2`. The hook configures Whisper's native C/C++ build; Rust flags do not. `WHISPER_NATIVE=OFF` and plain `GGML_*` variables are not replacements.
 
+The Windows distribution workflows also stage the audioCpp provider runtime before bundling: `frontend/src-tauri/scripts/stage-audiocpp-runtime.ps1` downloads the pinned audio.cpp v0.9.4 lib archive (SHA256-verified) and copies `audiocpp.dll`, the MSVC runtime bundle (`msvcp140*.dll`, `vcruntime140*.dll`, `vcomp140.dll`), and the Apache-2.0 license into `frontend/src-tauri/audiocpp-runtime/`. `tauri.windows.conf.json` maps that directory into the install root, next to the executable, so the installed app runs without the Visual C++ Redistributable. For a local development build, point `AUDIOCPP_LIBRARY_PATH` at `audiocpp.dll` instead (see `audio_cpp_engine/wrapper.rs`).
+
 </details>
