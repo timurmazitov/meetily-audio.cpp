@@ -16,6 +16,7 @@ use std::path::{Path, PathBuf};
 use std::ptr::NonNull;
 use std::sync::Arc;
 
+use super::backend::AudioCppBackend;
 use super::error::{AbiVersion, AudioCppError, Status};
 use super::ffi::{self, AudiocppApi};
 
@@ -45,9 +46,25 @@ pub fn library_search_dirs() -> Vec<PathBuf> {
     dirs
 }
 
-/// Resolves the audio.cpp library path: the `AUDIOCPP_LIBRARY_ENV`
-/// override wins, otherwise the first candidate next to the executable.
-fn resolve_library_path() -> Result<PathBuf, AudioCppError> {
+/// Root of the per-variant library directories placed next to the
+/// executable by packaging: `audiocpp-libs/<variant>/libaudiocpp.so*`.
+/// `<variant>` is an `AudioCppBackend::session_token()` ("cpu", "vulkan", …)
+/// matching the pinned release archive flavours (`lib-<platform>-cpu`,
+/// `lib-<platform>-vulkan`).
+pub const LIBRARY_VARIANTS_DIR: &str = "audiocpp-libs";
+
+/// Resolves the audio.cpp library for the given backend variant: the
+/// `AUDIOCPP_LIBRARY_ENV` override wins, then the variant subdirectory of
+/// each search directory, then the flat layout of each search directory
+/// (single-variant installs and development trees).
+pub fn resolve_library_path_for(backend: AudioCppBackend) -> Result<PathBuf, AudioCppError> {
+    resolve_library_path_in(&library_search_dirs(), backend)
+}
+
+fn resolve_library_path_in(
+    search_dirs: &[PathBuf],
+    backend: AudioCppBackend,
+) -> Result<PathBuf, AudioCppError> {
     if let Some(env_path) = std::env::var_os(AUDIOCPP_LIBRARY_ENV) {
         let path = PathBuf::from(env_path);
         if path.is_file() {
@@ -59,8 +76,16 @@ fn resolve_library_path() -> Result<PathBuf, AudioCppError> {
         });
     }
 
+    let variant = backend.session_token();
     let mut searched = Vec::new();
-    for dir in library_search_dirs() {
+    for dir in search_dirs {
+        for name in LIBRARY_FILE_NAMES {
+            let candidate = dir.join(LIBRARY_VARIANTS_DIR).join(variant).join(name);
+            if candidate.is_file() {
+                return Ok(candidate);
+            }
+            searched.push(candidate);
+        }
         for name in LIBRARY_FILE_NAMES {
             let candidate = dir.join(name);
             if candidate.is_file() {
@@ -91,11 +116,20 @@ pub struct AudioCpp {
 }
 
 impl AudioCpp {
-    /// Finds and loads the audio.cpp library, gating on
-    /// `audiocpp_abi_version()`. An incompatible ABI is rejected with
-    /// [`AudioCppError::IncompatibleAbi`] before any other call is made.
+    /// Finds and loads the audio.cpp library for the backend chosen by the
+    /// app's hardware autodetect, gating on `audiocpp_abi_version()`. An
+    /// incompatible ABI is rejected with [`AudioCppError::IncompatibleAbi`]
+    /// before any other call is made.
     pub fn load() -> Result<AudioCpp, AudioCppError> {
-        let path = resolve_library_path()?;
+        Self::load_backend(super::backend::shipped_variant(
+            super::backend::autodetect_backend(),
+        ))
+    }
+
+    /// Finds and loads the given library variant (the `cpu`/`vulkan`/…
+    /// flavour of the pinned release archives).
+    pub fn load_backend(variant: AudioCppBackend) -> Result<AudioCpp, AudioCppError> {
+        let path = resolve_library_path_for(variant)?;
         Self::load_from(&path)
     }
 
@@ -683,18 +717,71 @@ mod tests {
         std::fs::write(&lib, b"not a real library").expect("write fixture");
 
         std::env::set_var(AUDIOCPP_LIBRARY_ENV, &lib);
-        let resolved = resolve_library_path().expect("existing override resolves");
+        let resolved = resolve_library_path_for(AudioCppBackend::Cpu)
+            .expect("existing override resolves");
         assert_eq!(resolved, lib);
 
         let missing = dir.path().join("missing.so");
         std::env::set_var(AUDIOCPP_LIBRARY_ENV, &missing);
-        let err = resolve_library_path().expect_err("missing override errors");
+        let err = resolve_library_path_for(AudioCppBackend::Cpu)
+            .expect_err("missing override errors");
         assert!(
             matches!(err, AudioCppError::LibraryLoad { .. }),
             "got {err:?}"
         );
 
         std::env::remove_var(AUDIOCPP_LIBRARY_ENV);
+    }
+
+    #[test]
+    fn variant_subdirectory_wins_over_the_flat_layout() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let variant_dir = dir.path().join("audiocpp-libs").join("vulkan");
+        std::fs::create_dir_all(&variant_dir).expect("variant dir");
+        let flat = dir.path().join("libaudiocpp.so");
+        let variant = variant_dir.join("libaudiocpp.so");
+        std::fs::write(&flat, b"flat").expect("write flat fixture");
+        std::fs::write(&variant, b"variant").expect("write variant fixture");
+
+        let resolved =
+            resolve_library_path_in(&[dir.path().to_path_buf()], AudioCppBackend::Vulkan)
+                .expect("variant library resolves");
+
+        assert_eq!(resolved, variant);
+    }
+
+    #[test]
+    fn a_single_variant_install_uses_the_flat_layout() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let flat = dir.path().join("libaudiocpp.so.0");
+        std::fs::write(&flat, b"flat").expect("write fixture");
+
+        let resolved =
+            resolve_library_path_in(&[dir.path().to_path_buf()], AudioCppBackend::Cpu)
+                .expect("flat library resolves");
+
+        assert_eq!(resolved, flat);
+    }
+
+    #[test]
+    fn a_missing_variant_reports_every_searched_path() {
+        let dir = tempfile::tempdir().expect("tempdir");
+
+        let error =
+            resolve_library_path_in(&[dir.path().to_path_buf()], AudioCppBackend::Vulkan)
+                .expect_err("nothing to load");
+
+        let searched = match error {
+            AudioCppError::LibraryNotFound { searched_paths } => searched_paths,
+            other => panic!("expected LibraryNotFound, got {other:?}"),
+        };
+        assert_eq!(searched.len(), LIBRARY_FILE_NAMES.len() * 2);
+        assert!(searched
+            .iter()
+            .any(|path| path.to_string_lossy().contains(LIBRARY_VARIANTS_DIR)));
+        assert!(searched
+            .iter()
+            .any(|path| !path.to_string_lossy().contains(LIBRARY_VARIANTS_DIR)));
     }
 
     #[test]
@@ -716,7 +803,7 @@ mod tests {
         );
         std::fs::write(&staged, b"not a real library").expect("stage fixture");
 
-        let resolved = resolve_library_path();
+        let resolved = resolve_library_path_for(AudioCppBackend::Cpu);
         std::fs::remove_file(&staged).expect("clean up fixture");
         assert_eq!(resolved.expect("exe-adjacent library resolves"), staged);
     }

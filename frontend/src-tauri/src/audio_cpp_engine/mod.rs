@@ -23,6 +23,7 @@
 
 mod ffi;
 
+pub mod backend;
 pub mod catalog;
 pub mod commands;
 pub mod engine;
@@ -33,6 +34,7 @@ pub mod wrapper;
 
 pub use catalog::{ModelInfo, ModelSpec, ModelStatus, ModelTask};
 pub use commands::*;
+pub use backend::{autodetect_backend, session_config, shipped_variant, AudioCppBackend};
 pub use engine::{
     AudioCppEngine, AudioCppModel, DiarizationOutput, NativeAudioCppEngine, TranscriptionOutput,
     ASR_TASK, DIAR_TASK, OFFLINE_MODE,

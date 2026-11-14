@@ -170,12 +170,16 @@ export function ImportAudioDialog({
     return availableModels.find((m) => m.provider === provider && m.name === name);
   }, [selectedModelKey, availableModels]);
   const isParakeetModel = selectedModel?.provider === 'parakeet';
+  const isAudioCppModel = selectedModel?.provider === 'audioCpp';
+  // Parakeet auto-detects; audioCpp (GigaAM) transcribes in its trained
+  // language. Neither accepts a language selection.
+  const isLanguageAutoModel = isParakeetModel || isAudioCppModel;
 
   useEffect(() => {
-    if (isParakeetModel && selectedLang !== 'auto') {
+    if (isLanguageAutoModel && selectedLang !== 'auto') {
       setSelectedLang('auto');
     }
-  }, [isParakeetModel, selectedLang]);
+  }, [isLanguageAutoModel, selectedLang]);
 
   const handleSelectFile = async () => {
     const info = await selectFile();
@@ -190,7 +194,7 @@ export function ImportAudioDialog({
     await startImport(
       fileInfo.path,
       title || fileInfo.filename,
-      isParakeetModel ? null : selectedLang === 'auto' ? null : selectedLang,
+      isLanguageAutoModel ? null : selectedLang === 'auto' ? null : selectedLang,
       selectedModel?.name || null,
       selectedModel?.provider || null
     );
@@ -343,7 +347,7 @@ export function ImportAudioDialog({
                   {showAdvanced && (
                     <div className="p-3 pt-0 space-y-4 border-t">
                       {/* Language selector */}
-                      {!isParakeetModel ? (
+                      {!isLanguageAutoModel ? (
                         <div className="space-y-2">
                           <div className="flex items-center gap-2">
                             <Globe className="h-4 w-4 text-muted-foreground" />
@@ -369,7 +373,9 @@ export function ImportAudioDialog({
                             <span className="text-sm font-medium">Language</span>
                           </div>
                           <p className="text-xs text-muted-foreground">
-                            Language selection isn't supported for Parakeet. It always uses automatic detection.
+                            {isAudioCppModel
+                              ? "Language selection isn't supported for audioCpp. GigaAM transcribes in its trained language (Russian)."
+                              : "Language selection isn't supported for Parakeet. It always uses automatic detection."}
                           </p>
                         </div>
                       )}

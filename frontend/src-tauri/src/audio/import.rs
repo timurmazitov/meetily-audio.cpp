@@ -18,9 +18,11 @@ use tauri_plugin_dialog::DialogExt;
 use uuid::Uuid;
 
 use super::audio_processing::create_meeting_folder;
-use super::common::{create_transcript_segments, split_segment_at_silence, write_transcripts_json};
+use super::common::{BatchEngine, create_transcript_segments, split_segment_at_silence, write_transcripts_json};
 use super::constants::AUDIO_EXTENSIONS;
 use super::recording_preferences::get_default_recordings_folder;
+use super::transcription::engine::get_or_init_audio_cpp_provider_with_model;
+use super::transcription::provider::TranscriptionProvider;
 
 /// Global flag to track if import is in progress
 static IMPORT_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
@@ -266,7 +268,7 @@ pub async fn start_import<R: Runtime>(
     // Reset cancellation flag
     IMPORT_CANCELLED.store(false, Ordering::SeqCst);
 
-    let use_parakeet = provider.as_deref() == Some("parakeet");
+    let engine_kind = BatchEngine::from_provider_name(provider.as_deref());
     let result = run_import(
         app.clone(),
         source_path,
@@ -278,7 +280,7 @@ pub async fn start_import<R: Runtime>(
     .await;
 
     // Unload the engine after the batch job (success, failure, or cancellation)
-    super::common::unload_engine_after_batch(use_parakeet).await;
+    super::common::unload_engine_after_batch(engine_kind).await;
 
     // Guard will automatically clear flag on drop
     // No need for manual: IMPORT_IN_PROGRESS.store(false, Ordering::SeqCst);
@@ -330,7 +332,7 @@ async fn run_import<R: Runtime>(
     );
 
     // Determine which provider to use (default to whisper)
-    let use_parakeet = provider.as_deref() == Some("parakeet");
+    let engine_kind = BatchEngine::from_provider_name(provider.as_deref());
 
     emit_progress(&app, "copying", 5, "Creating meeting folder...");
 
@@ -509,16 +511,26 @@ async fn run_import<R: Runtime>(
     emit_progress(&app, "transcribing", 30, "Loading transcription engine...");
 
     // Initialize the appropriate engine
-    let whisper_engine = if !use_parakeet && total_segments > 0 {
+    let whisper_engine = if engine_kind == BatchEngine::Whisper && total_segments > 0 {
         Some(get_or_init_whisper(&app, model.as_deref()).await?)
     } else {
         None
     };
-    let parakeet_engine = if use_parakeet && total_segments > 0 {
+    let parakeet_engine = if engine_kind == BatchEngine::Parakeet && total_segments > 0 {
         Some(get_or_init_parakeet(&app, model.as_deref()).await?)
     } else {
         None
     };
+    let audio_cpp_provider: Option<Arc<dyn TranscriptionProvider>> =
+        if engine_kind == BatchEngine::AudioCpp && total_segments > 0 {
+            Some(
+                get_or_init_audio_cpp_provider_with_model(&app, model.clone())
+                    .await
+                    .map_err(|e| anyhow!(e))?,
+            )
+        } else {
+            None
+        };
 
     // Split very long segments at silence boundaries for better transcription quality.
     // Hard cuts at arbitrary sample positions lose words at boundaries. Instead, scan
@@ -580,13 +592,21 @@ async fn run_import<R: Runtime>(
         }
 
         // Transcribe
-        let (text, conf) = if use_parakeet {
+        let (text, conf) = if engine_kind == BatchEngine::Parakeet {
             let engine = parakeet_engine.as_ref().unwrap();
             let text = engine
                 .transcribe_audio(segment.samples.clone())
                 .await
                 .map_err(|e| anyhow!("Parakeet transcription failed on segment {}: {}", i, e))?;
             (text, 0.9f32)
+        } else if let Some(provider) = audio_cpp_provider.as_ref() {
+            // Same trait contract as the live pipeline: identical segments
+            // and model metadata.
+            let result = provider
+                .transcribe(segment.samples.clone(), language.clone())
+                .await
+                .map_err(|e| anyhow!("audioCpp transcription failed on segment {}: {}", i, e))?;
+            (result.text, result.confidence.unwrap_or(0.9f32))
         } else {
             let engine = whisper_engine.as_ref().unwrap();
             let (text, conf, _) = engine

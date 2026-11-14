@@ -255,36 +255,68 @@ pub async fn get_or_init_transcription_engine<R: Runtime>(
 pub async fn get_or_init_audio_cpp_provider<R: Runtime>(
     app: &AppHandle<R>,
 ) -> Result<Arc<dyn TranscriptionProvider>, String> {
+    get_or_init_audio_cpp_provider_with_model(app, None).await
+}
+
+/// Get or initialize the audioCpp provider, optionally for a specific model.
+///
+/// Batch jobs (retranscription, audio import) let the user pick any installed
+/// audioCpp model in the dialog, which may differ from the configured one.
+/// When `requested_model` is `Some`, that exact model is loaded — with no
+/// fallback to another installed model, since silently transcribing with a
+/// different model would defeat the comparison the user is making — and a
+/// cached provider is reused only when it already runs that model.
+pub async fn get_or_init_audio_cpp_provider_with_model<R: Runtime>(
+    app: &AppHandle<R>,
+    requested_model: Option<String>,
+) -> Result<Arc<dyn TranscriptionProvider>, String> {
     if let Some(provider) = crate::audio_cpp_engine::transcription::provider() {
         if provider.is_model_loaded().await {
-            let model = provider
+            let current = provider
                 .get_current_model()
                 .await
                 .unwrap_or_else(|| "unknown".to_string());
-            info!("✅ audioCpp model '{}' already loaded, reusing", model);
-            return Ok(provider);
+            let reuse = match &requested_model {
+                Some(requested) => current == *requested,
+                None => true,
+            };
+            if reuse {
+                info!("✅ audioCpp model '{}' already loaded, reusing", current);
+                return Ok(provider);
+            }
+            info!(
+                "🔄 Loaded audioCpp model '{}' does not match requested '{}', reloading",
+                current,
+                requested_model.as_deref().unwrap_or("")
+            );
         }
     }
 
-    let configured_model = match crate::api::api::api_get_transcript_config(
-        app.clone(),
-        app.clone().state(),
-        None,
-    )
-    .await
-    {
-        Ok(Some(config)) if config.provider == AUDIO_CPP_PROVIDER => config.model,
-        Ok(Some(config)) => {
-            return Err(format!(
-                "Cannot initialize audioCpp: the transcript provider is '{}'. This is a bug in the transcription task initialization.",
-                config.provider
-            ))
-        }
-        Ok(None) => String::new(),
-        Err(e) => {
-            warn!("⚠️ Failed to get transcript config for audioCpp: {}", e);
-            String::new()
-        }
+    // The transcript config supplies the model only when no explicit model
+    // was requested; a batch job with an explicit model must not depend on
+    // (or validate against) the configured provider.
+    let configured_model = match requested_model {
+        Some(_) => String::new(),
+        None => match crate::api::api::api_get_transcript_config(
+            app.clone(),
+            app.clone().state(),
+            None,
+        )
+        .await
+        {
+            Ok(Some(config)) if config.provider == AUDIO_CPP_PROVIDER => config.model,
+            Ok(Some(config)) => {
+                return Err(format!(
+                    "Cannot initialize audioCpp: the transcript provider is '{}'. This is a bug in the transcription task initialization.",
+                    config.provider
+                ))
+            }
+            Ok(None) => String::new(),
+            Err(e) => {
+                warn!("⚠️ Failed to get transcript config for audioCpp: {}", e);
+                String::new()
+            }
+        },
     };
 
     let manager = crate::audio_cpp_engine::commands::model_manager().ok_or_else(|| {
@@ -296,10 +328,18 @@ pub async fn get_or_init_audio_cpp_provider<R: Runtime>(
         .await
         .map_err(|e| format!("Failed to discover audioCpp models: {}", e))?;
 
-    let model = crate::audio_cpp_engine::transcription::select_transcription_model(
-        &models,
-        &configured_model,
-    )
+    let model = match &requested_model {
+        Some(requested) => {
+            crate::audio_cpp_engine::transcription::select_requested_transcription_model(
+                &models,
+                requested,
+            )
+        }
+        None => crate::audio_cpp_engine::transcription::select_transcription_model(
+            &models,
+            &configured_model,
+        ),
+    }
     .map_err(|not_ready| {
         warn!("❌ audioCpp model not ready: {}", not_ready);
         not_ready.to_string()

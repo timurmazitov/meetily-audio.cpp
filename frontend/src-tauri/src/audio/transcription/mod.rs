@@ -27,6 +27,7 @@ pub use engine::{
     get_or_init_transcription_engine,
     get_or_init_whisper,
     get_or_init_audio_cpp_provider,
+    get_or_init_audio_cpp_provider_with_model,
     AUDIO_CPP_PROVIDER
 };
 pub use worker::{
