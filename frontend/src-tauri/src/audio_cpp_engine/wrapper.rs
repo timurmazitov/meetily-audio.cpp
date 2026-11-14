@@ -627,6 +627,9 @@ impl Drop for AudioCppResult {
 mod tests {
     use super::*;
 
+    /// Serializes tests that mutate or read the process environment.
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn library_file_names_cover_current_platform() {
         // Every platform must probe at least one name; Linux/Windows are
@@ -673,6 +676,7 @@ mod tests {
 
     #[test]
     fn env_override_wins_and_missing_override_is_an_error() {
+        let _guard = ENV_LOCK.lock().expect("env lock");
         // One test fn on purpose: env mutation must not race with itself.
         let dir = tempfile::tempdir().expect("tempdir");
         let lib = dir.path().join("libaudiocpp.so");
@@ -691,5 +695,29 @@ mod tests {
         );
 
         std::env::remove_var(AUDIOCPP_LIBRARY_ENV);
+    }
+
+    #[test]
+    fn library_next_to_executable_is_discovered() {
+        let _guard = ENV_LOCK.lock().expect("env lock");
+        // Bundler layout (MSI/NSIS): the runtime is staged into the install
+        // root next to the executable, so discovery must find it there
+        // without any environment override.
+        std::env::remove_var(AUDIOCPP_LIBRARY_ENV);
+        let exe_dir = std::env::current_exe()
+            .expect("test binary path")
+            .parent()
+            .expect("exe parent dir")
+            .to_path_buf();
+        let staged = exe_dir.join(LIBRARY_FILE_NAMES[0]);
+        assert!(
+            !staged.exists(),
+            "fixture path already occupied: {staged:?}"
+        );
+        std::fs::write(&staged, b"not a real library").expect("stage fixture");
+
+        let resolved = resolve_library_path();
+        std::fs::remove_file(&staged).expect("clean up fixture");
+        assert_eq!(resolved.expect("exe-adjacent library resolves"), staged);
     }
 }
