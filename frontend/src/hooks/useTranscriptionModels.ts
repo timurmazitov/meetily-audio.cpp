@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { isAvailableStatus, type AudioCppModelInfo } from '@/lib/audiocpp';
 
 export interface RawModelInfo {
   name: string;
@@ -8,7 +9,7 @@ export interface RawModelInfo {
 }
 
 export interface ModelOption {
-  provider: 'whisper' | 'parakeet';
+  provider: 'whisper' | 'parakeet' | 'audioCpp';
   name: string;
   displayName: string;
   size_mb: number;
@@ -77,6 +78,24 @@ export function useTranscriptionModels(transcriptModelConfig: TranscriptModelCon
       console.error('Failed to fetch Parakeet models:', err);
     }
 
+    // Fetch audioCpp models. Only installed transcription (`asr`) models are
+    // offered: a diarization model cannot produce a transcript, and a
+    // partial download must never be handed to a batch job.
+    try {
+      const audioCppModels = await invoke<AudioCppModelInfo[]>('audiocpp_get_available_models');
+      const availableAudioCpp = audioCppModels
+        .filter((m) => m.task === 'asr' && isAvailableStatus(m.status))
+        .map((m) => ({
+          provider: 'audioCpp' as const,
+          name: m.name,
+          displayName: `🎙️ audioCpp: ${m.display_name}`,
+          size_mb: m.size_mb,
+        }));
+      allModels.push(...availableAudioCpp);
+    } catch (err) {
+      console.error('Failed to fetch audioCpp models:', err);
+    }
+
     setAvailableModels(allModels);
 
     // Set default model based on user's saved configuration
@@ -88,7 +107,8 @@ export function useTranscriptionModels(transcriptModelConfig: TranscriptModelCon
     const configuredMatch = allModels.find(
       (m) =>
         (configuredProvider === 'localWhisper' && m.provider === 'whisper' && m.name === configuredModel) ||
-        (configuredProvider === 'parakeet' && m.provider === 'parakeet' && m.name === configuredModel)
+        (configuredProvider === 'parakeet' && m.provider === 'parakeet' && m.name === configuredModel) ||
+        (configuredProvider === 'audioCpp' && m.provider === 'audioCpp' && m.name === configuredModel)
     );
 
     // Only set default model if user hasn't manually selected one
