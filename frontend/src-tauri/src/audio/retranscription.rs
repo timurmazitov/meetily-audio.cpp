@@ -2,8 +2,10 @@
 
 use crate::audio::decoder::decode_audio_file;
 use crate::audio::vad::get_speech_chunks_with_progress;
-use super::common::{create_transcript_segments, split_segment_at_silence, write_transcripts_json};
+use super::common::{BatchEngine, create_transcript_segments, split_segment_at_silence, write_transcripts_json};
 use super::constants::AUDIO_EXTENSIONS;
+use super::transcription::engine::get_or_init_audio_cpp_provider_with_model;
+use super::transcription::provider::TranscriptionProvider;
 use crate::config::{DEFAULT_WHISPER_MODEL, DEFAULT_PARAKEET_MODEL};
 use crate::parakeet_engine::ParakeetEngine;
 use crate::state::AppState;
@@ -102,11 +104,11 @@ pub async fn start_retranscription<R: Runtime>(
     // Reset cancellation flag
     RETRANSCRIPTION_CANCELLED.store(false, Ordering::SeqCst);
 
-    let use_parakeet = provider.as_deref() == Some("parakeet");
+    let engine_kind = BatchEngine::from_provider_name(provider.as_deref());
     let result = run_retranscription(app.clone(), meeting_id.clone(), meeting_folder_path, language, model, provider).await;
 
     // Unload the engine after the batch job (success, failure, or cancellation)
-    super::common::unload_engine_after_batch(use_parakeet).await;
+    super::common::unload_engine_after_batch(engine_kind).await;
 
     // Guard will automatically clear flag on drop
     // No need for manual: RETRANSCRIPTION_IN_PROGRESS.store(false, Ordering::SeqCst);
@@ -182,7 +184,7 @@ async fn run_retranscription<R: Runtime>(
     let audio_path = find_audio_file(&folder_path)?;
 
     // Determine which provider to use (default to whisper)
-    let use_parakeet = provider.as_deref() == Some("parakeet");
+    let engine_kind = BatchEngine::from_provider_name(provider.as_deref());
 
     info!(
         "Starting retranscription for meeting {} with language {:?}, model {:?}, provider {:?}",
@@ -300,16 +302,26 @@ async fn run_retranscription<R: Runtime>(
     emit_progress(&app, &meeting_id, "transcribing", 25, "Loading transcription engine...");
 
     // Initialize the appropriate engine once (not per-segment)
-    let whisper_engine = if !use_parakeet {
+    let whisper_engine = if engine_kind == BatchEngine::Whisper {
         Some(get_or_init_whisper(&app, model.as_deref()).await?)
     } else {
         None
     };
-    let parakeet_engine = if use_parakeet {
+    let parakeet_engine = if engine_kind == BatchEngine::Parakeet {
         Some(get_or_init_parakeet(&app, model.as_deref()).await?)
     } else {
         None
     };
+    let audio_cpp_provider: Option<Arc<dyn TranscriptionProvider>> =
+        if engine_kind == BatchEngine::AudioCpp {
+            Some(
+                get_or_init_audio_cpp_provider_with_model(&app, model.clone())
+                    .await
+                    .map_err(|e| anyhow!(e))?,
+            )
+        } else {
+            None
+        };
 
     // Split very long segments at silence boundaries for better transcription quality.
     // Hard cuts at arbitrary sample positions lose words at boundaries. Instead, scan
@@ -369,13 +381,23 @@ async fn run_retranscription<R: Runtime>(
         }
 
         // Transcribe this segment
-        let (text, conf) = if use_parakeet {
+        let (text, conf) = if engine_kind == BatchEngine::Parakeet {
             let engine = parakeet_engine.as_ref().unwrap();
             let text = engine
                 .transcribe_audio(segment.samples.clone())
                 .await
                 .map_err(|e| anyhow!("Parakeet transcription failed on segment {}: {}", i, e))?;
             (text, 0.9f32)
+        } else if let Some(provider) = audio_cpp_provider.as_ref() {
+            // Same trait contract as the live pipeline: identical segments
+            // and model metadata. GigaAM transcribes in its trained language
+            // and ignores language hints; "auto-translate" is refused by the
+            // provider with a Whisper-only explanation.
+            let result = provider
+                .transcribe(segment.samples.clone(), language.clone())
+                .await
+                .map_err(|e| anyhow!("audioCpp transcription failed on segment {}: {}", i, e))?;
+            (result.text, result.confidence.unwrap_or(0.9f32))
         } else {
             let engine = whisper_engine.as_ref().unwrap();
             let (text, conf, _) = engine

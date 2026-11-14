@@ -14,10 +14,34 @@ pub(crate) async fn acquire_engine_lifecycle_lock() -> OwnedMutexGuard<()> {
     ENGINE_LIFECYCLE_LOCK.clone().lock_owned().await
 }
 
+/// Which transcription engine a batch job (import or retranscription) runs.
+/// Batch jobs name the provider explicitly, exactly like the live pipeline
+/// resolves it from the transcript configuration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BatchEngine {
+    Whisper,
+    Parakeet,
+    AudioCpp,
+}
+
+impl BatchEngine {
+    /// Map the provider name sent by the frontend to an engine.
+    ///
+    /// Anything unrecognized (including `None`) keeps the historical default:
+    /// Whisper.
+    pub(crate) fn from_provider_name(provider: Option<&str>) -> Self {
+        match provider {
+            Some("parakeet") => Self::Parakeet,
+            Some(crate::audio::transcription::audio_cpp_provider::PROVIDER_ID) => Self::AudioCpp,
+            _ => Self::Whisper,
+        }
+    }
+}
+
 /// Unload the transcription engine after a batch job (import or retranscription).
 /// Skips unloading if a live recording is currently in progress, since recording
 /// uses the same global engine instances.
-pub(crate) async fn unload_engine_after_batch(use_parakeet: bool) {
+pub(crate) async fn unload_engine_after_batch(engine: BatchEngine) {
     let _engine_lifecycle_guard = acquire_engine_lifecycle_lock().await;
 
     if crate::audio::recording_commands::is_recording().await {
@@ -25,23 +49,31 @@ pub(crate) async fn unload_engine_after_batch(use_parakeet: bool) {
         return;
     }
 
-    if use_parakeet {
-        use crate::parakeet_engine::commands::PARAKEET_ENGINE;
-        let engine = {
-            let guard = PARAKEET_ENGINE.lock().unwrap_or_else(|e| e.into_inner());
-            guard.as_ref().cloned()
-        };
-        if let Some(e) = engine {
-            e.unload_model().await;
+    match engine {
+        BatchEngine::Parakeet => {
+            use crate::parakeet_engine::commands::PARAKEET_ENGINE;
+            let engine = {
+                let guard = PARAKEET_ENGINE.lock().unwrap_or_else(|e| e.into_inner());
+                guard.as_ref().cloned()
+            };
+            if let Some(e) = engine {
+                e.unload_model().await;
+            }
         }
-    } else {
-        use crate::whisper_engine::commands::WHISPER_ENGINE;
-        let engine = {
-            let guard = WHISPER_ENGINE.lock().unwrap_or_else(|e| e.into_inner());
-            guard.as_ref().cloned()
-        };
-        if let Some(e) = engine {
-            e.unload_model().await;
+        BatchEngine::AudioCpp => {
+            // Releases the model and its session thread, mirroring the
+            // Whisper/Parakeet unload above.
+            crate::audio_cpp_engine::transcription::unload_provider();
+        }
+        BatchEngine::Whisper => {
+            use crate::whisper_engine::commands::WHISPER_ENGINE;
+            let engine = {
+                let guard = WHISPER_ENGINE.lock().unwrap_or_else(|e| e.into_inner());
+                guard.as_ref().cloned()
+            };
+            if let Some(e) = engine {
+                e.unload_model().await;
+            }
         }
     }
 }
@@ -214,6 +246,33 @@ pub(crate) fn split_segment_at_silence(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn batch_engine_selection_recognizes_audio_cpp() {
+        assert_eq!(
+            BatchEngine::from_provider_name(Some("audioCpp")),
+            BatchEngine::AudioCpp
+        );
+    }
+
+    #[test]
+    fn batch_engine_selection_recognizes_parakeet() {
+        assert_eq!(
+            BatchEngine::from_provider_name(Some("parakeet")),
+            BatchEngine::Parakeet
+        );
+    }
+
+    #[test]
+    fn batch_engine_selection_defaults_to_whisper() {
+        for provider in [None, Some("whisper"), Some("localWhisper"), Some("deepgram"), Some("")] {
+            assert_eq!(
+                BatchEngine::from_provider_name(provider),
+                BatchEngine::Whisper,
+                "provider: {provider:?}"
+            );
+        }
+    }
 
     #[tokio::test]
     async fn test_engine_lifecycle_lock_serializes_acquirers() {

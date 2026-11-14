@@ -56,6 +56,9 @@ pub enum ModelNotReady {
     NoModelInstalled,
     /// The configured model is a diarization model, not a transcription one.
     WrongTask { model: String, task: ModelTask },
+    /// The requested model is not in the catalog at all (e.g. it was removed
+    /// between listing and running a batch job).
+    NotFound { model: String },
     /// The artifact is absent, downloading, corrupted or errored.
     Status { model: String, status: ModelStatus },
 }
@@ -72,6 +75,11 @@ impl std::fmt::Display for ModelNotReady {
                 "audioCpp model '{}' is a {} model and cannot transcribe audio. Select a transcription model such as GigaAM v3 in Settings.",
                 model,
                 task.label().to_lowercase()
+            ),
+            Self::NotFound { model } => write!(
+                f,
+                "audioCpp model '{}' is not available. Download GigaAM v3 in Settings → Transcript Model → audioCpp models.",
+                model
             ),
             Self::Status { model, status } => match status {
                 ModelStatus::Missing => write!(
@@ -157,6 +165,30 @@ fn ensure_ready(model: &ModelInfo) -> Result<ModelInfo, ModelNotReady> {
         ref status => Err(ModelNotReady::Status {
             model: model.name.clone(),
             status: status.clone(),
+        }),
+    }
+}
+
+/// Picks one exact catalogued model for a batch job (retranscription or
+/// import), where the user chose the model in the dialog.
+///
+/// Unlike [`select_transcription_model`] there is no fallback to any
+/// installed model: silently transcribing with a different model than the
+/// one selected would defeat the comparison the user is making. A model that
+/// is not in the catalog, is of the wrong task, or is not fully installed is
+/// an error, mirroring the Whisper/Parakeet batch paths.
+pub fn select_requested_transcription_model(
+    models: &[ModelInfo],
+    requested: &str,
+) -> Result<ModelInfo, ModelNotReady> {
+    match models.iter().find(|model| model.name == requested) {
+        Some(model) if model.task != ModelTask::Asr => Err(ModelNotReady::WrongTask {
+            model: model.name.clone(),
+            task: model.task,
+        }),
+        Some(model) => ensure_ready(model),
+        None => Err(ModelNotReady::NotFound {
+            model: requested.to_string(),
         }),
     }
 }
@@ -348,5 +380,54 @@ mod tests {
                 "a model that is not fully installed must not be selected"
             );
         }
+    }
+
+    #[test]
+    fn batch_jobs_select_the_exact_requested_model() {
+        let models = vec![gigaam(ModelStatus::Available), nemotron(ModelStatus::Available)];
+
+        let selected = select_requested_transcription_model(&models, "gigaam-v3-e2e-ctc-f16").unwrap();
+
+        assert_eq!(selected.name, "gigaam-v3-e2e-ctc-f16");
+        assert_eq!(selected.task, ModelTask::Asr);
+    }
+
+    #[test]
+    fn batch_jobs_reject_a_requested_model_that_is_not_in_the_catalog() {
+        let models = vec![gigaam(ModelStatus::Available)];
+
+        let error = select_requested_transcription_model(&models, "removed-model").unwrap_err();
+
+        match &error {
+            ModelNotReady::NotFound { model } => assert_eq!(model, "removed-model"),
+            other => panic!("expected NotFound, got {other:?}"),
+        }
+        let text = error.to_string();
+        assert!(text.contains("removed-model"), "text: {text}");
+        assert!(text.contains("not available"), "text: {text}");
+    }
+
+    #[test]
+    fn batch_jobs_reject_a_requested_diarization_model() {
+        let models = vec![nemotron(ModelStatus::Available)];
+
+        let error = select_requested_transcription_model(&models, "nemotron-3-diarization-bf16").unwrap_err();
+
+        match &error {
+            ModelNotReady::WrongTask { task, .. } => assert_eq!(*task, ModelTask::Diar),
+            other => panic!("expected WrongTask, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn batch_jobs_report_a_requested_model_that_is_not_installed() {
+        let models = vec![gigaam(ModelStatus::Downloading { progress: 55 })];
+
+        let text = select_requested_transcription_model(&models, "gigaam-v3-e2e-ctc-f16")
+            .unwrap_err()
+            .to_string();
+
+        // No fallback: the user asked for this exact model in the dialog.
+        assert!(text.contains("55%"), "text: {text}");
     }
 }
