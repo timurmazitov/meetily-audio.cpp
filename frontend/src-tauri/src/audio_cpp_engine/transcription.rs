@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
 
+use super::backend::{autodetect_backend, shipped_variant};
 use super::catalog::{ModelInfo, ModelStatus, ModelTask};
 use super::engine::NativeAudioCppEngine;
 use super::wrapper::AudioCpp;
@@ -163,13 +164,26 @@ fn ensure_ready(model: &ModelInfo) -> Result<ModelInfo, ModelNotReady> {
 
 /// Loads the native library and the selected model into a provider.
 ///
+/// The compute backend is chosen here, once, from the app's hardware
+/// autodetect (priority CUDA → Vulkan → CPU) and mapped to the shipped
+/// library variant (`backend` module). Downloaded models are
+/// backend-agnostic, so the same GGUF loads on any variant.
+///
 /// Blocking: the library load and model load are slow. From async code call
 /// this inside `tokio::task::spawn_blocking`.
 pub fn load_native_provider(
     library: AudioCpp,
     model: &ModelInfo,
 ) -> Result<AudioCppProvider, ProviderLoadError> {
-    let engine = Arc::new(NativeAudioCppEngine::new(library));
+    let desired = autodetect_backend();
+    let variant = shipped_variant(desired);
+    log::info!(
+        "audioCpp compute backend: detected {}, running {} ({})",
+        desired.label(),
+        variant.label(),
+        variant.session_token()
+    );
+    let engine = Arc::new(NativeAudioCppEngine::new(library, variant));
     AudioCppProvider::load_blocking(engine, model.name.clone(), &model.path)
 }
 

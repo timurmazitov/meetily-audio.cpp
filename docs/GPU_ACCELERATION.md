@@ -12,6 +12,33 @@ Meetily uses the `whisper-rs` library, which supports several GPU acceleration b
 *   **Vulkan:** A cross-platform solution for modern AMD and Intel GPUs.
 *   **OpenBLAS:** A CPU-based optimization that can provide a significant speed-up over standard CPU processing.
 
+## The audioCpp provider
+
+The audioCpp provider (GigaAM / Nemotron via the audio.cpp engine) uses GPU
+acceleration differently from Whisper: instead of a compile-time feature flag,
+the audio.cpp library is loaded at runtime and its compute backend is chosen
+automatically from the same hardware detection (priority **CUDA → Vulkan →
+CPU**) that the rest of the app uses:
+
+*   **NVIDIA GPU detected** — the engine runs on GPU through the Vulkan
+    variant of the audio.cpp library (Vulkan is served by the NVIDIA driver
+    ICD). No manual configuration is needed.
+*   **AMD/Intel GPU detected** — the Vulkan variant is used.
+*   **No supported GPU** — the CPU variant is used and the app keeps working;
+    transcription is just slower.
+
+The pinned audio.cpp release archives ship one library per flavour
+(`lib-<platform>-cpu`, `lib-<platform>-vulkan`). Packaging places them next to
+the executable as `audiocpp-libs/cpu/` and `audiocpp-libs/vulkan/`; the loader
+picks the directory matching the autodetected backend (single-variant and
+development installs keep working via the flat layout, and the
+`AUDIOCPP_LIBRARY_PATH` environment variable still overrides everything).
+
+Downloaded models are backend-agnostic GGUF files: every library variant
+loads the same catalog, so switching the compute backend (or moving a model
+directory between machines) never invalidates an already-downloaded model or
+any provider setting.
+
 ## Automatic GPU Detection
 
 The build scripts (`dev-gpu.sh`, `build-gpu.sh`) are designed to automatically detect your GPU and enable the appropriate feature flag during the build process. The detection is handled by the `scripts/auto-detect-gpu.js` script.
