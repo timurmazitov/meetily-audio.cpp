@@ -6,6 +6,8 @@ pub mod provider;
 pub mod whisper_provider;
 pub mod parakeet_provider;
 pub mod audio_cpp_provider;
+pub mod audio_cpp_diarizer;
+pub mod diarization;
 pub mod engine;
 pub mod worker;
 
@@ -17,6 +19,8 @@ pub use audio_cpp_provider::{
     AudioCppProvider, ProviderLoadError, PROVIDER_ID as AUDIO_CPP_PROVIDER_ID,
     TRANSLATION_WHISPER_ONLY_MESSAGE,
 };
+pub use audio_cpp_diarizer::{AudioCppDiarizer, DiarizationError, DiarizerLoadError};
+pub use diarization::{attribute_segments_to_speakers, SpeakerTurnInterval};
 pub use engine::{
     TranscriptionEngine,
     validate_transcription_model_ready,
