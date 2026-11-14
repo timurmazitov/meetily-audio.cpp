@@ -32,7 +32,7 @@ impl BatchEngine {
     pub(crate) fn from_provider_name(provider: Option<&str>) -> Self {
         match provider {
             Some("parakeet") => Self::Parakeet,
-            Some(crate::audio::transcription::audio_cpp_provider::PROVIDER_ID) => Self::AudioCpp,
+            Some(crate::audio::transcription::engine::AUDIO_CPP_PROVIDER) => Self::AudioCpp,
             _ => Self::Whisper,
         }
     }
@@ -78,9 +78,47 @@ pub(crate) async fn unload_engine_after_batch(engine: BatchEngine) {
     }
 }
 
+/// Find the audio file inside a meeting folder.
+///
+/// Tries the known recording names first (recording output and imports), then
+/// scans for any file with a supported audio extension. Shared by the
+/// retranscription and diarization paths so both agree on what counts as the
+/// recording.
+pub(crate) fn find_audio_file(folder: &Path) -> Option<std::path::PathBuf> {
+    const CANDIDATES: [&str; 10] = [
+        "audio.mp4",
+        "audio.m4a",
+        "audio.wav",
+        "audio.mp3",
+        "audio.flac",
+        "audio.ogg",
+        "recording.mp4",
+        "audio.mkv",
+        "audio.webm",
+        "audio.wma",
+    ];
+
+    for name in CANDIDATES {
+        let path = folder.join(name);
+        if path.exists() {
+            return Some(path);
+        }
+    }
+
+    std::fs::read_dir(folder).ok()?.flatten().find_map(|entry| {
+        let path = entry.path();
+        let extension = path.extension()?.to_string_lossy().to_lowercase();
+        crate::audio::constants::AUDIO_EXTENSIONS
+            .contains(&extension.as_str())
+            .then_some(path)
+    })
+}
+
 /// Create transcript segments from transcription results.
 /// Each tuple is (text, start_ms, end_ms) from VAD timestamps.
-pub(crate) fn create_transcript_segments(transcripts: &[(String, f64, f64)]) -> Vec<TranscriptSegment> {
+pub(crate) fn create_transcript_segments(
+    transcripts: &[(String, f64, f64)],
+) -> Vec<TranscriptSegment> {
     transcripts
         .iter()
         .map(|(text, start_ms, end_ms)| {
@@ -118,6 +156,7 @@ pub(crate) fn write_transcripts_json(folder: &Path, segments: &[TranscriptSegmen
                 "audio_start_time": s.audio_start_time,
                 "audio_end_time": s.audio_end_time,
                 "duration": s.duration,
+                "speaker": s.speaker,
                 "sequence_id": i
             })
         }).collect::<Vec<_>>()
@@ -159,8 +198,8 @@ pub(crate) fn split_segment_at_silence(
         return vec![segment.clone()];
     }
 
-    let ms_per_sample = (segment.end_timestamp_ms - segment.start_timestamp_ms)
-        / segment.samples.len() as f64;
+    let ms_per_sample =
+        (segment.end_timestamp_ms - segment.start_timestamp_ms) / segment.samples.len() as f64;
     let mut result = Vec::new();
     let mut pos = 0usize;
 
@@ -266,13 +305,90 @@ mod tests {
 
     #[test]
     fn batch_engine_selection_defaults_to_whisper() {
-        for provider in [None, Some("whisper"), Some("localWhisper"), Some("deepgram"), Some("")] {
+        for provider in [
+            None,
+            Some("whisper"),
+            Some("localWhisper"),
+            Some("deepgram"),
+            Some(""),
+        ] {
             assert_eq!(
                 BatchEngine::from_provider_name(provider),
                 BatchEngine::Whisper,
                 "provider: {provider:?}"
             );
         }
+    }
+
+    #[test]
+    fn find_audio_file_prefers_the_known_recording_names() {
+        let dir = tempfile::tempdir().unwrap();
+
+        assert!(find_audio_file(dir.path()).is_none());
+
+        std::fs::write(dir.path().join("audio.wav"), b"fake").unwrap();
+        let found = find_audio_file(dir.path()).expect("audio.wav is a known name");
+        assert_eq!(found.file_name().unwrap(), "audio.wav");
+
+        // Imports can land as .wav/.m4a/.flac too; the candidate order wins.
+        std::fs::write(dir.path().join("audio.m4a"), b"fake").unwrap();
+        std::fs::write(dir.path().join("audio.mp4"), b"fake").unwrap();
+        let found = find_audio_file(dir.path()).unwrap();
+        assert_eq!(found.file_name().unwrap(), "audio.mp4");
+    }
+
+    #[test]
+    fn find_audio_file_falls_back_to_any_audio_extension() {
+        let dir = tempfile::tempdir().unwrap();
+
+        std::fs::write(dir.path().join("my_recording.flac"), b"fake").unwrap();
+        std::fs::write(dir.path().join("notes.txt"), b"text").unwrap();
+
+        let found = find_audio_file(dir.path()).expect("fallback scan finds the audio file");
+        assert_eq!(found.file_name().unwrap(), "my_recording.flac");
+    }
+
+    #[test]
+    fn find_audio_file_reports_absence_instead_of_guessing() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(find_audio_file(dir.path()).is_none());
+        assert!(find_audio_file(Path::new("/nonexistent/path/12345")).is_none());
+    }
+
+    #[test]
+    fn transcripts_json_keeps_the_diarization_speaker_label() {
+        let dir = tempfile::tempdir().unwrap();
+        let segments = vec![
+            TranscriptSegment {
+                id: "t1".to_string(),
+                text: "hello".to_string(),
+                timestamp: "2026-01-01T00:00:00Z".to_string(),
+                audio_start_time: Some(0.0),
+                audio_end_time: Some(1.0),
+                duration: Some(1.0),
+                speaker: Some("speaker_1".to_string()),
+            },
+            TranscriptSegment {
+                id: "t2".to_string(),
+                text: "world".to_string(),
+                timestamp: "2026-01-01T00:00:01Z".to_string(),
+                audio_start_time: Some(1.0),
+                audio_end_time: Some(2.0),
+                duration: Some(1.0),
+                speaker: None,
+            },
+        ];
+
+        write_transcripts_json(dir.path(), &segments).expect("transcript file is written");
+
+        let written: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(dir.path().join("transcripts.json")).unwrap(),
+        )
+        .unwrap();
+        // The export must carry the label the database already has, so an
+        // exported meeting does not lose who said what.
+        assert_eq!(written["segments"][0]["speaker"], "speaker_1");
+        assert_eq!(written["segments"][1]["speaker"], serde_json::Value::Null);
     }
 
     #[tokio::test]

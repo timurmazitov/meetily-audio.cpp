@@ -97,10 +97,26 @@ test('renders no speaker chip when the segment was not diarized', async () => {
   expect(text(view)).toContain('No labels here');
 });
 
-test('unknown speaker ids are shown verbatim instead of being dropped', async () => {
+test('renders no speaker chip for a legacy audio-source value', async () => {
+  // The reused `speaker` column documented 'mic'/'system' before
+  // diarization; those are audio sources, not speakers, and must not
+  // surface as "mic" chips on old meetings.
+  const view = await render([
+    { id: 't1', timestamp: 0, text: 'Legacy row', speaker: 'mic' },
+    { id: 't2', timestamp: 1, text: 'Legacy row two', speaker: 'system' },
+  ]);
+
+  expect(text(view)).not.toContain('Speaker ');
+  expect(text(view)).not.toContain('mic');
+  expect(text(view)).not.toContain('system');
+  expect(text(view)).toContain('Legacy row');
+});
+
+test('renders no chip for an unrecognized free-form speaker value', async () => {
   const view = await render([
     { id: 't1', timestamp: 0, text: 'Custom label', speaker: 'Guest A' },
   ]);
 
-  expect(text(view)).toContain('Guest A');
+  expect(text(view)).not.toContain('Guest A');
+  expect(text(view)).not.toContain('Speaker ');
 });

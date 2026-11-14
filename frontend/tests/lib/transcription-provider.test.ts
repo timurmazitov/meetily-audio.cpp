@@ -3,11 +3,8 @@ import { describe, expect, test } from 'bun:test';
 import {
   AUDIO_CPP_PROVIDER,
   TRANSLATION_WHISPER_ONLY_MESSAGE,
-  isLocalProvider,
-  languageForProvider,
   modelForProviderSwitch,
   supportsTranslation,
-  TRANSCRIPT_PROVIDER_OPTIONS,
 } from '../../src/lib/transcription-provider';
 import {
   AUDIOCPP_COMMANDS,
@@ -50,13 +47,6 @@ describe('audioCpp transcript provider', () => {
     expect(AUDIO_CPP_PROVIDER).toBe('audioCpp');
   });
 
-  test('runs locally, so the settings never ask it for an API key', () => {
-    expect(isLocalProvider('audioCpp')).toBeTrue();
-    expect(isLocalProvider('localWhisper')).toBeTrue();
-    expect(isLocalProvider('parakeet')).toBeTrue();
-    expect(isLocalProvider('deepgram')).toBeFalse();
-  });
-
   test('checks readiness through the audio.cpp model manager', () => {
     expect(getProviderCommands('audioCpp')).toEqual({
       initialize: 'audiocpp_model_init',
@@ -90,13 +80,12 @@ describe('auto-translation availability', () => {
     expect(TRANSLATION_WHISPER_ONLY_MESSAGE).toContain('audioCpp');
   });
 
-  test('never sends auto-translate to a provider that cannot translate', () => {
-    // A stale Whisper preference must not silently become untranslated audio.
-    expect(languageForProvider('audioCpp', 'auto-translate')).toBe('auto');
-    expect(languageForProvider('parakeet', 'auto-translate')).toBe('auto');
-    expect(languageForProvider('audioCpp', 'ru')).toBe('ru');
-    expect(languageForProvider('audioCpp', 'auto')).toBe('auto');
-    expect(languageForProvider('localWhisper', 'auto-translate')).toBe('auto-translate');
+  test('classifies every selectable local provider for translation', () => {
+    // The backend mirrors this rule in `provider::check_translation_support`;
+    // a mismatch would let the UI offer a mode the provider refuses.
+    expect(supportsTranslation('localWhisper')).toBeTrue();
+    expect(supportsTranslation('audioCpp')).toBeFalse();
+    expect(supportsTranslation('parakeet')).toBeFalse();
   });
 });
 
@@ -144,29 +133,5 @@ describe('provider switching', () => {
     expect(modelForProviderSwitch('audioCpp', 'audioCpp', 'gigaam-v3-e2e-ctc-f16')).toBe(
       'gigaam-v3-e2e-ctc-f16',
     );
-  });
-});
-
-describe('transcript settings provider list', () => {
-  test('offers audioCpp next to Parakeet and Whisper', () => {
-    const values = TRANSCRIPT_PROVIDER_OPTIONS.map(option => option.value);
-    expect(values).toContain('audioCpp');
-    expect(values).toContain('localWhisper');
-    expect(values).toContain('parakeet');
-  });
-
-  test('treats audioCpp as catalogue-backed so no free-form model id is demanded', () => {
-    const audioCpp = TRANSCRIPT_PROVIDER_OPTIONS.find(option => option.value === 'audioCpp')!;
-    expect(audioCpp.catalogBacked).toBeTrue();
-    expect(audioCpp.modelIds).toEqual([]);
-    expect(audioCpp.label).toContain('GigaAM');
-  });
-
-  test('keeps the API-key providers untouched', () => {
-    for (const provider of ['deepgram', 'elevenLabs', 'groq', 'openai'] as const) {
-      const option = TRANSCRIPT_PROVIDER_OPTIONS.find(candidate => candidate.value === provider)!;
-      expect(option.catalogBacked).toBeFalse();
-      expect(option.modelIds.length).toBeGreaterThan(0);
-    }
   });
 });

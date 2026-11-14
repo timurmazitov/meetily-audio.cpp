@@ -40,17 +40,21 @@ export interface VirtualizedTranscriptViewProps {
 const VIRTUALIZATION_THRESHOLD = 10;
 
 // Helper function to format a diarization speaker label for display.
-// Stored labels are `speaker_0`, `speaker_1`, … (GLOSSARY: «спикер»
-// identified by order of appearance); the UI shows "Speaker 1", "Speaker 2".
+// Only diarization labels (`speaker_0`, `speaker_1`, …) get a chip: they are
+// the only values the diarization pass writes (GLOSSARY: «спикер» identified
+// by order of appearance). The legacy `speaker` column documented
+// `'mic'`/`'system'` audio-source values, and any other free-form value is
+// not a diarization label, so it must not render as a speaker chip.
 function formatSpeakerLabel(speaker: string | undefined): string | null {
     if (!speaker) return null;
     const match = /^speaker_(\d+)$/.exec(speaker);
-    if (!match) return speaker;
+    if (!match) return null;
     return `Speaker ${Number(match[1]) + 1}`;
 }
 
 // Helper function to format seconds as recording-relative time [MM:SS]
-function formatRecordingTime(seconds: number | undefined): string {    if (seconds === undefined) return '[--:--]';
+function formatRecordingTime(seconds: number | undefined): string {
+    if (seconds === undefined) return '[--:--]';
 
     const totalSeconds = Math.floor(seconds);
     const minutes = Math.floor(totalSeconds / 60);

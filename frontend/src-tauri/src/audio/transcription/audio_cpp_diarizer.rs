@@ -6,30 +6,25 @@
 //
 // Design notes (mirror of audio_cpp_provider.rs, which see):
 // - The model and its session live on a dedicated thread for their whole
-//   lifetime; audio.cpp handles are not thread-safe individually. Requests
-//   arrive over a channel and are awaited without blocking the async
-//   runtime, so a long diarization pass never freezes the UI.
+//   lifetime; audio.cpp handles are not thread-safe individually. The
+//   thread machinery itself is shared with the provider in
+//   `audio_cpp_engine::session_thread`.
 // - Input is the pipeline contract: 16 kHz mono f32, exactly what the
 //   recording decoder produces.
 // - Capability gate: the model must support `diar` / `offline`.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
-use std::thread::JoinHandle;
 
 use log::info;
 
-use crate::audio_cpp_engine::engine::{AudioCppEngine, DiarizationOutput, DIAR_TASK, OFFLINE_MODE};
+use crate::audio_cpp_engine::engine::{
+    AudioCppEngine, AudioCppModel, DiarizationOutput, DIAR_TASK, MIN_SAMPLES, OFFLINE_MODE,
+};
 use crate::audio_cpp_engine::error::AudioCppError;
+use crate::audio_cpp_engine::session_thread::{SessionLoadError, SessionTask, SessionThread};
 use crate::audio_cpp_engine::wrapper::SpeakerTurn;
-
-/// The audio pipeline delivers 16 kHz mono f32.
-pub const SAMPLE_RATE: i32 = 16_000;
-
-/// Shortest input worth sending to the engine (10 ms at 16 kHz).
-pub const MIN_SAMPLES: usize = 160;
 
 /// Failure of a diarization model load, with a user-facing message.
 #[derive(Debug, Clone, PartialEq)]
@@ -55,6 +50,11 @@ impl std::fmt::Display for DiarizerLoadError {
 
 impl std::error::Error for DiarizerLoadError {}
 
+/// Maps a session-thread load failure onto the diarizer's error.
+fn load_error(error: SessionLoadError) -> DiarizerLoadError {
+    DiarizerLoadError::Engine(error.detail)
+}
+
 /// Why one diarization request failed.
 #[derive(Debug, Clone, PartialEq)]
 pub enum DiarizationError {
@@ -75,11 +75,24 @@ impl std::fmt::Display for DiarizationError {
 
 impl std::error::Error for DiarizationError {}
 
-/// One diarization request handed to the session thread.
-struct SessionRequest {
-    audio: Vec<f32>,
-    reply: tokio::sync::oneshot::Sender<Result<DiarizationOutput, AudioCppError>>,
+/// The diarization work a [`SessionThread`] runs: `diar` / `offline`.
+struct DiarTask;
+
+impl SessionTask for DiarTask {
+    type Output = DiarizationOutput;
+
+    const TASK: &'static str = DIAR_TASK;
+
+    fn run(
+        model: &mut dyn AudioCppModel,
+        audio: &[f32],
+        sample_rate: i32,
+    ) -> Result<DiarizationOutput, AudioCppError> {
+        model.diarize(audio, sample_rate)
+    }
 }
+
+type Session = SessionThread<DiarizationOutput>;
 
 /// audioCpp diarizer backed by the audio.cpp engine.
 ///
@@ -87,7 +100,7 @@ struct SessionRequest {
 /// ([`SessionThread`]); this struct holds only the channel to it.
 pub struct AudioCppDiarizer {
     model_name: String,
-    session: Mutex<Option<SessionThread>>,
+    session: Mutex<Option<Session>>,
     loaded: AtomicBool,
 }
 
@@ -111,12 +124,13 @@ impl AudioCppDiarizer {
         path: &Path,
     ) -> Result<Self, DiarizerLoadError> {
         let model_name = model_name.into();
-        let session = SessionThread::spawn(engine, path)?;
+        let session = Session::spawn::<DiarTask>(engine, path, "audiocpp-diar-session")
+            .map_err(load_error)?;
 
         // Capture the metadata before the rejection path consumes the
         // session thread.
         let family = session.family.clone();
-        if !session.supports_diar_offline {
+        if !session.supports_offline {
             session.shutdown();
             return Err(DiarizerLoadError::UnsupportedCapability {
                 model: model_name,
@@ -188,132 +202,23 @@ impl AudioCppDiarizer {
             return Err(DiarizationError::ModelNotLoaded);
         }
 
-        let sender = {
+        let handle = {
             let guard = self
                 .session
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             match guard.as_ref() {
-                Some(session) => session.sender.clone(),
+                Some(session) => session.handle(),
                 None => return Err(DiarizationError::ModelNotLoaded),
             }
         };
 
-        let (reply, receiver) = tokio::sync::oneshot::channel();
-        sender
-            .send(SessionRequest { audio, reply })
-            .map_err(|_| {
-                DiarizationError::EngineFailed(
-                    "audio.cpp session thread is no longer running; reload the model in Settings"
-                        .to_string(),
-                )
-            })?;
-
-        receiver
+        handle
+            .request(audio)
             .await
-            .map_err(|_| {
-                DiarizationError::EngineFailed(
-                    "audio.cpp session thread stopped before returning a result".to_string(),
-                )
-            })?
             .map(|output| output.turns)
             .map_err(|error| DiarizationError::EngineFailed(error.to_string()))
     }
-}
-
-/// The dedicated thread that owns the diarization model and its session.
-struct SessionThread {
-    sender: Sender<SessionRequest>,
-    join: Mutex<Option<JoinHandle<()>>>,
-    family: String,
-    supports_diar_offline: bool,
-}
-
-impl SessionThread {
-    fn spawn(engine: Arc<dyn AudioCppEngine>, path: &Path) -> Result<Self, DiarizerLoadError> {
-        let path = path.to_path_buf();
-        let (sender, receiver) = mpsc::channel::<SessionRequest>();
-        let (ready_tx, ready_rx) = mpsc::channel::<Result<SessionMetadata, DiarizerLoadError>>();
-
-        let join = std::thread::Builder::new()
-            .name("audiocpp-diar-session".to_string())
-            .spawn(move || run_session_thread(engine, path, receiver, ready_tx))
-            .map_err(|error| {
-                DiarizerLoadError::Engine(format!(
-                    "Failed to start audio.cpp diarization session thread: {error}"
-                ))
-            })?;
-
-        let metadata = ready_rx.recv().map_err(|_| {
-            DiarizerLoadError::Engine(
-                "audio.cpp diarization session thread stopped during model load".to_string(),
-            )
-        })??;
-
-        Ok(Self {
-            sender,
-            join: Mutex::new(Some(join)),
-            family: metadata.family,
-            supports_diar_offline: metadata.supports_diar_offline,
-        })
-    }
-
-    fn shutdown(self) {
-        let SessionThread { sender, join, .. } = self;
-        drop(sender);
-        let join = join
-            .into_inner()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if let Some(join) = join {
-            let _ = join.join();
-        }
-    }
-}
-
-struct SessionMetadata {
-    family: String,
-    supports_diar_offline: bool,
-}
-
-fn run_session_thread(
-    engine: Arc<dyn AudioCppEngine>,
-    path: PathBuf,
-    receiver: Receiver<SessionRequest>,
-    ready: Sender<Result<SessionMetadata, DiarizerLoadError>>,
-) {
-    let model = match engine.load_model(&path) {
-        Ok(model) => model,
-        Err(error) => {
-            let _ = ready.send(Err(DiarizerLoadError::Engine(error.to_string())));
-            return;
-        }
-    };
-
-    let family = model.family();
-    let supports_diar_offline = match model.supports(DIAR_TASK, OFFLINE_MODE) {
-        Ok(supported) => supported,
-        Err(error) => {
-            let _ = ready.send(Err(DiarizerLoadError::Engine(error.to_string())));
-            return;
-        }
-    };
-    if ready
-        .send(Ok(SessionMetadata {
-            family,
-            supports_diar_offline,
-        }))
-        .is_err()
-    {
-        return;
-    }
-
-    let mut model = model;
-    while let Ok(request) = receiver.recv() {
-        let result = model.diarize(&request.audio, SAMPLE_RATE);
-        let _ = request.reply.send(result);
-    }
-
-    drop(model);
 }
 
 impl Drop for AudioCppDiarizer {
@@ -335,7 +240,7 @@ mod tests {
     use std::sync::Mutex as StdMutex;
 
     use super::*;
-    use crate::audio_cpp_engine::engine::AudioCppModel;
+    use crate::audio_cpp_engine::engine::SAMPLE_RATE;
     use crate::audio_cpp_engine::error::Status;
 
     /// What the fake model observed, shared with the test.

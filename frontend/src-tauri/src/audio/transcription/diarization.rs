@@ -131,11 +131,17 @@ mod tests {
 
     #[test]
     fn an_exact_boundary_tie_goes_to_the_turn_that_starts_earliest() {
-        // Half of the segment lies in each turn with equal overlap; the
-        // earlier turn wins, so a boundary placement is deterministic.
-        let turns = turns(&[(0.0, 5.0, "SPEAKER_00"), (5.0, 10.0, "SPEAKER_01")]);
-        let labels = attribute_segments_to_speakers(&[(3.0, 7.0)], &turns);
-        assert_eq!(labels, vec![Some("speaker_0".to_string())]);
+        // Segment [3, 7] has 2s of overlap with each 5s turn. The turns
+        // arrive out of order, with the LATER turn first, and a preceding
+        // segment already numbered the later turn as speaker_0. The tie must
+        // therefore go to the earlier turn, which becomes speaker_1; a rule
+        // that followed list order (or numbering) would return speaker_0.
+        let turns = turns(&[(5.0, 10.0, "SPEAKER_01"), (0.0, 5.0, "SPEAKER_00")]);
+        let labels = attribute_segments_to_speakers(&[(6.0, 9.0), (3.0, 7.0)], &turns);
+        assert_eq!(
+            labels,
+            vec![Some("speaker_0".to_string()), Some("speaker_1".to_string())]
+        );
     }
 
     #[test]
@@ -175,10 +181,8 @@ mod tests {
         // The engine's first turn belongs to SPEAKER_07; the first speaker
         // the transcript meets must still be speaker_0.
         let turns = turns(&[(10.0, 20.0, "SPEAKER_07"), (0.0, 5.0, "SPEAKER_03")]);
-        let labels = attribute_segments_to_speakers(
-            &[(0.0, 5.0), (10.0, 20.0), (12.0, 14.0)],
-            &turns,
-        );
+        let labels =
+            attribute_segments_to_speakers(&[(0.0, 5.0), (10.0, 20.0), (12.0, 14.0)], &turns);
         assert_eq!(
             labels,
             vec![
@@ -192,10 +196,8 @@ mod tests {
     #[test]
     fn uncovered_segments_do_not_consume_speaker_numbers() {
         let turns = turns(&[(0.0, 5.0, "SPEAKER_00"), (10.0, 15.0, "SPEAKER_01")]);
-        let labels = attribute_segments_to_speakers(
-            &[(0.0, 5.0), (6.0, 8.0), (10.0, 15.0)],
-            &turns,
-        );
+        let labels =
+            attribute_segments_to_speakers(&[(0.0, 5.0), (6.0, 8.0), (10.0, 15.0)], &turns);
         assert_eq!(
             labels,
             vec![
@@ -208,12 +210,23 @@ mod tests {
 
     #[test]
     fn zero_length_segment_is_attributed_to_the_turn_containing_the_instant() {
-        let turns = turns(&[(0.0, 5.0, "SPEAKER_00"), (5.0, 10.0, "SPEAKER_01")]);
-        let labels = attribute_segments_to_speakers(&[(5.0, 5.0), (12.0, 12.0)], &turns);
-        // 5.0 is covered by the second turn (half-open intervals).
+        // A turn before the instant establishes speaker_0, so attributing the
+        // zero-length segment to the containing turn yields speaker_1. A rule
+        // that attributed it to the earliest turn (or to the first in the
+        // list) would return speaker_0 and fail.
+        let turns = turns(&[
+            (0.0, 3.0, "SPEAKER_00"),
+            (5.0, 10.0, "SPEAKER_01"),
+            (12.0, 15.0, "SPEAKER_02"),
+        ]);
+        let labels =
+            attribute_segments_to_speakers(&[(1.0, 1.0), (14.0, 14.0), (11.0, 11.0)], &turns);
+        // 1.0 is covered by the first turn.
         assert_eq!(labels[0], Some("speaker_0".to_string()));
-        // ...and 12.0 lies outside every turn.
-        assert_eq!(labels[1], None);
+        // 14.0 is covered by the third turn (half-open intervals).
+        assert_eq!(labels[1], Some("speaker_1".to_string()));
+        // 11.0 lies in the gap between turns: no label, no numbering consumed.
+        assert_eq!(labels[2], None);
     }
 
     #[test]

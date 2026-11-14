@@ -3,10 +3,10 @@
 //!
 //! Handwritten `extern "C"` binding to the audio.cpp C ABI (pinned release
 //! v0.9.4, ABI 0.2.0; there are no official Rust bindings). All
-//! interaction with the native library is isolated in `ffi` (raw symbols)
-//! and `wrapper` (safe opaque handles); the rest of the app only sees
-//! [`AudioCpp`], its handle wrappers, [`AudioCppError`] and the
-//! diagnostic command.
+//! interaction with the native library is isolated in `ffi` (raw symbols) and
+//! `wrapper` (safe opaque handles); the rest of the app only sees
+//! [`AudioCpp`], its handle wrappers, [`AudioCppError`] and the diagnostic
+//! command.
 //!
 //! Model management (`catalog`, `models`) is deliberately independent of the
 //! FFI layer: it lists, downloads, validates and deletes model files without
@@ -20,6 +20,8 @@
 //!   `tokio::task::spawn_blocking`.
 //! - The thread count is set per backend via [`BackendConfig`], never
 //!   through a global OpenMP setting.
+//! - A long-lived loaded model must live on its own thread; [`session_thread`]
+//!   is the one implementation of that contract.
 
 mod ffi;
 
@@ -29,23 +31,25 @@ pub mod commands;
 pub mod engine;
 pub mod error;
 pub mod models;
+pub mod session_thread;
 pub mod transcription;
 pub mod wrapper;
 
+pub use backend::{autodetect_backend, session_config, AudioCppBackend};
 pub use catalog::{ModelInfo, ModelSpec, ModelStatus, ModelTask};
 pub use commands::*;
-pub use backend::{autodetect_backend, session_config, shipped_variant, AudioCppBackend};
 pub use engine::{
     AudioCppEngine, AudioCppModel, DiarizationOutput, NativeAudioCppEngine, TranscriptionOutput,
-    ASR_TASK, DIAR_TASK, OFFLINE_MODE,
-};
-pub use transcription::{
-    load_native_provider, provider as audio_cpp_provider, select_transcription_model,
-    set_provider as set_audio_cpp_provider, unload_provider as unload_audio_cpp_provider,
-    ModelNotReady,
+    ASR_TASK, DIAR_TASK, MIN_SAMPLES, OFFLINE_MODE, SAMPLE_RATE,
 };
 pub use error::{AbiVersion, AudioCppError, Status};
 pub use models::{AudioCppModelManager, CancelDownloadOutcome};
+pub use session_thread::{SessionHandle, SessionLoadError, SessionTask, SessionThread};
+pub use transcription::{
+    load_native_engine, load_native_provider, provider as audio_cpp_provider,
+    select_transcription_model, set_provider as set_audio_cpp_provider,
+    unload_provider as unload_audio_cpp_provider, ModelNotReady,
+};
 pub use wrapper::{
     AudioCpp, AudioCppResult, BackendConfig, Model, Options, Registry, Request, Segment, Session,
     SpeakerTurn,

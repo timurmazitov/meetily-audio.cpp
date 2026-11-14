@@ -11,9 +11,10 @@ use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
 
-use super::backend::{autodetect_backend, shipped_variant};
+use super::backend::autodetect_backend;
 use super::catalog::{ModelInfo, ModelStatus, ModelTask};
-use super::engine::NativeAudioCppEngine;
+use super::engine::{AudioCppEngine, NativeAudioCppEngine};
+use super::error::AudioCppError;
 use super::wrapper::AudioCpp;
 use crate::audio::transcription::audio_cpp_provider::{AudioCppProvider, ProviderLoadError};
 
@@ -194,28 +195,36 @@ pub fn select_requested_transcription_model(
     }
 }
 
+/// Loads the native audio.cpp library into an [`AudioCppEngine`].
+///
+/// This is the single place that chooses the compute backend and constructs
+/// the engine, shared by the transcription provider and the diarizer. The
+/// backend decision itself is `backend::autodetect_backend`, which is already
+/// limited to the library variants the pinned archives ship.
+///
+/// Blocking: the dynamic library load and ABI gate are slow. From async code
+/// call this inside `tokio::task::spawn_blocking`.
+pub fn load_native_engine() -> Result<Arc<dyn AudioCppEngine>, AudioCppError> {
+    let backend = autodetect_backend();
+    log::info!(
+        "audioCpp compute backend: {} ({})",
+        backend.label(),
+        backend.session_token()
+    );
+    let library = AudioCpp::load_backend(backend)?;
+    Ok(Arc::new(NativeAudioCppEngine::new(library, backend)))
+}
+
 /// Loads the native library and the selected model into a provider.
 ///
-/// The compute backend is chosen here, once, from the app's hardware
-/// autodetect (priority CUDA → Vulkan → CPU) and mapped to the shipped
-/// library variant (`backend` module). Downloaded models are
-/// backend-agnostic, so the same GGUF loads on any variant.
+/// Downloaded models are backend-agnostic, so the same GGUF loads on any
+/// library variant.
 ///
 /// Blocking: the library load and model load are slow. From async code call
 /// this inside `tokio::task::spawn_blocking`.
-pub fn load_native_provider(
-    library: AudioCpp,
-    model: &ModelInfo,
-) -> Result<AudioCppProvider, ProviderLoadError> {
-    let desired = autodetect_backend();
-    let variant = shipped_variant(desired);
-    log::info!(
-        "audioCpp compute backend: detected {}, running {} ({})",
-        desired.label(),
-        variant.label(),
-        variant.session_token()
-    );
-    let engine = Arc::new(NativeAudioCppEngine::new(library, variant));
+pub fn load_native_provider(model: &ModelInfo) -> Result<AudioCppProvider, ProviderLoadError> {
+    let engine =
+        load_native_engine().map_err(|error| ProviderLoadError::Engine(error.to_string()))?;
     AudioCppProvider::load_blocking(engine, model.name.clone(), &model.path)
 }
 
@@ -246,7 +255,10 @@ mod tests {
 
     #[test]
     fn an_installed_configured_model_is_selected() {
-        let models = vec![gigaam(ModelStatus::Available), nemotron(ModelStatus::Missing)];
+        let models = vec![
+            gigaam(ModelStatus::Available),
+            nemotron(ModelStatus::Missing),
+        ];
 
         let selected = select_transcription_model(&models, "gigaam-v3-e2e-ctc-f16").unwrap();
 
@@ -325,7 +337,10 @@ mod tests {
 
     #[test]
     fn an_unknown_configured_model_falls_back_to_an_installed_transcription_model() {
-        let models = vec![gigaam(ModelStatus::Available), nemotron(ModelStatus::Available)];
+        let models = vec![
+            gigaam(ModelStatus::Available),
+            nemotron(ModelStatus::Available),
+        ];
 
         let selected = select_transcription_model(&models, "removed-model").unwrap();
 
@@ -348,10 +363,13 @@ mod tests {
 
         let error = select_transcription_model(&models, "gigaam-v3-e2e-ctc-f16").unwrap_err();
 
-        assert_eq!(error, ModelNotReady::Status {
-            model: "gigaam-v3-e2e-ctc-f16".to_string(),
-            status: ModelStatus::Missing,
-        });
+        assert_eq!(
+            error,
+            ModelNotReady::Status {
+                model: "gigaam-v3-e2e-ctc-f16".to_string(),
+                status: ModelStatus::Missing,
+            }
+        );
 
         let empty: Vec<ModelInfo> = Vec::new();
         let text = select_transcription_model(&empty, "gigaam-v3-e2e-ctc-f16")
@@ -398,9 +416,13 @@ mod tests {
 
     #[test]
     fn batch_jobs_select_the_exact_requested_model() {
-        let models = vec![gigaam(ModelStatus::Available), nemotron(ModelStatus::Available)];
+        let models = vec![
+            gigaam(ModelStatus::Available),
+            nemotron(ModelStatus::Available),
+        ];
 
-        let selected = select_requested_transcription_model(&models, "gigaam-v3-e2e-ctc-f16").unwrap();
+        let selected =
+            select_requested_transcription_model(&models, "gigaam-v3-e2e-ctc-f16").unwrap();
 
         assert_eq!(selected.name, "gigaam-v3-e2e-ctc-f16");
         assert_eq!(selected.task, ModelTask::Asr);
@@ -425,7 +447,8 @@ mod tests {
     fn batch_jobs_reject_a_requested_diarization_model() {
         let models = vec![nemotron(ModelStatus::Available)];
 
-        let error = select_requested_transcription_model(&models, "nemotron-3-diarization-bf16").unwrap_err();
+        let error = select_requested_transcription_model(&models, "nemotron-3-diarization-bf16")
+            .unwrap_err();
 
         match &error {
             ModelNotReady::WrongTask { task, .. } => assert_eq!(*task, ModelTask::Diar),

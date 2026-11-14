@@ -36,7 +36,7 @@ graph TD
 
 *   **Tauri Core:** The heart of the application, responsible for managing the window, handling events, and exposing the Rust core to the frontend.
 *   **Audio Engine:** Captures audio from the microphone and system, processes it, and prepares it for transcription.
-*   **Transcription Engine:** Uses local speech-to-text models (Whisper or Parakeet) to transcribe the captured audio. It can be accelerated with a GPU.
+*   **Transcription Engine:** Uses local speech-to-text models (Whisper, Parakeet, or audioCpp via audio.cpp/GigaAM) to transcribe the captured audio. It can be accelerated with a GPU.
 *   **Database:** A local SQLite database that stores meeting metadata, transcripts, and summaries.
 *   **Summary Engine:** Generates meeting summaries using various Large Language Models (LLMs), including local models via Ollama.
 
@@ -71,7 +71,7 @@ For audio changes, start in the relevant subsystem:
 
 ## Transcription and Model Management
 
-Local speech recognition is implemented through the Whisper and Parakeet providers under [audio/transcription/](../frontend/src-tauri/src/audio/transcription/). Whisper model discovery, downloads, loading, and cached context are managed by [whisper_engine.rs](../frontend/src-tauri/src/whisper_engine/whisper_engine.rs).
+Local speech recognition is implemented through the Whisper, Parakeet, and audioCpp providers under [audio/transcription/](../frontend/src-tauri/src/audio/transcription/). audioCpp also provides offline speaker diarization (Nemotron) as a post-transcription pass. Whisper model discovery, downloads, loading, and cached context are managed by [whisper_engine.rs](../frontend/src-tauri/src/whisper_engine/whisper_engine.rs).
 
 The audio.cpp provider keeps its model catalog and download lifecycle in [audio_cpp_engine/](../frontend/src-tauri/src/audio_cpp_engine/): `catalog.rs` describes each supported model (audio.cpp family, task, quantization, pinned upstream revision, exact size) and `models.rs` owns discovery, download, cancellation and deletion. Both are engine-independent — they never load the native library — so models can be managed before transcription is wired up. Downloads use the shared [model_downloader.rs](../frontend/src-tauri/src/model_downloader.rs) mechanism and validate the GGUF header plus the exact catalogued size; model state is derived from disk on every query, so it survives restarts. The settings UI renders this list with [AudioCppModelManager.tsx](../frontend/src/components/AudioCppModelManager.tsx).
 
