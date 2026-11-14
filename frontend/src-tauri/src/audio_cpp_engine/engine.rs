@@ -17,8 +17,9 @@
 use std::path::Path;
 use std::sync::Mutex;
 
+use super::backend::{session_config, AudioCppBackend};
 use super::error::AudioCppError;
-use super::wrapper::{AudioCpp, BackendConfig, Model, Request, Segment, Session};
+use super::wrapper::{AudioCpp, Model, Request, Segment, Session};
 
 /// audio.cpp task token for speech recognition.
 pub const ASR_TASK: &str = "asr";
@@ -63,11 +64,15 @@ pub trait AudioCppModel: Send {
 /// [`AudioCppEngine`] backed by the loaded native library.
 pub struct NativeAudioCppEngine {
     library: AudioCpp,
+    /// The compute backend every session of every model loaded through
+    /// this engine runs on (chosen by `backend::autodetect_backend` and
+    /// mapped to a shipped library variant at load time).
+    backend: AudioCppBackend,
 }
 
 impl NativeAudioCppEngine {
-    pub fn new(library: AudioCpp) -> Self {
-        Self { library }
+    pub fn new(library: AudioCpp, backend: AudioCppBackend) -> Self {
+        Self { library, backend }
     }
 }
 
@@ -77,9 +82,11 @@ impl AudioCppEngine for NativeAudioCppEngine {
         // provider never guesses a family (docs/research/audio-cpp-c-api.md).
         let registry = self.library.create_registry()?;
         let model = registry.load_model(path, None)?;
+        let backend = self.backend;
         Ok(Box::new(NativeAudioCppModel {
             library: self.library.clone(),
             model,
+            backend,
             session: Mutex::new(None),
         }))
     }
@@ -89,6 +96,7 @@ impl AudioCppEngine for NativeAudioCppEngine {
 struct NativeAudioCppModel {
     library: AudioCpp,
     model: Model,
+    backend: AudioCppBackend,
     /// Reused asr/offline session. Guarded so a handle is never used by two
     /// threads at once; created lazily on the first request.
     session: Mutex<Option<Session>>,
@@ -118,7 +126,7 @@ impl AudioCppModel for NativeAudioCppModel {
             *guard = Some(self.model.create_session(
                 ASR_TASK,
                 OFFLINE_MODE,
-                Some(&BackendConfig::default()),
+                Some(&session_config(self.backend)),
                 None,
             )?);
         }
