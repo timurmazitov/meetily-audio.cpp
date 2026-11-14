@@ -147,6 +147,26 @@ export function useImportAudio({
         return;
       }
       unlisteners.push(unlistenError);
+
+      // Speaker labels were skipped (no Nemotron model, or the pass failed).
+      // The transcript is complete; this is a hint, not an error.
+      const unlistenDiarization = await listen<{ meeting_id?: string; message?: string }>(
+        'diarization-unavailable',
+        (event) => {
+          if (isCancelledRef.current) return;
+          toast.info('Speaker labels not assigned', {
+            description:
+              event.payload.message ??
+              'Download the Nemotron-3-Diarization model in Settings to see who said what.',
+          });
+        }
+      );
+      if (cleanedUpRef.current) {
+        unlistenDiarization();
+        unlisteners.forEach(u => u());
+        return;
+      }
+      unlisteners.push(unlistenDiarization);
     };
 
     setupListeners();

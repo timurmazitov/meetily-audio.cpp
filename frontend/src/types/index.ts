@@ -16,6 +16,8 @@ export interface Transcript {
   audio_start_time?: number; // Seconds from recording start (e.g., 125.3)
   audio_end_time?: number;   // Seconds from recording start (e.g., 128.6)
   duration?: number;          // Segment duration in seconds (e.g., 3.3)
+  /** Diarization speaker label (`speaker_0`, `speaker_1`, …); absent when not diarized. */
+  speaker?: string;
 }
 
 export interface TranscriptUpdate {
@@ -141,4 +143,6 @@ export interface TranscriptSegmentData {
   endTime?: number; // audio_end_time in seconds
   text: string;
   confidence?: number;
+  /** Diarization speaker label (`speaker_0`, `speaker_1`, …); absent when not diarized. */
+  speaker?: string;
 }

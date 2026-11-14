@@ -585,6 +585,14 @@ mod tests {
             }
             Ok(self.output.clone())
         }
+
+        fn diarize(
+            &mut self,
+            _audio: &[f32],
+            _sample_rate: i32,
+        ) -> Result<crate::audio_cpp_engine::DiarizationOutput, AudioCppError> {
+            unimplemented!("the transcription provider never diarizes")
+        }
     }
 
     fn error_status(error: &AudioCppError) -> Status {

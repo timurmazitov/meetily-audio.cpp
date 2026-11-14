@@ -1,0 +1,607 @@
+// audio/transcription/audio_cpp_diarizer.rs
+//
+// audioCpp diarization: runs Nemotron-3-Diarization over a whole recording
+// after transcription and returns speaker turns (GLOSSARY: «поворот
+// спикера»), which the caller overlays onto transcript segments.
+//
+// Design notes (mirror of audio_cpp_provider.rs, which see):
+// - The model and its session live on a dedicated thread for their whole
+//   lifetime; audio.cpp handles are not thread-safe individually. Requests
+//   arrive over a channel and are awaited without blocking the async
+//   runtime, so a long diarization pass never freezes the UI.
+// - Input is the pipeline contract: 16 kHz mono f32, exactly what the
+//   recording decoder produces.
+// - Capability gate: the model must support `diar` / `offline`.
+
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::{Arc, Mutex};
+use std::thread::JoinHandle;
+
+use log::info;
+
+use crate::audio_cpp_engine::engine::{AudioCppEngine, DiarizationOutput, DIAR_TASK, OFFLINE_MODE};
+use crate::audio_cpp_engine::error::AudioCppError;
+use crate::audio_cpp_engine::wrapper::SpeakerTurn;
+
+/// The audio pipeline delivers 16 kHz mono f32.
+pub const SAMPLE_RATE: i32 = 16_000;
+
+/// Shortest input worth sending to the engine (10 ms at 16 kHz).
+pub const MIN_SAMPLES: usize = 160;
+
+/// Failure of a diarization model load, with a user-facing message.
+#[derive(Debug, Clone, PartialEq)]
+pub enum DiarizerLoadError {
+    /// The native engine refused or failed to load the model file.
+    Engine(String),
+    /// The model loaded but cannot run offline diarization.
+    UnsupportedCapability { model: String, family: String },
+}
+
+impl std::fmt::Display for DiarizerLoadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Engine(detail) => write!(f, "Failed to load audio.cpp model: {detail}"),
+            Self::UnsupportedCapability { model, family } => write!(
+                f,
+                "Model '{}' (family '{}') cannot diarize audio offline. Choose a diarization model such as Nemotron-3-Diarization in Settings.",
+                model, family
+            ),
+        }
+    }
+}
+
+impl std::error::Error for DiarizerLoadError {}
+
+/// Why one diarization request failed.
+#[derive(Debug, Clone, PartialEq)]
+pub enum DiarizationError {
+    /// The diarization model is not loaded (or was unloaded).
+    ModelNotLoaded,
+    /// The engine run failed; the detail is diagnostic.
+    EngineFailed(String),
+}
+
+impl std::fmt::Display for DiarizationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ModelNotLoaded => write!(f, "Diarization model is not loaded"),
+            Self::EngineFailed(detail) => write!(f, "Diarization failed: {detail}"),
+        }
+    }
+}
+
+impl std::error::Error for DiarizationError {}
+
+/// One diarization request handed to the session thread.
+struct SessionRequest {
+    audio: Vec<f32>,
+    reply: tokio::sync::oneshot::Sender<Result<DiarizationOutput, AudioCppError>>,
+}
+
+/// audioCpp diarizer backed by the audio.cpp engine.
+///
+/// The engine model and its session live on a dedicated thread
+/// ([`SessionThread`]); this struct holds only the channel to it.
+pub struct AudioCppDiarizer {
+    model_name: String,
+    session: Mutex<Option<SessionThread>>,
+    loaded: AtomicBool,
+}
+
+impl std::fmt::Debug for AudioCppDiarizer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AudioCppDiarizer")
+            .field("model_name", &self.model_name)
+            .field("model_loaded", &self.model_is_loaded())
+            .finish()
+    }
+}
+
+impl AudioCppDiarizer {
+    /// Loads `path` and prepares it for offline diarization.
+    ///
+    /// Blocking: the native model load is slow and must run off the async
+    /// runtime (callers use [`Self::load`] for that).
+    pub fn load_blocking(
+        engine: Arc<dyn AudioCppEngine>,
+        model_name: impl Into<String>,
+        path: &Path,
+    ) -> Result<Self, DiarizerLoadError> {
+        let model_name = model_name.into();
+        let session = SessionThread::spawn(engine, path)?;
+
+        // Capture the metadata before the rejection path consumes the
+        // session thread.
+        let family = session.family.clone();
+        if !session.supports_diar_offline {
+            session.shutdown();
+            return Err(DiarizerLoadError::UnsupportedCapability {
+                model: model_name,
+                family,
+            });
+        }
+
+        info!(
+            "audioCpp diarization model '{}' loaded (family '{}'), supports {} / {}",
+            model_name, session.family, DIAR_TASK, OFFLINE_MODE
+        );
+
+        Ok(Self {
+            model_name,
+            session: Mutex::new(Some(session)),
+            loaded: AtomicBool::new(true),
+        })
+    }
+
+    /// Async wrapper around [`Self::load_blocking`].
+    pub async fn load(
+        engine: Arc<dyn AudioCppEngine>,
+        model_name: impl Into<String>,
+        path: PathBuf,
+    ) -> Result<Self, DiarizerLoadError> {
+        let model_name = model_name.into();
+        tokio::task::spawn_blocking(move || Self::load_blocking(engine, model_name, &path))
+            .await
+            .map_err(|error| DiarizerLoadError::Engine(format!("load task failed: {error}")))?
+    }
+
+    /// The configured model id (stable catalog name).
+    pub fn model_name(&self) -> &str {
+        &self.model_name
+    }
+
+    fn model_is_loaded(&self) -> bool {
+        self.loaded.load(Ordering::SeqCst)
+    }
+
+    /// Drops the session thread and the model it owns, releasing memory.
+    pub fn unload(&self) {
+        let session = self
+            .session
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .take();
+        self.loaded.store(false, Ordering::SeqCst);
+        if let Some(session) = session {
+            session.shutdown();
+            info!("audioCpp diarization model '{}' unloaded", self.model_name);
+        }
+    }
+
+    /// Runs offline diarization over `audio` (16 kHz mono f32).
+    ///
+    /// The engine call happens on the model's dedicated thread and is
+    /// awaited here, so a multi-minute recording never blocks the async
+    /// runtime.
+    pub async fn diarize(&self, audio: Vec<f32>) -> Result<Vec<SpeakerTurn>, DiarizationError> {
+        if audio.len() < MIN_SAMPLES {
+            return Err(DiarizationError::EngineFailed(format!(
+                "audio is too short: {} samples (minimum {MIN_SAMPLES})",
+                audio.len()
+            )));
+        }
+
+        if !self.model_is_loaded() {
+            return Err(DiarizationError::ModelNotLoaded);
+        }
+
+        let sender = {
+            let guard = self
+                .session
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            match guard.as_ref() {
+                Some(session) => session.sender.clone(),
+                None => return Err(DiarizationError::ModelNotLoaded),
+            }
+        };
+
+        let (reply, receiver) = tokio::sync::oneshot::channel();
+        sender
+            .send(SessionRequest { audio, reply })
+            .map_err(|_| {
+                DiarizationError::EngineFailed(
+                    "audio.cpp session thread is no longer running; reload the model in Settings"
+                        .to_string(),
+                )
+            })?;
+
+        receiver
+            .await
+            .map_err(|_| {
+                DiarizationError::EngineFailed(
+                    "audio.cpp session thread stopped before returning a result".to_string(),
+                )
+            })?
+            .map(|output| output.turns)
+            .map_err(|error| DiarizationError::EngineFailed(error.to_string()))
+    }
+}
+
+/// The dedicated thread that owns the diarization model and its session.
+struct SessionThread {
+    sender: Sender<SessionRequest>,
+    join: Mutex<Option<JoinHandle<()>>>,
+    family: String,
+    supports_diar_offline: bool,
+}
+
+impl SessionThread {
+    fn spawn(engine: Arc<dyn AudioCppEngine>, path: &Path) -> Result<Self, DiarizerLoadError> {
+        let path = path.to_path_buf();
+        let (sender, receiver) = mpsc::channel::<SessionRequest>();
+        let (ready_tx, ready_rx) = mpsc::channel::<Result<SessionMetadata, DiarizerLoadError>>();
+
+        let join = std::thread::Builder::new()
+            .name("audiocpp-diar-session".to_string())
+            .spawn(move || run_session_thread(engine, path, receiver, ready_tx))
+            .map_err(|error| {
+                DiarizerLoadError::Engine(format!(
+                    "Failed to start audio.cpp diarization session thread: {error}"
+                ))
+            })?;
+
+        let metadata = ready_rx.recv().map_err(|_| {
+            DiarizerLoadError::Engine(
+                "audio.cpp diarization session thread stopped during model load".to_string(),
+            )
+        })??;
+
+        Ok(Self {
+            sender,
+            join: Mutex::new(Some(join)),
+            family: metadata.family,
+            supports_diar_offline: metadata.supports_diar_offline,
+        })
+    }
+
+    fn shutdown(self) {
+        let SessionThread { sender, join, .. } = self;
+        drop(sender);
+        let join = join
+            .into_inner()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(join) = join {
+            let _ = join.join();
+        }
+    }
+}
+
+struct SessionMetadata {
+    family: String,
+    supports_diar_offline: bool,
+}
+
+fn run_session_thread(
+    engine: Arc<dyn AudioCppEngine>,
+    path: PathBuf,
+    receiver: Receiver<SessionRequest>,
+    ready: Sender<Result<SessionMetadata, DiarizerLoadError>>,
+) {
+    let model = match engine.load_model(&path) {
+        Ok(model) => model,
+        Err(error) => {
+            let _ = ready.send(Err(DiarizerLoadError::Engine(error.to_string())));
+            return;
+        }
+    };
+
+    let family = model.family();
+    let supports_diar_offline = match model.supports(DIAR_TASK, OFFLINE_MODE) {
+        Ok(supported) => supported,
+        Err(error) => {
+            let _ = ready.send(Err(DiarizerLoadError::Engine(error.to_string())));
+            return;
+        }
+    };
+    if ready
+        .send(Ok(SessionMetadata {
+            family,
+            supports_diar_offline,
+        }))
+        .is_err()
+    {
+        return;
+    }
+
+    let mut model = model;
+    while let Ok(request) = receiver.recv() {
+        let result = model.diarize(&request.audio, SAMPLE_RATE);
+        let _ = request.reply.send(result);
+    }
+
+    drop(model);
+}
+
+impl Drop for AudioCppDiarizer {
+    fn drop(&mut self) {
+        let session = self
+            .session
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .take();
+        if let Some(session) = session {
+            session.shutdown();
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Mutex as StdMutex;
+
+    use super::*;
+    use crate::audio_cpp_engine::engine::AudioCppModel;
+    use crate::audio_cpp_engine::error::Status;
+
+    /// What the fake model observed, shared with the test.
+    #[derive(Default)]
+    struct Calls {
+        supports: Vec<(String, String)>,
+        sample_rates: Vec<i32>,
+        audio_lengths: Vec<usize>,
+        threads: Vec<std::thread::ThreadId>,
+        load_thread: Option<std::thread::ThreadId>,
+    }
+
+    /// Fake engine behind the FFI seam: no native library in tests.
+    struct FakeEngine {
+        family: String,
+        supports_diar_offline: bool,
+        run_error: Option<String>,
+        output: DiarizationOutput,
+        ran: Arc<AtomicBool>,
+        calls: Arc<StdMutex<Calls>>,
+    }
+
+    impl FakeEngine {
+        fn new(family: &str) -> Arc<Self> {
+            Arc::new(Self {
+                family: family.to_string(),
+                supports_diar_offline: true,
+                run_error: None,
+                output: DiarizationOutput {
+                    turns: vec![SpeakerTurn {
+                        start_sample: 0,
+                        end_sample: 16_000,
+                        speaker_id: "SPEAKER_00".to_string(),
+                        confidence: 0.95,
+                        text: String::new(),
+                    }],
+                },
+                ran: Arc::new(AtomicBool::new(false)),
+                calls: Arc::new(StdMutex::new(Calls::default())),
+            })
+        }
+
+        fn ran(&self) -> bool {
+            self.ran.load(Ordering::SeqCst)
+        }
+
+        fn calls(&self) -> std::sync::MutexGuard<'_, Calls> {
+            self.calls.lock().unwrap()
+        }
+    }
+
+    impl AudioCppEngine for FakeEngine {
+        fn load_model(&self, _path: &Path) -> Result<Box<dyn AudioCppModel>, AudioCppError> {
+            self.calls.lock().unwrap().load_thread = Some(std::thread::current().id());
+            Ok(Box::new(FakeModel {
+                family: self.family.clone(),
+                supports_diar_offline: self.supports_diar_offline,
+                run_error: self.run_error.clone(),
+                output: self.output.clone(),
+                ran: Arc::clone(&self.ran),
+                calls: Arc::clone(&self.calls),
+            }))
+        }
+    }
+
+    struct FakeModel {
+        family: String,
+        supports_diar_offline: bool,
+        run_error: Option<String>,
+        output: DiarizationOutput,
+        ran: Arc<AtomicBool>,
+        calls: Arc<StdMutex<Calls>>,
+    }
+
+    impl AudioCppModel for FakeModel {
+        fn family(&self) -> String {
+            self.family.clone()
+        }
+
+        fn supports(&self, task: &str, mode: &str) -> Result<bool, AudioCppError> {
+            let mut calls = self.calls.lock().unwrap();
+            calls.supports.push((task.to_string(), mode.to_string()));
+            calls.threads.push(std::thread::current().id());
+            Ok(task == DIAR_TASK && mode == OFFLINE_MODE && self.supports_diar_offline)
+        }
+
+        fn transcribe_asr(
+            &mut self,
+            _audio: &[f32],
+            _sample_rate: i32,
+        ) -> Result<crate::audio_cpp_engine::TranscriptionOutput, AudioCppError> {
+            unimplemented!("the diarizer never transcribes")
+        }
+
+        fn diarize(
+            &mut self,
+            audio: &[f32],
+            sample_rate: i32,
+        ) -> Result<DiarizationOutput, AudioCppError> {
+            let mut calls = self.calls.lock().unwrap();
+            calls.sample_rates.push(sample_rate);
+            calls.audio_lengths.push(audio.len());
+            calls.threads.push(std::thread::current().id());
+            drop(calls);
+
+            self.ran.store(true, Ordering::SeqCst);
+            if let Some(detail) = &self.run_error {
+                return Err(AudioCppError::Native {
+                    status: Status::Runtime,
+                    detail: Some(detail.clone()),
+                    context: "audiocpp_session_run",
+                });
+            }
+            Ok(self.output.clone())
+        }
+    }
+
+    async fn diarizer(engine: Arc<FakeEngine>) -> AudioCppDiarizer {
+        AudioCppDiarizer::load(
+            engine,
+            "nemotron-3-diarization-bf16",
+            PathBuf::from("/models/diar.gguf"),
+        )
+        .await
+        .expect("fake diarization model loads")
+    }
+
+    fn audio(samples: usize) -> Vec<f32> {
+        vec![0.1; samples]
+    }
+
+    #[tokio::test]
+    async fn diarizes_audio_into_speaker_turns() {
+        let engine = FakeEngine::new("nemotron_3_diar");
+        let diarizer = diarizer(Arc::clone(&engine)).await;
+
+        let turns = diarizer
+            .diarize(audio(SAMPLE_RATE as usize))
+            .await
+            .expect("diarization succeeds");
+
+        assert_eq!(turns.len(), 1);
+        assert_eq!(turns[0].speaker_id, "SPEAKER_00");
+        assert!(engine.ran());
+    }
+
+    #[tokio::test]
+    async fn reports_the_pipeline_contract_sample_rate_and_full_chunk() {
+        let engine = FakeEngine::new("nemotron_3_diar");
+        let diarizer = diarizer(Arc::clone(&engine)).await;
+
+        diarizer.diarize(audio(8_000)).await.unwrap();
+
+        let calls = engine.calls();
+        assert_eq!(calls.sample_rates, vec![SAMPLE_RATE]);
+        assert_eq!(calls.audio_lengths, vec![8_000]);
+    }
+
+    #[tokio::test]
+    async fn asks_the_model_about_diar_offline() {
+        let engine = FakeEngine::new("nemotron_3_diar");
+        let diarizer = diarizer(Arc::clone(&engine)).await;
+
+        assert_eq!(diarizer.model_name(), "nemotron-3-diarization-bf16");
+        assert_eq!(
+            engine.calls().supports,
+            vec![(DIAR_TASK.to_string(), OFFLINE_MODE.to_string())]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_transcription_model_is_rejected_with_an_actionable_message() {
+        let mut engine = FakeEngine::new("gigaam_asr");
+        Arc::get_mut(&mut engine).unwrap().supports_diar_offline = false;
+
+        let error = AudioCppDiarizer::load(
+            engine,
+            "gigaam-v3-e2e-ctc-f16",
+            PathBuf::from("/models/asr.gguf"),
+        )
+        .await
+        .unwrap_err();
+
+        match &error {
+            DiarizerLoadError::UnsupportedCapability { model, family } => {
+                assert_eq!(model, "gigaam-v3-e2e-ctc-f16");
+                assert_eq!(family, "gigaam_asr");
+            }
+            other => panic!("expected UnsupportedCapability, got {other:?}"),
+        }
+        let text = error.to_string();
+        assert!(text.contains("Nemotron"), "text: {text}");
+    }
+
+    #[tokio::test]
+    async fn audio_shorter_than_the_engine_minimum_is_rejected_without_running_the_engine() {
+        let engine = FakeEngine::new("nemotron_3_diar");
+        let diarizer = diarizer(Arc::clone(&engine)).await;
+
+        let error = diarizer.diarize(audio(MIN_SAMPLES - 1)).await.unwrap_err();
+
+        match error {
+            DiarizationError::EngineFailed(detail) => {
+                assert!(detail.contains("too short"), "detail: {detail}");
+            }
+            other => panic!("expected EngineFailed, got {other:?}"),
+        }
+        assert!(!engine.ran());
+    }
+
+    #[tokio::test]
+    async fn an_unloaded_model_reports_model_not_loaded() {
+        let engine = FakeEngine::new("nemotron_3_diar");
+        let diarizer = diarizer(Arc::clone(&engine)).await;
+
+        diarizer.unload();
+
+        assert!(matches!(
+            diarizer.diarize(audio(SAMPLE_RATE as usize)).await,
+            Err(DiarizationError::ModelNotLoaded)
+        ));
+        assert!(!engine.ran());
+    }
+
+    #[tokio::test]
+    async fn engine_run_failures_become_engine_failed_with_the_native_detail() {
+        let mut engine = FakeEngine::new("nemotron_3_diar");
+        Arc::get_mut(&mut engine).unwrap().run_error = Some("out of memory".to_string());
+
+        let diarizer = diarizer(engine).await;
+        let error = diarizer
+            .diarize(audio(SAMPLE_RATE as usize))
+            .await
+            .unwrap_err();
+
+        match error {
+            DiarizationError::EngineFailed(detail) => {
+                assert!(detail.contains("out of memory"), "detail: {detail}");
+            }
+            other => panic!("expected EngineFailed, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn every_native_call_runs_on_the_single_thread_that_loaded_the_model() {
+        let engine = FakeEngine::new("nemotron_3_diar");
+        let diarizer = Arc::new(diarizer(Arc::clone(&engine)).await);
+
+        let first = {
+            let diarizer = Arc::clone(&diarizer);
+            tokio::spawn(async move { diarizer.diarize(audio(1_600)).await })
+        };
+        let second = {
+            let diarizer = Arc::clone(&diarizer);
+            tokio::spawn(async move { diarizer.diarize(audio(1_600)).await })
+        };
+        first.await.unwrap().unwrap();
+        second.await.unwrap().unwrap();
+
+        let calls = engine.calls();
+        let load_thread = calls.load_thread.expect("model was loaded");
+        assert!(
+            calls.threads.iter().all(|thread| *thread == load_thread),
+            "all native calls must stay on the load thread; saw {:?} vs {:?}",
+            calls.threads,
+            load_thread
+        );
+    }
+}

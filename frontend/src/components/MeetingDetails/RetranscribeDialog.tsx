@@ -190,6 +190,25 @@ export function RetranscribeDialog({
         return;
       }
       unlisteners.push(unlistenError);
+
+      // Speaker labels were skipped: the transcript is fine, this is a hint.
+      const unlistenDiarization = await listen<{ meeting_id?: string; message?: string }>(
+        'diarization-unavailable',
+        (event) => {
+          if (event.payload.meeting_id && event.payload.meeting_id !== meetingId) return;
+          toast.info('Speaker labels not assigned', {
+            description:
+              event.payload.message ??
+              'Download the Nemotron-3-Diarization model in Settings to see who said what.',
+          });
+        }
+      );
+      if (cleanedUpRef.current) {
+        unlistenDiarization();
+        unlisteners.forEach(u => u());
+        return;
+      }
+      unlisteners.push(unlistenDiarization);
     };
 
     setupListeners();

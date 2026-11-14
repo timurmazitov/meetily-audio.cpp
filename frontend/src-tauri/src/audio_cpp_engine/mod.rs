@@ -36,8 +36,8 @@ pub use catalog::{ModelInfo, ModelSpec, ModelStatus, ModelTask};
 pub use commands::*;
 pub use backend::{autodetect_backend, session_config, shipped_variant, AudioCppBackend};
 pub use engine::{
-    AudioCppEngine, AudioCppModel, NativeAudioCppEngine, TranscriptionOutput, ASR_TASK,
-    OFFLINE_MODE,
+    AudioCppEngine, AudioCppModel, DiarizationOutput, NativeAudioCppEngine, TranscriptionOutput,
+    ASR_TASK, DIAR_TASK, OFFLINE_MODE,
 };
 pub use transcription::{
     load_native_provider, provider as audio_cpp_provider, select_transcription_model,

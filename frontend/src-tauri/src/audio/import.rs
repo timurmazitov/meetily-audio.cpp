@@ -422,6 +422,14 @@ async fn run_import<R: Runtime>(
         audio_samples.len()
     );
 
+    // Keep the 16 kHz audio for a post-transcription diarization pass when
+    // the audioCpp provider is in use (VAD below consumes the original).
+    let audio_samples_for_diarization = if engine_kind == BatchEngine::AudioCpp {
+        Some(audio_samples.clone())
+    } else {
+        None
+    };
+
     emit_progress(&app, "vad", 25, "Detecting speech segments...");
 
     // Check for cancellation
@@ -651,7 +659,28 @@ async fn run_import<R: Runtime>(
     emit_progress(&app, "saving", 85, "Creating meeting...");
 
     // Create transcript segments
-    let segments = create_transcript_segments(&all_transcripts);
+    let mut segments = create_transcript_segments(&all_transcripts);
+
+    // audioCpp diarization: overlay speaker turns when the Nemotron model is
+    // installed. Other engines have no diarization model, so they skip it.
+    if engine_kind == BatchEngine::AudioCpp {
+        emit_progress(&app, "saving", 87, "Assigning speakers...");
+        let outcome =
+            super::transcription::diarization_service::diarize_segments(
+                &mut segments,
+                audio_samples_for_diarization.unwrap_or_default(),
+            )
+            .await;
+        if !outcome.speakers_available {
+            let _ = app.emit(
+                "diarization-unavailable",
+                serde_json::json!({
+                    "reason": outcome.error,
+                    "message": "Speaker labels were skipped. Download the Nemotron-3-Diarization model in Settings to see who said what.",
+                }),
+            );
+        }
+    }
 
     // Save to database
     let app_state = app
@@ -740,8 +769,8 @@ async fn create_meeting_with_transcripts(
     // Insert transcripts
     for segment in segments {
         sqlx::query(
-            "INSERT INTO transcripts (id, meeting_id, transcript, timestamp, audio_start_time, audio_end_time, duration)
-             VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO transcripts (id, meeting_id, transcript, timestamp, audio_start_time, audio_end_time, duration, speaker)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&segment.id)
         .bind(&meeting_id)
@@ -750,6 +779,7 @@ async fn create_meeting_with_transcripts(
         .bind(segment.audio_start_time)
         .bind(segment.audio_end_time)
         .bind(segment.duration)
+        .bind(&segment.speaker)
         .execute(&mut *tx)
         .await
         .map_err(|e| anyhow!("Failed to insert transcript: {}", e))?;
@@ -1202,6 +1232,7 @@ mod tests {
                 audio_start_time: Some(0.0),
                 audio_end_time: Some(1.5),
                 duration: Some(1.5),
+                speaker: None,
             },
             TranscriptSegment {
                 id: "t-2".to_string(),
@@ -1210,6 +1241,7 @@ mod tests {
                 audio_start_time: Some(2.0),
                 audio_end_time: Some(3.5),
                 duration: Some(1.5),
+                speaker: None,
             },
         ];
 
