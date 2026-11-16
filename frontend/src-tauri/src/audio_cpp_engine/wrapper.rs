@@ -318,7 +318,8 @@ impl Model {
     }
 
     /// Creates a task session. `backend = None` means CPU / device 0 /
-    /// 1 thread (NULL config). Blocking; call via `spawn_blocking`.
+    /// 1 thread (NULL config); a `BackendConfig` must carry `threads >= 1`.
+    /// Blocking; call via `spawn_blocking`.
     pub fn create_session(
         &self,
         task: &str,
@@ -380,7 +381,8 @@ pub struct BackendConfig {
     /// "cpu", "cuda", "vulkan", "best", ...; None = library default.
     pub backend: Option<String>,
     pub device: i32,
-    /// Worker threads for the backend. 0 lets the library pick.
+    /// Worker threads for the backend. Must be positive:
+    /// `audiocpp_session_create` rejects 0 with `AUDIOCPP_ERR_INVALID_ARGUMENT`.
     pub threads: i32,
 }
 

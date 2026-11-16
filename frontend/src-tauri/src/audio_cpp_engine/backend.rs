@@ -72,13 +72,21 @@ pub fn autodetect_backend() -> AudioCppBackend {
 }
 
 /// The `audiocpp_backend_config` for a session on the given backend:
-/// explicit backend token, default device, library-picked thread count
+/// explicit backend token, default device, and every hardware thread
 /// (the library never touches the global OpenMP thread count).
+///
+/// `threads` must be positive: `audiocpp_session_create` rejects 0 with
+/// `AUDIOCPP_ERR_INVALID_ARGUMENT` ("threads must be positive"), so 0 is
+/// not a "let the library pick" sentinel here — falling back to 1 when
+/// the hardware thread count cannot be determined.
 pub fn session_config(backend: AudioCppBackend) -> BackendConfig {
+    let threads = std::thread::available_parallelism()
+        .map(|count| count.get() as i32)
+        .unwrap_or(1);
     BackendConfig {
         backend: Some(backend.session_token().to_string()),
         device: 0,
-        threads: 0,
+        threads: threads.max(1),
     }
 }
 
@@ -121,12 +129,21 @@ mod tests {
     }
 
     #[test]
-    fn session_config_requests_the_backend_token_with_library_defaults() {
+    fn session_config_requests_the_backend_token_with_all_hardware_threads() {
         for backend in [AudioCppBackend::Vulkan, AudioCppBackend::Cpu] {
             let config = session_config(backend);
             assert_eq!(config.backend.as_deref(), Some(backend.session_token()));
             assert_eq!(config.device, 0);
-            assert_eq!(config.threads, 0);
+            // audiocpp_session_create rejects threads <= 0; use the full
+            // hardware thread count, never 0.
+            assert!(config.threads >= 1);
+            assert_eq!(
+                config.threads,
+                std::thread::available_parallelism()
+                    .map(|count| count.get() as i32)
+                    .unwrap_or(1)
+                    .max(1)
+            );
         }
     }
 }
