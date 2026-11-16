@@ -1,6 +1,6 @@
 # Расширить payload события прогресса скачивания audio.cpp-моделей
 
-Status: ready-for-agent
+Status: resolved
 Type: task
 Blocked by: —
 
@@ -27,3 +27,7 @@ Blocked by: —
 
 - Загрузка модели идёт через `AudioCppModelManager::download_model(&model_name, progress)`; closure получает только процент — маппинг в байты делать в closure в `commands.rs`, где известен размер модели из каталога (`catalog::find_model`).
 - Не логировать per-chunk; диагностика агрегированная (guardrails репо).
+
+## Result
+
+Implemented on `feat/onboarding-audiocpp-default-models`; review fixes in `feat/onboarding-audiocpp-review-fixes`. Integration tip after review: `1e03c73`.

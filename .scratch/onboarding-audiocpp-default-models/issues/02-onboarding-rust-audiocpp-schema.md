@@ -1,6 +1,6 @@
 # Onboarding (Rust): схема статуса под audio.cpp + провайдер audioCpp при завершении
 
-Status: ready-for-agent
+Status: resolved
 Type: task
 Blocked by: —
 
@@ -29,3 +29,7 @@ Blocked by: —
 
 - Фронтенд-зеркало схемы (`OnboardingStatus` в `OnboardingContext.tsx`) обновляется в тикете 03 — здесь только Rust.
 - Пользователи с `completed: true` не затрагиваются: `loadOnboardingStatus` доверяет завершённому статусу.
+
+## Result
+
+Implemented on `feat/onboarding-audiocpp-default-models`; review fixes in `feat/onboarding-audiocpp-review-fixes`. Integration tip after review: `1e03c73`.

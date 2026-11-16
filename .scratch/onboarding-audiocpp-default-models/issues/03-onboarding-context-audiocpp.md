@@ -1,6 +1,6 @@
 # OnboardingContext: состояние и загрузки на audio.cpp вместо Parakeet
 
-Status: ready-for-agent
+Status: resolved
 Type: task
 Blocked by: 01, 02
 
@@ -28,3 +28,7 @@ Blocked by: 01, 02
 
 - Потребитель контекста (`DownloadProgressStep`) обновляется в тикете 04 — здесь сохранить API контекста согласованным со спекой (оба набора состояний прогресса доступны).
 - Проверить тип `ModelInfo`/статуса для `audiocpp_get_available_models` на фронтенде (зеркало Rust `ModelInfo`): статус — строка либо объект (`{ Downloading: { progress } }` сериализуется как `{"Downloading":{"progress":N}}` в serde externally-tagged; сверить с `frontend/src/lib/audiocpp.ts`, там уже есть типы).
+
+## Result
+
+Implemented on `feat/onboarding-audiocpp-default-models`; review fixes in `feat/onboarding-audiocpp-review-fixes`. Integration tip after review: `1e03c73`.

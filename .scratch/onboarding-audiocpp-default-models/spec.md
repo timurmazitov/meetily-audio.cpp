@@ -1,6 +1,6 @@
 # Онбординг: дефолтные модели audio.cpp вместо Parakeet
 
-Status: ready-for-agent
+Status: resolved
 
 ## Problem Statement
 
@@ -74,3 +74,7 @@ Parakeet при онбординге больше не скачивается. �
 - Копирайт шага «You can start using Samobranka after downloading the Transcription Engine.» остаётся валидным — обязательной остаётся только модель транскрибации.
 - Имена моделей — единственный источник истины каталог `audio_cpp_engine::catalog`; фронтенд дублирует их константами по образцу существующего `PARAKEET_MODEL` (как уже сделано в менеджере моделей audio.cpp).
 - GigaAM F16 и Nemotron BF16 — единственные каталожные варианты на свои задачи; «выбор модели» на шаге загрузки не предусмотрен, как и сейчас для Parakeet.
+
+## Result
+
+All four tickets resolved on `feat/onboarding-audiocpp-default-models` (review fixes merged as `1e03c73`). Verification: `tsc --noEmit` clean; `node --test tests/lib/onboarding-audiocpp-status.test.mjs` and `onboarding-summary-model.test.mjs` pass; `bun test tests/components/onboarding-download-step.test.tsx` 8/8; `bun test tests/hooks/onboarding-context-completion.test.tsx` 3/3; `cargo test --lib onboarding` 6/6; `cargo test --lib audio_cpp_engine` 73/73. Not verified: live Tauri onboarding run with real model downloads.

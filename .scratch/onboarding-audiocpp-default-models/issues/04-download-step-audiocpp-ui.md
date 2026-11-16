@@ -1,6 +1,6 @@
 # Шаг «Getting things ready»: карточки GigaAM + Nemotron, гейт Continue, retry
 
-Status: ready-for-agent
+Status: resolved
 Type: task
 Blocked by: 03
 
@@ -34,3 +34,7 @@ Blocked by: 03
 
 - События фильтруются по `modelName` — слушатели в контексте (тикет 03), шаг только читает состояния.
 - Размеры моделей: GigaAM F16 и Nemotron BF16 — из `ModelSpec.size_mb`; фронтенд получает их через payload события (тикет 01), fallback — подождать первого события, «Waiting...» как сейчас.
+
+## Result
+
+Implemented on `feat/onboarding-audiocpp-default-models`; review fixes in `feat/onboarding-audiocpp-review-fixes`. Integration tip after review: `1e03c73`.
