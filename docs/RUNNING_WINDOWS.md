@@ -196,22 +196,15 @@ cd frontend
 
 - **Код-подпись (Authenticode)** — не нужна: без `DIGICERT_KEYPAIR_ALIAS`
   `sign-windows.ps1` выходит с кодом 0.
-- **Подпись updater-артефактов** — в `tauri.conf.json` включено
-  `bundle.createUpdaterArtifacts: true`, поэтому при сборке Tauri также хочет
-  сгенерировать `.sig` и может потребовать приватный ключ updater'а. Для локальной
-  сборки без неё проще всего отключить артефакты одноразовым конфигом:
+- **Подпись updater-артефактов** — не нужна: автообновление отключено
+  ([ADR 0002](adr/0002-rebrand-to-samobranka.md)), в `tauri.conf.json` стоит
+  `bundle.createUpdaterArtifacts: false` и секции `plugins.updater` нет. Поэтому Tauri не
+  генерирует `.sig`, `*.app.tar.gz` и `latest.json`, а `TAURI_SIGNING_PRIVATE_KEY` локальной
+  сборке не требуется.
 
-  ```powershell
-  cd frontend
-  '{ "bundle": { "createUpdaterArtifacts": false } }' | Set-Content ..\updater-off.json
-  .\node_modules\.bin\tauri build --config ..\updater-off.json
-  ```
-
-  Флаг `--config` тоже нужно передавать напрямую в `tauri`, а не через
-  `pnpm run tauri:build` (см. примечание в разделе 7).
-
-  В CI ключ передаётся через `TAURI_SIGNING_PRIVATE_KEY` /
-  `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`; вам, по вашим словам, подпись не нужна.
+  В CI эти переменные всё ещё передаются в `tauri-action`, но при выключенных updater-артефактах
+  ключ нужен только шагу `tauri signer sign`, который подписывает Linux-пакеты; Windows-установщики
+  подписываются Authenticode через `signCommand`.
 
 ---
 
@@ -245,7 +238,7 @@ cd frontend
 | `Missing external binary ... llama-helper` | не выполнен шаг 4 |
 | Сборка `whisper-rs-sys` падает на CMake | нет CMake/Windows SDK — переустановить Build Tools с C++ workload |
 | `audiocpp.dll` не найден при запуске | не выполнен шаг 5 или скрипт упал на проверке SHA256 |
-| Требуется `TAURI_SIGNING_PRIVATE_KEY` | `createUpdaterArtifacts: true` — см. раздел 7, отключить одноразовым конфигом |
+| Требуется `TAURI_SIGNING_PRIVATE_KEY` | он нужен только шагу `tauri signer sign` для Linux-пакетов; при `createUpdaterArtifacts: false` локальная сборка установщика его не требует |
 | Приложение падает на чистой машине | не забандлен MSVC-рантайм — проверить содержимое `audiocpp-runtime` в установке |
 | Долгая первая сборка | нормально: компилируются Whisper, llama.cpp, ONNX-обвязка и весь Rust-граф |
 | GPU не используется | нет `vulkaninfo` / `VULKAN_SDK` — приложение работает на CPU |
@@ -262,7 +255,8 @@ cd frontend
   `CMAKE_PROJECT_INCLUDE=.github/force-portable-ggml.cmake` (отключает `GGML_NATIVE`,
   запрещает AVX-512);
 - проверяет переносимость через `.github/verify-portable-ggml.cjs`;
-- подписывает код через DigiCert KeyLocker и генерирует updater-подписи.
+- подписывает код через DigiCert KeyLocker (Authenticode); updater-подписи не генерируются,
+  так как автообновление отключено ([ADR 0002](adr/0002-rebrand-to-samobranka.md)).
 
 Для локальной сборки всё это опционально; раздел 7 показывает, как повторить
 переносимую конфигурацию, если нужен установщик «как в релизе».

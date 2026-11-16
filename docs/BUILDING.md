@@ -18,6 +18,16 @@ Frozen installation keeps the lockfile and installed dependency set aligned. Whe
 - **Windows packages:** Distribution builds use Vulkan-enabled Whisper and require an AVX2-capable x64 CPU. AVX-512 is not required.
 - **CUDA:** NVIDIA CUDA support requires a compatible source build and CUDA toolchain; the standard Windows installer does not select it automatically.
 
+## Release Artifacts and Updates
+
+Releases are produced by `.github/workflows/release.yml`, which builds macOS, Linux (`deb`, `appimage`) and Windows packages into one draft release.
+
+Linux packages are signed with minisign: `tauri signer sign` writes `<package>.deb.sig` or `<package>.AppImage.sig` next to each file. These are ordinary package signatures, not updater artifacts. Windows installers are Authenticode-signed by `signCommand`; macOS builds are notarized when the Apple secrets are set.
+
+**Automatic updates are disabled.** The in-app updater was removed during the rebrand ([ADR 0002](adr/0002-rebrand-to-samobranka.md)), so `frontend/src-tauri/tauri.conf.json` has `bundle.createUpdaterArtifacts: false` and no `plugins.updater` section. As a result the pipeline publishes no `latest.json` manifest and the app never downloads updates; there is also no `*.app.tar.gz` and no macOS or Windows `.sig`.
+
+`scripts/check-release-assets.py` validates a release directory and selects its mode from the bundle config: without an updater public key it only checks that every expected package is present exactly once. Signatures are checked and `latest.json` is written only when `plugins.updater.pubkey` exists, which is part of the future work described in the ADR.
+
 ## Development Commands and Debugging
 
 ### First-run sidecar setup
