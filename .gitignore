@@ -78,6 +78,7 @@ target/
 
 frontend/src-tauri/binaries/
 frontend/src-tauri/audiocpp-runtime/
+frontend/src-tauri/vulkan-runtime/
 
 # Locally downloaded toolchains (e.g. Vulkan SDK)
 .tools/

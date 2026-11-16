@@ -48,9 +48,9 @@ These paths assume an ordinary native-host workspace build. With a custom Cargo 
 
 ### Local LLVM toolchain (`.tools/`)
 
-The build requires **libclang** at compile time: `bindgen` (pulled in by `llama-cpp-sys-2` for `llama-helper` and by `whisper-rs-sys`) generates FFI bindings through it. Do not rely on a system-wide LLVM install — download a current LLVM release from [github.com/llvm/llvm-project/releases](https://github.com/llvm/llvm-project/releases) (e.g. `llvmorg-23.1.4`) and extract it into the repository-local `.tools/` folder.
+The build requires **libclang** at compile time: `bindgen` (pulled in by `llama-cpp-sys-2` for `llama-helper` and by `whisper-rs-sys`) generates FFI bindings through it. Do not rely on a system-wide LLVM install — download a current LLVM release from [github.com/llvm/llvm-project/releases](https://github.com/llvm/llvm-project/releases) (e.g. `llvmorg-17.0.6` for Windows) and extract it into the repository-local `.tools/` folder.
 
-Any recent LLVM works: `clang-sys` (the `bindgen` → libclang bridge) does not enforce an upper Clang version, and the libclang C API is backward compatible. The build is regularly exercised with LLVM 21+.
+`whisper-rs-sys` currently builds with bindgen 0.69, which mis-generates opaque structs with libclang from LLVM 18 and newer (see the whisper.cpp `whisper_full_params` bindings). Use LLVM 17.x for the repository-local toolchain until `whisper-rs-sys` moves to bindgen 0.70+; `clang-sys` (the `bindgen` → libclang bridge) does not enforce an upper Clang version, and the libclang C API is backward compatible.
 
 Point the build at the extracted toolchain:
 
