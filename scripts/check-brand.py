@@ -9,13 +9,25 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+# Version-control metadata is never repository content and is skipped wholesale.
+# `.git` is a directory in a normal clone, but a *file* in a linked worktree
+# (`gitdir: /path/to/.git/worktrees/<name>`); the path inside it may itself contain
+# the old brand, so it must be skipped as a file too, not only pruned as a directory.
+VCS_METADATA = {".git", ".hg", ".svn", ".bzr", "CVS"}
+
 EXCLUDED_DIRS = {
-    ".git", "node_modules", "target", ".next", "dist", ".turbo",
+    "node_modules", "target", ".next", "dist", ".turbo",
     "backend",        # legacy archive, intentionally untouched
     ".scratch",       # planning docs; historical references are facts
 }
+# Repo-root-relative paths, compared as normalized `a/b/c` paths on every platform.
+# An entry without a separator is just a root-level path: excluding `LICENSE.md`
+# does NOT exclude a same-named file in a subdirectory, so an exclusion never
+# silently spreads to unrelated files.
 EXCLUDED_FILES = {
     "LICENSE.md",     # attribution: MIT copyright of the original project is preserved here by design
+    "docs/research/upstream-0.5.0.md",  # research *about* the upstream project: its name and paths are the subject,
+                                        # not a brand regression; other docs under docs/research/ stay checked
 }
 
 # Line-level allowlist: lines matching any of these may mention the old brand.
@@ -39,26 +51,22 @@ BRAND = re.compile(r"meetily", re.I)
 
 failures = []
 for dirpath, dirnames, filenames in os.walk(ROOT):
-    dirnames[:] = [d for d in dirnames if d not in EXCLUDED_DIRS]
+    dirnames[:] = [d for d in dirnames if d not in EXCLUDED_DIRS and d not in VCS_METADATA]
     for name in filenames:
-        path = os.path.join(dirpath, name)
-        rel = os.path.relpath(path, ROOT)
-        if name in EXCLUDED_FILES:
+        rel = os.path.relpath(os.path.join(dirpath, name), ROOT).replace(os.sep, "/")
+        if name in VCS_METADATA or rel in EXCLUDED_FILES:
             continue
         if any(p.search(rel) for p in ALLOWED_FILES):
             continue
+        if BRAND.search(name):
+            failures.append(f"FILENAME: {rel}")
         try:
-            with open(path, encoding="utf-8", errors="strict") as f:
+            with open(os.path.join(dirpath, name), encoding="utf-8", errors="strict") as f:
                 for lineno, line in enumerate(f, 1):
                     if BRAND.search(line) and not any(p.search(line) for p in ALLOWED_LINE_PATTERNS):
                         failures.append(f"{rel}:{lineno}: {line.strip()[:120]}")
         except (UnicodeDecodeError, OSError):
-            continue  # binary file outside allowed list: flagged separately below
-    for name in filenames:
-        if BRAND.search(name):
-            rel = os.path.relpath(os.path.join(dirpath, name), ROOT)
-            if not any(p.search(rel) for p in ALLOWED_FILES):
-                failures.append(f"FILENAME: {rel}")
+            continue  # binary/unreadable file: content not inspected, name still checked above
 
 if failures:
     print(f"FAIL: {len(failures)} old-brand occurrence(s) outside allowed zones:\n")

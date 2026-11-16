@@ -91,65 +91,82 @@ jobs:
 
   validate-release:
     needs: [create-release, build-all-platforms]
-    runs-on: ubuntu-22.04
+    # minisign is only packaged for Ubuntu 23.04+ (not 22.04) and is only
+    # installed when the updater is enabled, so this job runs on 24.04.
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
-      - name: Download and verify release assets
+      - name: Download release assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ needs.create-release.outputs.version }}
           RELEASE_ID: ${{ needs.create-release.outputs.release-id }}
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y minisign
-          mkdir release-assets
+          mkdir -p release-assets
+          # Assets are listed by release id: the release is still a draft, so it
+          # is not reachable by tag yet.
           gh api --paginate "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets" \
             --jq '.[] | [.id, .name] | @tsv' |
           while IFS=$'\t' read -r asset_id asset_name; do
             gh api "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id" \
               --header "Accept: application/octet-stream" > "release-assets/$(basename -- "$asset_name")"
           done
-          python3 -c 'import base64,json; print(base64.b64decode(json.load(open("frontend/src-tauri/tauri.conf.json"))["plugins"]["updater"]["pubkey"]).decode(), end="")' > release-assets/public.key
+
+      - name: Detect updater public key
+        id: updater
+        run: |
+          set -euo pipefail
+          # The presence of plugins.updater.pubkey is the only mode switch of
+          # scripts/check-release-assets.py: with a key, signatures are verified
+          # and latest.json is written; without one, packages are validated and
+          # the manifest is skipped. The updater is disabled today (ADR 0002),
+          # so the key path turns itself on once the section is restored.
           python3 - <<'PYCODE'
-          import base64, json, os, subprocess
-          from datetime import datetime, timezone
+          import base64, json, os
           from pathlib import Path
 
-          root = Path('release-assets')
-          for pattern, signed in [('*aarch64.dmg', False), ('*aarch64.app.tar.gz', True), ('*64_en-US.msi', True), ('*-setup.exe', True), ('*.deb', True), ('*.AppImage', True)]:
-              matches = list(root.glob(pattern))
-              if len(matches) != 1:
-                  raise SystemExit(f'Expected exactly one {pattern}, found {len(matches)}')
-              if signed:
-                  asset = matches[0]
-                  signature = Path(str(asset) + '.sig')
-                  decoded = root / 'signature.minisig'
-                  decoded.write_bytes(base64.b64decode(signature.read_text().strip(), validate=True))
-                  subprocess.run(['minisign', '-Vm', str(asset), '-p', str(root / 'public.key'), '-x', str(decoded)], check=True)
-          from urllib.parse import quote
-          platforms = {}
-          for target, pattern in [
-              ('darwin-aarch64', '*aarch64.app.tar.gz'),
-              ('darwin-aarch64-app', '*aarch64.app.tar.gz'),
-              ('windows-x86_64-nsis', '*-setup.exe'),
-              ('windows-x86_64-msi', '*64_en-US.msi'),
-              ('windows-x86_64', '*-setup.exe'),
-              ('linux-x86_64-deb', '*.deb'),
-              ('linux-x86_64-appimage', '*.AppImage'),
-          ]:
-              asset = next(root.glob(pattern))
-              platforms[target] = {
-                  'url': f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/download/v{os.environ['VERSION']}/{quote(asset.name)}",
-                  'signature': Path(str(asset) + '.sig').read_text().strip(),
-              }
-          manifest = {'version': os.environ['VERSION'], 'notes': '', 'pub_date': datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'), 'platforms': platforms}
-          (root / 'latest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+          config = json.loads(Path("frontend/src-tauri/tauri.conf.json").read_text())
+          pubkey = config.get("plugins", {}).get("updater", {}).get("pubkey")
+          if not pubkey:
+              print("plugins.updater.pubkey is absent: signatures are not checked, latest.json is not created (ADR 0002).")
+              raise SystemExit(0)
+          Path("release-assets/public.key").write_bytes(base64.b64decode(pubkey))
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write("enabled=true\n")
+          print("plugins.updater.pubkey is present: signatures will be verified and latest.json will be created.")
           PYCODE
+
+      - name: Install minisign
+        if: steps.updater.outputs.enabled == 'true'
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y minisign
+
+      - name: Validate release assets
+        env:
+          VERSION: ${{ needs.create-release.outputs.version }}
+        run: |
+          set -euo pipefail
+          args=()
+          if [ "${{ steps.updater.outputs.enabled }}" = "true" ]; then
+            args+=(--public-key release-assets/public.key)
+          fi
+          python3 scripts/check-release-assets.py release-assets "$VERSION" "$GITHUB_REPOSITORY" ${args[@]+"${args[@]}"}
+
+      - name: Upload updater manifest
+        if: steps.updater.outputs.enabled == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_ID: ${{ needs.create-release.outputs.release-id }}
+        run: |
+          set -euo pipefail
+          # Written by the validation script in key mode only.
+          test -f release-assets/latest.json
           upload_url=$(gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" --jq '.upload_url | split("{")[0]')
           gh api --method POST "$upload_url" --header "Content-Type: application/json" \
             --raw-field "name=latest.json" --input release-assets/latest.json
@@ -161,9 +178,10 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Get release assets and latest.json
+      - name: Get release assets and updater manifest
         id: release-info
         run: |
+          set -euo pipefail
           VERSION="${{ needs.create-release.outputs.version }}"
           RELEASE_ID="${{ needs.create-release.outputs.release-id }}"
 
@@ -177,14 +195,16 @@ jobs:
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
-          # Download and show latest.json
+          # The updater manifest only exists when the updater is enabled (ADR 0002);
+          # its absence is expected and must not fail the summary.
           echo "### latest.json content" >> $GITHUB_STEP_SUMMARY
           LATEST_JSON_ID=$(gh api --paginate "repos/${{ github.repository }}/releases/$RELEASE_ID/assets" --jq '.[] | select(.name == "latest.json") | .id')
-          gh api "repos/${{ github.repository }}/releases/assets/$LATEST_JSON_ID" --header "Accept: application/octet-stream" > latest.json
-          if [ -f latest.json ]; then
+          if [ -n "$LATEST_JSON_ID" ]; then
             echo "\`\`\`json" >> $GITHUB_STEP_SUMMARY
-            cat latest.json >> $GITHUB_STEP_SUMMARY
+            gh api "repos/${{ github.repository }}/releases/assets/$LATEST_JSON_ID" --header "Accept: application/octet-stream" >> $GITHUB_STEP_SUMMARY
             echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "_No updater manifest: automatic updates are disabled (see ADR 0002)._" >> $GITHUB_STEP_SUMMARY
           fi
           echo "" >> $GITHUB_STEP_SUMMARY
 
@@ -195,7 +215,7 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Download all as ZIP:** https://github.com/${{ github.repository }}/archive/refs/tags/v${VERSION}.zip" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Manual S3 upload (only after the Tauri updater is re-enabled — currently disabled, see ADR 0002):** Download latest.json from release and upload to \`s3://samobranka-updates/latest.json\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Future work (automatic updates are disabled, see ADR 0002):** once the Tauri updater is re-enabled, upload the generated latest.json to \`s3://samobranka-updates/latest.json\`." >> $GITHUB_STEP_SUMMARY
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -208,10 +228,12 @@ jobs:
           echo "Release URL: https://github.com/${{ github.repository }}/releases/tag/v${{ needs.create-release.outputs.version }}"
           echo ""
           echo "Uploaded assets (via tauri-action):"
-          echo "  - macOS: DMG installer + app.tar.gz (for updater) + .sig"
-          echo "  - Windows: MSI + NSIS installers (SIGNED via signCommand) + .sig files"
-          echo "  - Linux: DEB and AppImage packages + .sig files"
-          echo "  - Updater manifest: latest.json (generated after validation)"
+          echo "  - macOS: DMG installer"
+          echo "  - Windows: MSI + NSIS installers (SIGNED via signCommand)"
+          echo "  - Linux: DEB and AppImage packages, signed explicitly (+ .sig)"
+          echo ""
+          echo "Automatic updates are disabled (ADR 0002): no app.tar.gz, no macOS or"
+          echo "Windows .sig files and no latest.json are produced or uploaded."
           echo ""
           echo "Next steps:"
           echo "  1. Review the draft release"
@@ -230,10 +252,11 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Platform | Assets |" >> $GITHUB_STEP_SUMMARY
           echo "|----------|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| **macOS** | DMG installer, app.tar.gz (updater), .sig |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Windows** | MSI installer (SIGNED), NSIS installer (SIGNED), .sig files |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Linux** | DEB, AppImage and signatures |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Updater** | latest.json manifest (generated after validation) |" >> $GITHUB_STEP_SUMMARY
+          echo "| **macOS** | DMG installer |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Windows** | MSI installer (SIGNED), NSIS installer (SIGNED) |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Linux** | DEB and AppImage packages, signed explicitly (+ .sig) |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Automatic updates are disabled (ADR 0002): no app.tar.gz, no macOS or Windows .sig files and no latest.json are produced or uploaded." >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
