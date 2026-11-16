@@ -5,16 +5,42 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type { PermissionStatus, OnboardingPermissions } from '@/types/onboarding';
 import { resolveOnboardingSummaryModelStatus } from '@/lib/onboarding-summary-model';
-import type { ParakeetDownloadProgressEvent } from '@/lib/parakeet';
-
-const PARAKEET_MODEL = 'parakeet-tdt-0.6b-v3-int8';
+import {
+  AUDIOCPP_DIARIZATION_MODEL,
+  AUDIOCPP_TRANSCRIPTION_MODEL,
+  applyAudioCppCompleteEvent,
+  applyAudioCppErrorEvent,
+  applyAudioCppProgressEvent,
+  hasActiveAudioCppDownload,
+  initialAudioCppModelStates,
+  isAudioCppModelInstalled,
+  markAudioCppCardError,
+  reconcileAudioCppModelList,
+  seedAudioCppModelSizes,
+  setAudioCppCardDownloaded,
+  setAudioCppCardsDownloaded,
+  startAudioCppModelDownload,
+  type AudioCppModelDownloadStatus,
+  type AudioCppModelProgressInfo,
+  type AudioCppModelRole,
+  type AudioCppModelStates,
+} from '@/lib/onboarding-audiocpp-status';
+import {
+  AUDIOCPP_COMMANDS,
+  AUDIOCPP_EVENTS,
+  type AudioCppDownloadCompleteEvent,
+  type AudioCppDownloadErrorEvent,
+  type AudioCppDownloadProgressEvent,
+  type AudioCppModelInfo,
+} from '@/lib/audiocpp';
 
 interface OnboardingStatus {
   version: string;
   completed: boolean;
   current_step: number;
   model_status: {
-    parakeet: string;
+    gigaam: string;
+    diarization: string;
     summary: string;
     selected_summary_model?: string;
   };
@@ -28,18 +54,18 @@ interface SummaryModelProgressInfo {
   speedMbps: number;
 }
 
-interface ParakeetProgressInfo {
-  percent: number;
-  downloadedMb: number;
-  totalMb: number;
-  speedMbps: number;
-}
-
 interface OnboardingContextType {
   currentStep: number;
-  parakeetDownloaded: boolean;
-  parakeetProgress: number;
-  parakeetProgressInfo: ParakeetProgressInfo;
+  transcriptionModelDownloaded: boolean;
+  transcriptionModelProgressInfo: AudioCppModelProgressInfo;
+  /** Card status, including `error`/`cancelled`, so the step can offer a retry. */
+  transcriptionModelStatus: AudioCppModelDownloadStatus;
+  transcriptionModelError: string | null;
+  diarizationModelDownloaded: boolean;
+  diarizationModelProgressInfo: AudioCppModelProgressInfo;
+  /** Card status, including `error`/`cancelled`, so the step can offer a retry. */
+  diarizationModelStatus: AudioCppModelDownloadStatus;
+  diarizationModelError: string | null;
   summaryModelDownloaded: boolean;
   summaryModelProgress: number;
   summaryModelProgressInfo: SummaryModelProgressInfo;
@@ -55,19 +81,22 @@ interface OnboardingContextType {
   goNext: () => void;
   goPrevious: () => void;
   // Setters
-  setParakeetDownloaded: (value: boolean) => void;
+  setTranscriptionModelDownloaded: (value: boolean) => void;
+  setDiarizationModelDownloaded: (value: boolean) => void;
   setSummaryModelDownloaded: (value: boolean) => void;
   setSelectedSummaryModel: (value: string) => void;
   setDatabaseExists: (value: boolean) => void;
   setPermissionStatus: (permission: keyof OnboardingPermissions, status: PermissionStatus) => void;
   setPermissionsSkipped: (skipped: boolean) => void;
+  /** Surface a failed download request on a card so "Try Again" stays reachable. */
+  markAudioCppModelError: (role: AudioCppModelRole, message: string) => void;
   completeOnboarding: () => Promise<void>;
   startBackgroundDownloads: (options: StartBackgroundDownloadsOptions) => Promise<void>;
-  retryParakeetDownload: () => Promise<void>;
 }
 
 interface StartBackgroundDownloadsOptions {
-  includeParakeet: boolean;
+  includeAudioCppTranscription: boolean;
+  includeAudioCppDiarization: boolean;
   includeSummary: boolean;
   summaryModel?: string;
 }
@@ -77,14 +106,19 @@ const OnboardingContext = createContext<OnboardingContextType | undefined>(undef
 export function OnboardingProvider({ children }: { children: React.ReactNode }) {
   const [currentStep, setCurrentStep] = useState(1);
   const [completed, setCompleted] = useState(false);
-  const [parakeetDownloaded, setParakeetDownloaded] = useState(false);
-  const [parakeetProgress, setParakeetProgress] = useState(0);
-  const [parakeetProgressInfo, setParakeetProgressInfo] = useState<ParakeetProgressInfo>({
-    percent: 0,
-    downloadedMb: 0,
-    totalMb: 0,
-    speedMbps: 0,
-  });
+  // audio.cpp model cards: one source of truth for the downloaded flag,
+  // percentage and MB/speed of the two onboarding downloads.
+  const [audioCppModelStates, setAudioCppModelStates] =
+    useState<AudioCppModelStates>(initialAudioCppModelStates);
+  const transcriptionModelDownloaded =
+    audioCppModelStates.transcription.status === 'completed';
+  const transcriptionModelProgressInfo = audioCppModelStates.transcription.progress;
+  const transcriptionModelStatus = audioCppModelStates.transcription.status;
+  const transcriptionModelError = audioCppModelStates.transcription.error ?? null;
+  const diarizationModelDownloaded = audioCppModelStates.diarization.status === 'completed';
+  const diarizationModelProgressInfo = audioCppModelStates.diarization.progress;
+  const diarizationModelStatus = audioCppModelStates.diarization.status;
+  const diarizationModelError = audioCppModelStates.diarization.error ?? null;
   const [summaryModelDownloaded, setSummaryModelDownloaded] = useState(false);
   const [summaryModelProgress, setSummaryModelProgress] = useState(0);
   const [summaryModelProgressInfo, setSummaryModelProgressInfo] = useState<SummaryModelProgressInfo>({
@@ -231,65 +265,37 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
     return () => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     };
-  }, [currentStep, parakeetDownloaded, summaryModelDownloaded, completed]);
+  }, [currentStep, transcriptionModelDownloaded, diarizationModelDownloaded, summaryModelDownloaded, completed]);
 
-  // Listen to Parakeet download progress
+  // Listen to audio.cpp model download events (transcription + diarization)
   useEffect(() => {
-    const unlisten = listen<ParakeetDownloadProgressEvent>(
-      'parakeet-model-download-progress',
+    const unlistenProgress = listen<AudioCppDownloadProgressEvent>(
+      AUDIOCPP_EVENTS.progress,
       (event) => {
-        const { modelName, progress, downloaded_mb, total_mb, speed_mbps, status } = event.payload;
-        if (modelName !== PARAKEET_MODEL) return;
-
-        if (status === 'cancelled') {
+        if (event.payload.status === 'cancelled') {
           setIsBackgroundDownloading(false);
-          setParakeetDownloaded(false);
-          setParakeetProgress(0);
-          setParakeetProgressInfo({
-            percent: 0,
-            downloadedMb: 0,
-            totalMb: 0,
-            speedMbps: 0,
-          });
-          return;
         }
-
-        setParakeetProgress(progress);
-        setParakeetProgressInfo({
-          percent: progress,
-          downloadedMb: downloaded_mb ?? 0,
-          totalMb: total_mb ?? 0,
-          speedMbps: speed_mbps ?? 0,
-        });
-        if (status === 'completed') {
-          setParakeetDownloaded(true);
-        }
+        setAudioCppModelStates(states => applyAudioCppProgressEvent(states, event.payload));
       }
     );
 
-    const unlistenComplete = listen<{ modelName: string }>(
-      'parakeet-model-download-complete',
+    const unlistenComplete = listen<AudioCppDownloadCompleteEvent>(
+      AUDIOCPP_EVENTS.complete,
       (event) => {
-        const { modelName } = event.payload;
-        if (modelName === PARAKEET_MODEL) {
-          setParakeetDownloaded(true);
-          setParakeetProgress(100);
-        }
+        setAudioCppModelStates(states => applyAudioCppCompleteEvent(states, event.payload));
       }
     );
 
-    const unlistenError = listen<{ modelName: string; error: string }>(
-      'parakeet-model-download-error',
+    const unlistenError = listen<AudioCppDownloadErrorEvent>(
+      AUDIOCPP_EVENTS.error,
       (event) => {
-        const { modelName } = event.payload;
-        if (modelName === PARAKEET_MODEL) {
-          console.error('Parakeet download error:', event.payload.error);
-        }
+        console.error('audio.cpp model download error:', event.payload.modelName, event.payload.error);
+        setAudioCppModelStates(states => applyAudioCppErrorEvent(states, event.payload));
       }
     );
 
     return () => {
-      unlisten.then(fn => fn());
+      unlistenProgress.then(fn => fn());
       unlistenComplete.then(fn => fn());
       unlistenError.then(fn => fn());
     };
@@ -348,7 +354,12 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
         if (status.completed) {
           setCurrentStep(status.current_step);
           setCompleted(true);
-          setParakeetDownloaded(status.model_status.parakeet === 'downloaded');
+          setAudioCppModelStates(states =>
+            setAudioCppCardsDownloaded(states, {
+              transcription: status.model_status.gigaam === 'downloaded',
+              diarization: status.model_status.diarization === 'downloaded',
+            })
+          );
           setSummaryModelDownloaded(status.model_status.summary === 'downloaded');
           if (status.model_status.selected_summary_model) {
             setSelectedSummaryModel(status.model_status.selected_summary_model);
@@ -362,7 +373,12 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
 
         setCurrentStep(verifiedStatus.currentStep);
         setCompleted(verifiedStatus.completed);
-        setParakeetDownloaded(verifiedStatus.parakeetDownloaded);
+        setAudioCppModelStates(states =>
+          setAudioCppCardsDownloaded(states, {
+            transcription: verifiedStatus.transcriptionModelDownloaded,
+            diarization: verifiedStatus.diarizationModelDownloaded,
+          })
+        );
         setSummaryModelDownloaded(verifiedStatus.summaryModelDownloaded);
         if (verifiedStatus.selectedSummaryModel) {
           setSelectedSummaryModel(verifiedStatus.selectedSummaryModel);
@@ -382,18 +398,35 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
 
   // Verify that models actually exist on disk, not just trust saved JSON
   const verifyModelStatus = async (savedStatus: OnboardingStatus) => {
-    let parakeetDownloaded = false;
+    let transcriptionModelDownloaded = false;
+    let diarizationModelDownloaded = false;
     let summaryModelDownloaded = false;
     let selectedSummaryModel = '';
 
-    // Verify Parakeet model exists on disk
+    // Verify the audio.cpp transcription model (ASR gate) and diarization
+    // model (advisory: a missing Nemotron must not block onboarding).
     try {
-      await invoke('parakeet_init');
-      parakeetDownloaded = await invoke<boolean>('parakeet_has_available_models');
-      console.log('[OnboardingContext] Parakeet verified on disk:', parakeetDownloaded);
+      await invoke(AUDIOCPP_COMMANDS.init);
+      transcriptionModelDownloaded = await invoke<boolean>(
+        AUDIOCPP_COMMANDS.hasTranscriptionModel
+      );
+      const models = await invoke<AudioCppModelInfo[]>(
+        AUDIOCPP_COMMANDS.getAvailableModels
+      );
+      diarizationModelDownloaded = isAudioCppModelInstalled(
+        models,
+        AUDIOCPP_DIARIZATION_MODEL
+      );
+      // Catalogued sizes make the cards readable before any progress event.
+      setAudioCppModelStates(states => seedAudioCppModelSizes(states, models));
+      console.log(
+        '[OnboardingContext] audio.cpp models verified on disk:',
+        { transcriptionModelDownloaded, diarizationModelDownloaded }
+      );
     } catch (error) {
-      console.warn('[OnboardingContext] Failed to verify Parakeet:', error);
-      parakeetDownloaded = false;
+      console.warn('[OnboardingContext] Failed to verify audio.cpp models:', error);
+      transcriptionModelDownloaded = false;
+      diarizationModelDownloaded = false;
     }
 
     // Verify the selected/recommended Summary model exists on disk.
@@ -434,7 +467,8 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
     return {
       currentStep,
       completed,
-      parakeetDownloaded,
+      transcriptionModelDownloaded,
+      diarizationModelDownloaded,
       summaryModelDownloaded,
       selectedSummaryModel,
     };
@@ -456,7 +490,8 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
           completed: completed,
           current_step: currentStep,
           model_status: {
-            parakeet: parakeetDownloaded ? 'downloaded' : 'not_downloaded',
+            gigaam: transcriptionModelDownloaded ? 'downloaded' : 'not_downloaded',
+            diarization: diarizationModelDownloaded ? 'downloaded' : 'not_downloaded',
             summary: summaryModelDownloaded ? 'downloaded' : 'not_downloaded',
             selected_summary_model: selectedSummaryModel || undefined,
           },
@@ -494,6 +529,35 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
         requestSummaryModelDownload(modelToSave);
       }
 
+      // Re-check the ASR gate and the diarization install here instead of
+      // blindly marking both cards installed: the completion command writes
+      // the audioCpp transcript config, so a missing GigaAM must not be
+      // remembered as downloaded.
+      try {
+        await invoke(AUDIOCPP_COMMANDS.init);
+        const transcriptionReady = await invoke<boolean>(
+          AUDIOCPP_COMMANDS.hasTranscriptionModel
+        );
+        if (!transcriptionReady) {
+          console.warn('[OnboardingContext] audio.cpp transcription model is not installed on completion');
+        }
+        const models = await invoke<AudioCppModelInfo[]>(
+          AUDIOCPP_COMMANDS.getAvailableModels
+        );
+        const diarizationReady = isAudioCppModelInstalled(
+          models,
+          AUDIOCPP_DIARIZATION_MODEL
+        );
+        setAudioCppModelStates(states =>
+          setAudioCppCardsDownloaded(states, {
+            transcription: transcriptionReady,
+            diarization: diarizationReady,
+          })
+        );
+      } catch (error) {
+        console.warn('[OnboardingContext] Failed to verify audio.cpp models on completion:', error);
+      }
+
       // Onboarding always uses builtin-ai with selected model
       await invoke('complete_onboarding', {
         model: modelToSave,
@@ -512,21 +576,32 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
 
   // Start background downloads for models.
   const startBackgroundDownloads = async ({
-    includeParakeet,
+    includeAudioCppTranscription,
+    includeAudioCppDiarization,
     includeSummary,
     summaryModel,
   }: StartBackgroundDownloadsOptions) => {
     console.log('[OnboardingContext] Starting background downloads:', {
-      includeParakeet,
+      includeAudioCppTranscription,
+      includeAudioCppDiarization,
       includeSummary,
       summaryModel,
     });
 
     try {
-      const shouldStartParakeet = includeParakeet && !parakeetDownloaded;
+      // A model already in flight (or installed) must not be requested again:
+      // the native downloader rejects a duplicate request for the same model.
+      const shouldStartTranscription =
+        includeAudioCppTranscription &&
+        !transcriptionModelDownloaded &&
+        transcriptionModelStatus !== 'downloading';
+      const shouldStartDiarization =
+        includeAudioCppDiarization &&
+        !diarizationModelDownloaded &&
+        diarizationModelStatus !== 'downloading';
       const shouldStartSummary = includeSummary && !summaryModelDownloaded && !!summaryModel;
 
-      if (!shouldStartParakeet && !shouldStartSummary) {
+      if (!shouldStartTranscription && !shouldStartDiarization && !shouldStartSummary) {
         if (includeSummary && !summaryModelDownloaded && !summaryModel) {
           console.warn('[OnboardingContext] Summary Model download skipped until recommendation is loaded');
         }
@@ -535,11 +610,49 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
 
       setIsBackgroundDownloading(true);
 
-      // Start Parakeet download first (speech recognition - always required)
-      if (shouldStartParakeet) {
-        console.log('[OnboardingContext] Starting Parakeet download');
-        invoke('parakeet_download_model', { modelName: PARAKEET_MODEL })
-          .catch(err => console.error('[OnboardingContext] Parakeet download failed:', err));
+      // audio.cpp downloads need the model manager, which is created lazily.
+      if (shouldStartTranscription || shouldStartDiarization) {
+        await invoke(AUDIOCPP_COMMANDS.init);
+        // The catalog list seeds each card's size before the first progress
+        // event, so the step shows "~422 MB" instead of a bare title.
+        const models = await invoke<AudioCppModelInfo[]>(
+          AUDIOCPP_COMMANDS.getAvailableModels
+        );
+        setAudioCppModelStates(states => reconcileAudioCppModelList(states, models));
+      }
+
+      // Transcription model first (speech recognition - always required).
+      if (shouldStartTranscription) {
+        console.log('[OnboardingContext] Starting audio.cpp transcription model download');
+        setAudioCppModelStates(states => startAudioCppModelDownload(states, 'transcription'));
+        invoke(AUDIOCPP_COMMANDS.downloadModel, { modelName: AUDIOCPP_TRANSCRIPTION_MODEL })
+          .catch(err => {
+            console.error('[OnboardingContext] audio.cpp transcription download failed:', err);
+            if (String(err).includes('Download already in progress')) return;
+            setAudioCppModelStates(states =>
+              applyAudioCppErrorEvent(states, {
+                modelName: AUDIOCPP_TRANSCRIPTION_MODEL,
+                error: String(err),
+              })
+            );
+          });
+      }
+
+      // Diarization downloads in the background; it never blocks Continue.
+      if (shouldStartDiarization) {
+        console.log('[OnboardingContext] Starting audio.cpp diarization model download');
+        setAudioCppModelStates(states => startAudioCppModelDownload(states, 'diarization'));
+        invoke(AUDIOCPP_COMMANDS.downloadModel, { modelName: AUDIOCPP_DIARIZATION_MODEL })
+          .catch(err => {
+            console.error('[OnboardingContext] audio.cpp diarization download failed:', err);
+            if (String(err).includes('Download already in progress')) return;
+            setAudioCppModelStates(states =>
+              applyAudioCppErrorEvent(states, {
+                modelName: AUDIOCPP_DIARIZATION_MODEL,
+                error: String(err),
+              })
+            );
+          });
       }
 
       // Start selected Summary Model download immediately so completion cannot race the request.
@@ -556,30 +669,41 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
   // Check if any models are currently downloading (for re-entry)
   const checkActiveDownloads = async () => {
     try {
-      const models = await invoke<any[]>('parakeet_get_available_models');
-      const isDownloading = models.some(m => m.status && (typeof m.status === 'object' ? 'Downloading' in m.status : m.status === 'Downloading'));
-      
-      if (isDownloading) {
+      await invoke(AUDIOCPP_COMMANDS.init);
+      const models = await invoke<AudioCppModelInfo[]>(AUDIOCPP_COMMANDS.getAvailableModels);
+
+      setAudioCppModelStates(states => reconcileAudioCppModelList(states, models));
+
+      if (hasActiveAudioCppDownload(models)) {
         console.log('[OnboardingContext] Detected active background downloads on mount');
         setIsBackgroundDownloading(true);
       }
-      
-      // Also check for Built-in AI downloads if possible (though less critical as Parakeet is the main blocker)
-      
+
+      // Also check for Built-in AI downloads if possible (though less critical as the transcription model is the main blocker)
+
     } catch (error) {
       console.warn('[OnboardingContext] Failed to check active downloads:', error);
     }
   };
 
-  const retryParakeetDownload = async () => {
-    console.log('[OnboardingContext] Retrying Parakeet download');
-    try {
-      await invoke('parakeet_retry_download', { modelName: PARAKEET_MODEL });
-    } catch (error) {
-      console.error('[OnboardingContext] Retry failed:', error);
-      throw error;
-    }
-  };
+  const setTranscriptionModelDownloaded = useCallback((value: boolean) => {
+    setAudioCppModelStates(states =>
+      setAudioCppCardDownloaded(states, 'transcription', value)
+    );
+  }, []);
+
+  const setDiarizationModelDownloaded = useCallback((value: boolean) => {
+    setAudioCppModelStates(states =>
+      setAudioCppCardDownloaded(states, 'diarization', value)
+    );
+  }, []);
+
+  const markAudioCppModelError = useCallback(
+    (role: AudioCppModelRole, message: string) => {
+      setAudioCppModelStates(states => markAudioCppCardError(states, role, message));
+    },
+    []
+  );
 
   const setPermissionStatus = useCallback((permission: keyof OnboardingPermissions, status: PermissionStatus) => {
     setPermissions((prev: OnboardingPermissions) => ({
@@ -612,9 +736,14 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
     <OnboardingContext.Provider
       value={{
         currentStep,
-        parakeetDownloaded,
-        parakeetProgress,
-        parakeetProgressInfo,
+        transcriptionModelDownloaded,
+        transcriptionModelProgressInfo,
+        transcriptionModelStatus,
+        transcriptionModelError,
+        diarizationModelDownloaded,
+        diarizationModelProgressInfo,
+        diarizationModelStatus,
+        diarizationModelError,
         summaryModelDownloaded,
         summaryModelProgress,
         summaryModelProgressInfo,
@@ -627,15 +756,16 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
         goToStep,
         goNext,
         goPrevious,
-        setParakeetDownloaded,
+        setTranscriptionModelDownloaded,
+        setDiarizationModelDownloaded,
         setSummaryModelDownloaded,
         setSelectedSummaryModel,
         setDatabaseExists,
         setPermissionStatus,
         setPermissionsSkipped,
+        markAudioCppModelError,
         completeOnboarding,
         startBackgroundDownloads,
-        retryParakeetDownload,
       }}
     >
       {children}

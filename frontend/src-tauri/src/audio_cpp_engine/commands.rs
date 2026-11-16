@@ -2,6 +2,7 @@
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use serde::Serialize;
 use tauri::{command, AppHandle, Emitter, Manager, Runtime};
@@ -216,6 +217,62 @@ pub async fn audiocpp_get_models_directory() -> Result<String, String> {
     Ok(manager.models_directory().to_string_lossy().to_string())
 }
 
+/// Rolling download-rate estimator for progress events.
+///
+/// The shared downloader reports whole percentages only, so the rate is the
+/// percent delta since the previous report scaled by the catalogued model size
+/// and divided by the elapsed time. The first report has no rate.
+struct DownloadSpeed {
+    total_mb: f64,
+    last_percent: u8,
+    last_report: Instant,
+}
+
+impl DownloadSpeed {
+    fn new(total_mb: f64, started: Instant) -> Self {
+        DownloadSpeed {
+            total_mb,
+            last_percent: 0,
+            last_report: started,
+        }
+    }
+
+    /// Record a report and return the rate in MiB/s since the previous one.
+    fn observe(&mut self, percent: u8, now: Instant) -> f64 {
+        let elapsed = now
+            .saturating_duration_since(self.last_report)
+            .as_secs_f64();
+        let delta_percent = percent.saturating_sub(self.last_percent);
+        self.last_percent = self.last_percent.max(percent);
+        self.last_report = now;
+
+        if elapsed <= 0.0 || delta_percent == 0 {
+            return 0.0;
+        }
+
+        (f64::from(delta_percent) / 100.0 * self.total_mb) / elapsed
+    }
+}
+
+/// Payload of [`DOWNLOAD_PROGRESS_EVENT`]. Field names and the
+/// `downloading`/`completed` status mirror the Parakeet and builtin-ai events
+/// so the frontend progress pipelines stay uniform.
+fn download_progress_payload(
+    model_name: &str,
+    progress: u8,
+    total_mb: f64,
+    speed_mbps: f64,
+) -> serde_json::Value {
+    serde_json::json!({
+        "modelName": model_name,
+        "progress": progress,
+        "downloaded_mb": f64::from(progress) / 100.0 * total_mb,
+        "total_mb": total_mb,
+        "speed_mbps": speed_mbps,
+        "status": if progress == 100 { "completed" } else { "downloading" },
+    })
+}
+
 /// Download a catalogued model from its pinned upstream revision, emitting
 /// progress and terminal events. Cancellation resolves `Ok(())` and is
 /// reported by the cancel command, matching the other providers.
@@ -226,16 +283,23 @@ pub async fn audiocpp_download_model<R: Runtime>(
 ) -> Result<(), String> {
     let manager = manager().ok_or_else(|| "audio.cpp model manager not initialized".to_string())?;
 
+    // An unknown model is rejected by the manager, which owns the error
+    // event; its progress payload only needs a size for catalogued models.
+    let total_mb = crate::audio_cpp_engine::catalog::find_model(&model_name)
+        .map_or(0.0, |spec| f64::from(spec.size_mb));
+
     let app_for_progress = app_handle.clone();
     let progress_model = model_name.clone();
+    // Owned by the progress closure; `Mutex` supplies the interior mutability
+    // a `Fn` closure needs, so no `Arc` is required.
+    let speed = Mutex::new(DownloadSpeed::new(total_mb, Instant::now()));
     let progress: Option<Box<dyn Fn(u8) + Send>> = Some(Box::new(move |reported| {
+        let speed_mbps = speed
+            .lock()
+            .map_or(0.0, |mut speed| speed.observe(reported, Instant::now()));
         if let Err(error) = app_for_progress.emit(
             DOWNLOAD_PROGRESS_EVENT,
-            serde_json::json!({
-                "modelName": progress_model,
-                "progress": reported,
-                "status": if reported == 100 { "completed" } else { "downloading" }
-            }),
+            download_progress_payload(&progress_model, reported, total_mb, speed_mbps),
         ) {
             log::error!(
                 "Failed to emit audio.cpp download progress event: {}",
@@ -343,6 +407,69 @@ pub async fn open_audiocpp_models_folder() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Payload field comparison tolerance: the frontend shows one decimal, so
+    /// more precision than this is noise.
+    fn assert_mb(actual: f64, expected: f64) {
+        assert!(
+            (actual - expected).abs() < 0.01,
+            "expected ~{expected} MiB, got {actual}"
+        );
+    }
+
+    #[test]
+    fn progress_payload_carries_megabytes_and_speed() {
+        let payload = download_progress_payload("gigaam-v3-e2e-ctc-f16", 42, 422.0, 1.5);
+
+        assert_eq!(payload["modelName"], "gigaam-v3-e2e-ctc-f16");
+        assert_eq!(payload["progress"], 42);
+        assert_eq!(payload["status"], "downloading");
+        assert_mb(payload["total_mb"].as_f64().unwrap(), 422.0);
+        assert_mb(payload["downloaded_mb"].as_f64().unwrap(), 177.24);
+        assert_mb(payload["speed_mbps"].as_f64().unwrap(), 1.5);
+    }
+
+    #[test]
+    fn progress_payload_marks_completed_at_full_progress() {
+        let payload = download_progress_payload("nemotron-3-diarization-bf16", 100, 190.0, 2.0);
+
+        assert_eq!(payload["status"], "completed");
+        assert_mb(payload["downloaded_mb"].as_f64().unwrap(), 190.0);
+    }
+
+    #[test]
+    fn first_progress_report_has_no_speed_yet() {
+        let started = std::time::Instant::now();
+        let mut speed = DownloadSpeed::new(422.0, started);
+
+        assert_eq!(speed.observe(0, started), 0.0);
+    }
+
+    #[test]
+    fn speed_is_the_downloaded_rate_between_reports() {
+        let started = std::time::Instant::now();
+        let mut speed = DownloadSpeed::new(100.0, started);
+
+        // 25% of 100 MiB in two seconds.
+        let first = speed.observe(25, started + std::time::Duration::from_secs(2));
+        // Another 25 MiB over the next two seconds keeps the same rate.
+        let second = speed.observe(50, started + std::time::Duration::from_secs(4));
+
+        assert!((first - 12.5).abs() < 0.001, "first: {first}");
+        assert!((second - 12.5).abs() < 0.001, "second: {second}");
+    }
+
+    #[test]
+    fn speed_is_zero_when_time_did_not_advance() {
+        let started = std::time::Instant::now();
+        let mut speed = DownloadSpeed::new(100.0, started);
+        speed.observe(10, started + std::time::Duration::from_secs(1));
+
+        assert_eq!(
+            speed.observe(50, started + std::time::Duration::from_secs(1)),
+            0.0
+        );
+    }
 
     #[test]
     fn unavailable_report_carries_error_text() {
