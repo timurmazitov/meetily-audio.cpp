@@ -11,8 +11,8 @@ use crate::audio::transcription::engine::AUDIO_CPP_PROVIDER;
 /// audio.cpp transcription model onboarding installs and configures.
 ///
 /// The catalog (`audio_cpp_engine::catalog`) is the source of truth for model
-/// names; `onboarding_transcript_model_is_catalogued` guards this constant
-/// against drifting from it.
+/// names; `onboarding_transcript_model_is_a_catalogued_asr_model` guards this
+/// constant against drifting from it.
 pub const ONBOARDING_TRANSCRIPT_MODEL: &str = "gigaam-v3-e2e-ctc-f16";
 
 
