@@ -18,6 +18,10 @@ Use pnpm 9.15.9. Run these commands from `frontend/`:
 
 Before running desktop dev/build commands, complete the [first-run sidecar setup](docs/BUILDING.md#first-run-sidecar-setup). Installing frontend dependencies alone does not stage `llama-helper`.
 
+Vulkan builds additionally require the latest Vulkan SDK downloaded into the repository-local `.tools/` folder (not a system-wide install). See [Vulkan setup](docs/BUILDING.md#-vulkan-setup-cross-platform-fallback).
+
+All builds require libclang for `bindgen`; download a current LLVM release into `.tools/` and set `LLVM_CONFIG_PATH`/`LIBCLANG_PATH`. See [local LLVM toolchain](docs/BUILDING.md#local-llvm-toolchain-tools).
+
 | Command | Purpose |
 | --- | --- |
 | `pnpm install --frozen-lockfile` | Install the committed dependency set |

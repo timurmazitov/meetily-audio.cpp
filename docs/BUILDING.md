@@ -46,6 +46,22 @@ These commands build the helper without an explicit GPU backend. Its optional ac
 
 These paths assume an ordinary native-host workspace build. With a custom Cargo output directory or cross-compilation, copy from the actual configured output and use the actual build target as the suffix instead of the `rustc` host.
 
+### Local LLVM toolchain (`.tools/`)
+
+The build requires **libclang** at compile time: `bindgen` (pulled in by `llama-cpp-sys-2` for `llama-helper` and by `whisper-rs-sys`) generates FFI bindings through it. Do not rely on a system-wide LLVM install — download a current LLVM release from [github.com/llvm/llvm-project/releases](https://github.com/llvm/llvm-project/releases) (e.g. `llvmorg-23.1.4`) and extract it into the repository-local `.tools/` folder.
+
+Any recent LLVM works: `clang-sys` (the `bindgen` → libclang bridge) does not enforce an upper Clang version, and the libclang C API is backward compatible. The build is regularly exercised with LLVM 21+.
+
+Point the build at the extracted toolchain:
+
+```bash
+# ~/.bashrc / ~/.zshrc — adjust to the actual extracted path
+export LLVM_CONFIG_PATH="$PWD/.tools/llvm/bin/llvm-config"
+export LIBCLANG_PATH="$PWD/.tools/llvm/lib"
+```
+
+On Windows (PowerShell, e.g. in `build.bat`): `set "LIBCLANG_PATH=<repo>\.tools\llvm\bin"`.
+
 After staging the helper, run application commands from `frontend/` with dependencies installed:
 
 | Command | Purpose |
@@ -215,24 +231,32 @@ CMAKE_POSITION_INDEPENDENT_CODE=ON \
 
 Vulkan works on NVIDIA, AMD, and Intel GPUs. Good choice if CUDA/ROCm don't work.
 
-##### Step 1: Install Vulkan SDK and BLAS
+> **Requirement:** the latest Vulkan SDK must be downloaded into the repository-local `.tools/` folder (do not rely on a system-wide SDK install). Get it from https://vulkan.lunarg.com/sdk/home and extract the archive so that the SDK root (containing `include/`, `lib/`, `bin/`) lives under `.tools/`, for example `.tools/vulkan-sdk/...`. The folder is git-ignored.
+
+##### Step 1: Download the Vulkan SDK
+
+Download the latest SDK for your platform from [vulkan.lunarg.com/sdk/home](https://vulkan.lunarg.com/sdk/home) and extract it into `.tools/` inside the repository root.
+
+OpenBLAS still comes from the distro:
 
 ```bash
 # Ubuntu/Debian
-sudo apt install vulkan-sdk libopenblas-dev
+sudo apt install libopenblas-dev
 
 # Fedora
-sudo dnf install vulkan-devel openblas-devel
+sudo dnf install openblas-devel
 
 # Arch Linux
-sudo pacman -S vulkan-devel openblas
+sudo pacman -S openblas
 ```
 
 ##### Step 2: Configure Environment
 
+Point `VULKAN_SDK` at the SDK extracted into `.tools/`:
+
 ```bash
 # Add to ~/.bashrc or ~/.zshrc
-export VULKAN_SDK=/usr
+export VULKAN_SDK="$PWD/.tools/vulkan-sdk"   # adjust to the actual extracted path
 export BLAS_INCLUDE_DIRS=/usr/include/x86_64-linux-gnu
 
 # Apply changes

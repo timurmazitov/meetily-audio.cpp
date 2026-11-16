@@ -32,9 +32,10 @@ sudo apt install -y \
   build-essential cmake git pkg-config \
   libasound2-dev libpipewire-0.3-dev \
   libgtk-3-dev libwebkit2gtk-4.1-dev \
-  libsoup-3.0-dev libssl-dev \
-  libclang-dev clang
+  libsoup-3.0-dev libssl-dev
 ```
+
+(libclang из пакетов ставить не нужно — LLVM скачивается в `.tools/`, см. ниже в таблице)
 
 Что зачем:
 
@@ -45,7 +46,7 @@ sudo apt install -y \
 | `libasound2-dev`, `libpipewire-0.3-dev` | захват звука (микрофон, системный звук) |
 | `libgtk-3-dev`, `libwebkit2gtk-4.1-dev`, `libsoup-3.0-dev` | окно и webview Tauri |
 | `libssl-dev` | HTTPS |
-| `libclang-dev`, `clang` | `bindgen` при сборке `llama-helper` |
+| `libclang` (LLVM) | `bindgen` при сборке `llama-helper` / `whisper-rs-sys` — скачать LLVM в `.tools/`, см. [BUILDING.md](BUILDING.md#local-llvm-toolchain-tools) |
 
 Инструменты JS/Rust:
 
@@ -217,7 +218,7 @@ cd <repo>/frontend
 | Симптом | Причина и решение |
 | --- | --- |
 | `cargo: command not found` | не установлен Rust: https://rust-lang.org/tools/install |
-| `Unable to find libclang` | нет `libclang-dev` / `clang` — шаг 1 |
+| `Unable to find libclang` | LLVM не скачан в `.tools/` или не заданы `LLVM_CONFIG_PATH`/`LIBCLANG_PATH` — см. [BUILDING.md](BUILDING.md#local-llvm-toolchain-tools) |
 | `failed to find a pre-opened...` / пустое окно | не хватает `libwebkit2gtk-4.1-dev`; проверить `pkg-config --exists webkit2gtk-4.1` |
 | `Missing external binary ... llama-helper` | не выполнен шаг 3 (sidecar не застейджен) |
 | Сборка падает на `alsa-sys` | нет `libasound2-dev` |
