@@ -16,6 +16,7 @@ EXCLUDED_DIRS = {
 }
 EXCLUDED_FILES = {
     "LICENSE.md",     # attribution: MIT copyright of the original project is preserved here by design
+    "docs/research/upstream-0.5.0.md",  # research about the upstream project; its name and paths are the subject
 }
 
 # Line-level allowlist: lines matching any of these may mention the old brand.
@@ -43,7 +44,7 @@ for dirpath, dirnames, filenames in os.walk(ROOT):
     for name in filenames:
         path = os.path.join(dirpath, name)
         rel = os.path.relpath(path, ROOT)
-        if name in EXCLUDED_FILES:
+        if name in EXCLUDED_FILES or rel.replace(os.sep, "/") in EXCLUDED_FILES:
             continue
         if any(p.search(rel) for p in ALLOWED_FILES):
             continue
