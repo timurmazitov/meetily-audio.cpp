@@ -82,3 +82,6 @@ frontend/src-tauri/vulkan-runtime/
 
 # Locally downloaded toolchains (e.g. Vulkan SDK)
 .tools/
+
+# Python bytecode from running the scripts/ tests
+__pycache__/
