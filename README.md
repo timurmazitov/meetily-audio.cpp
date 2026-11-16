@@ -1,7 +1,5 @@
 <div align="center" style="border-bottom: none">
     <h1>
-        <img src="docs/Samobranka-6.png" style="border-radius: 10px;" />
-        <br>
         Privacy-First AI Meeting Assistant
     </h1>
     <br>
@@ -26,10 +24,6 @@
 
 A privacy-first AI meeting assistant that captures, transcribes, and summarizes meetings entirely on your infrastructure. Built by expert AI engineers passionate about data sovereignty and open source solutions. Perfect for enterprises that need advanced meeting intelligence without compromising on privacy, compliance, or control.
 
-</p>
-
-<p align="center">
-    <img src="docs/samobranka_demo.gif" width="650" alt="Samobranka Demo" />
 </p>
 
 </div>
@@ -119,55 +113,27 @@ To build from source, see [Building on Linux](docs/building_in_linux.md) or [Gen
 
 Transcribe meetings entirely on your device using **Whisper** or **Parakeet** models. No cloud required.
 
-<p align="center">
-    <img src="docs/home.png" width="650" style="border-radius: 10px;" alt="Samobranka Demo" />
-</p>
-
 ### 📥 Import & Enhance `Beta`
 
 Import existing audio files to generate transcripts, or enhance to re-transcribe any recorded meeting with a different model or language, all processed locally.
 
 > Contributed by [Jeremi Joslin](https://github.com/jeremi), improved by [Vishnu P S](https://github.com/p-s-vishnu) and [Mohammed Safvan](https://github.com/mohammedsafvan)
 
-<p align="center">
-    <img src="docs/samobranka-export.gif" width="650" style="border-radius: 10px;" alt="Import and Enhance" />
-</p>
-
 ### 🤖 AI-Powered Summaries
 
 Generate meeting summaries with your choice of AI provider. **Ollama** (local) is recommended, with support for Claude, Groq, OpenRouter, and OpenAI.
-
-<p align="center">
-    <img src="docs/summary.png" width="650" style="border-radius: 10px;" alt="Summary generation" />
-</p>
-
-<p align="center">
-    <img src="docs/editor1.png" width="650" style="border-radius: 10px;" alt="Editor Summary generation" />
-</p>
 
 ### 🔒 Privacy-First Design
 
 All data stays on your machine. Transcription models, recordings, and transcripts are stored locally.
 
-<p align="center">
-    <img src="docs/settings.png" width="650" style="border-radius: 10px;" alt="Local Transcription and storage" />
-</p>
-
 ### 🌐 Custom OpenAI Endpoint Support
 
 Use your own OpenAI-compatible endpoint for AI summaries. Perfect for organizations with custom AI infrastructure or preferred providers.
 
-<p align="center">
-    <img src="docs/custom.png" width="650" style="border-radius: 10px;" alt="Custom OpenAI Endpoint Configuration" />
-</p>
-
 ### 🎙️ Professional Audio Mixing
 
 Capture microphone and system audio simultaneously with intelligent ducking and clipping prevention.
-
-<p align="center">
-    <img src="docs/audio.png" width="650" style="border-radius: 10px;" alt="Device selection" />
-</p>
 
 ### ⚡ GPU Acceleration
 
