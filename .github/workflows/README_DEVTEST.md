@@ -60,16 +60,17 @@ When signing is enabled:
 - Verifies signatures with PowerShell
 
 ### Linux
-- Uses **Tauri updater signing** (Ed25519)
-- Signs update manifests for auto-updater
+- Artifacts are unsigned by default; no signing is configured for Linux devtest builds
 
 ## Build Artifacts
 
 Artifacts are automatically uploaded and retained for **14 days**:
 
-- **macOS**: `*.dmg`, `*.app`, `*.app.tar.gz`, `*.app.tar.gz.sig`
-- **Windows**: `*.msi`, `*.msi.sig`, `*.exe`, `*.exe.sig`
+- **macOS**: `*.dmg`, `*.app`
+- **Windows**: `*.msi`, `*.exe`
 - **Linux**: `*.deb`, `*.AppImage`, `*.rpm`
+
+No updater artifacts (`.sig`, `*.app.tar.gz`, `latest.json`) are produced: the in-app updater is disabled (see `docs/adr/0002-rebrand-to-samobranka.md`). The artifact upload lists still name the `.sig` and `*.app.tar.gz` paths, but with `bundle.createUpdaterArtifacts: false` nothing is expected to match them; `upload-artifact` only warns about missing paths.
 
 ### Downloading Artifacts
 
