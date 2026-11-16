@@ -20,9 +20,8 @@ import {
   type AudioCppModelDownloadStatus,
   type AudioCppModelRole,
   type AudioCppModelStates,
+  type OnboardingDownloadCard,
 } from '@/lib/onboarding-audiocpp-status';
-
-type CardRole = AudioCppModelRole | 'summary';
 
 /** One download card's visible state; shared by the audio.cpp and summary cards. */
 interface DownloadState {
@@ -48,6 +47,114 @@ function cardFromContext(
   };
 }
 
+interface DownloadCardProps {
+  title: string;
+  icon: React.ReactNode;
+  state: DownloadState;
+  /** Card subtitle, e.g. "~422 MB"; hidden when empty. */
+  modelSize: string;
+  /** Progress figures are printed in this unit (the summary card uses MiB). */
+  sizeUnit: string;
+  onRetry?: () => void;
+}
+
+/** One model card: title, status indicator, progress bar and retry block. */
+function DownloadCard({
+  title,
+  icon,
+  state,
+  modelSize,
+  sizeUnit,
+  onRetry,
+}: DownloadCardProps) {
+  const hasSizes = state.progress.totalMb > 0;
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-5">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center">
+            {icon}
+          </div>
+          <div>
+            <h3 className="font-medium text-gray-900">{title}</h3>
+            {modelSize && <p className="text-sm text-gray-500">{modelSize}</p>}
+          </div>
+        </div>
+        <div>
+          {state.status === 'waiting' && (
+            <span className="text-sm text-gray-500">Waiting...</span>
+          )}
+          {state.status === 'downloading' && (
+            <Loader2 className="w-5 h-5 text-gray-700 animate-spin" />
+          )}
+          {state.status === 'completed' && (
+            <div className="w-6 h-6 rounded-full bg-green-100 flex items-center justify-center">
+              <Check className="w-4 h-4 text-green-600" />
+            </div>
+          )}
+          {state.status === 'error' && (
+            <span className="text-sm text-red-500">Failed</span>
+          )}
+          {state.status === 'cancelled' && (
+            <span className="text-sm text-gray-500">Cancelled</span>
+          )}
+        </div>
+      </div>
+
+      {/* Progress Bar */}
+      {(state.status === 'downloading' || (state.status === 'completed' && hasSizes)) && (
+        <div className="space-y-2">
+          <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-gradient-to-r from-gray-700 to-gray-900 rounded-full transition-all duration-300"
+              style={{ width: `${state.progress.percent}%` }}
+            />
+          </div>
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-gray-600">
+              {hasSizes
+                ? `${state.progress.downloadedMb.toFixed(1)} ${sizeUnit} / ${state.progress.totalMb.toFixed(1)} ${sizeUnit}`
+                : 'Downloading...'}
+            </span>
+            <div className="flex items-center gap-2">
+              {hasSizes && state.progress.speedMbps > 0 && (
+                <span className="text-gray-500">
+                  {state.progress.speedMbps.toFixed(1)} {sizeUnit}/s
+                </span>
+              )}
+              <span className="font-semibold text-gray-900">
+                {Math.round(state.progress.percent)}%
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {(state.status === 'error' || state.status === 'cancelled') && (
+        <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded-md">
+          <p className="text-sm text-red-600 font-medium">
+            {state.status === 'cancelled' ? 'Download cancelled' : 'Download Error'}
+          </p>
+          {state.error && <p className="text-xs text-red-500 mt-1">{state.error}</p>}
+          {onRetry && (
+            <button
+              onClick={onRetry}
+              className="mt-3 w-full h-9 px-4 bg-gray-900 hover:bg-gray-800 text-white text-sm font-medium rounded-md transition-colors flex items-center justify-center gap-2"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                      d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              Try Again
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function DownloadProgressStep() {
   const {
     goNext,
@@ -63,6 +170,7 @@ export function DownloadProgressStep() {
     diarizationModelProgressInfo,
     diarizationModelStatus,
     diarizationModelError,
+    markAudioCppModelError,
     summaryModelDownloaded,
     setSummaryModelDownloaded,
     startBackgroundDownloads,
@@ -131,6 +239,12 @@ export function DownloadProgressStep() {
       // Progress events will update state
     } catch (error) {
       console.error('[DownloadProgressStep] Retry failed:', error);
+      // Without a native error event the card would stay in "waiting",
+      // leaving no error text and no way to retry again.
+      markAudioCppModelError(
+        role,
+        error instanceof Error ? error.message : String(error)
+      );
       toast.error(
         role === 'transcription'
           ? 'Transcription engine download retry failed'
@@ -347,7 +461,13 @@ export function DownloadProgressStep() {
         return;
       }
     } catch (error) {
+      // A failed check must not fall through: completing onboarding would
+      // write the audioCpp transcript config without the model on disk.
       console.warn('[DownloadProgressStep] Failed to verify model:', error);
+      toast.error('Could not verify the Transcription Engine', {
+        description: 'Please try again in a moment.',
+      });
+      return;
     }
 
     // Check if downloads are complete for toast notification
@@ -387,106 +507,15 @@ export function DownloadProgressStep() {
     }
   };
 
-  const renderDownloadCard = (
-    card: CardRole,
-    title: string,
-    icon: React.ReactNode,
-    state: DownloadState,
-    modelSize: string,
-    sizeUnit = 'MB'
-  ) => {
-    const retryTarget = onboardingDownloadRetryTarget(card);
-    const onRetry = retryTarget === 'builtin-ai'
-      ? handleRetrySummaryDownload
-      : retryTarget === 'audiocpp'
-      ? () => handleRetryAudioCppDownload(card as AudioCppModelRole)
-      : undefined;
-    const hasSizes = state.progress.totalMb > 0;
-
-    return (
-      <div className="bg-white rounded-xl border border-gray-200 p-5">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center">
-              {icon}
-            </div>
-            <div>
-              <h3 className="font-medium text-gray-900">{title}</h3>
-              {modelSize && <p className="text-sm text-gray-500">{modelSize}</p>}
-            </div>
-          </div>
-          <div>
-            {state.status === 'waiting' && (
-              <span className="text-sm text-gray-500">Waiting...</span>
-            )}
-            {state.status === 'downloading' && (
-              <Loader2 className="w-5 h-5 text-gray-700 animate-spin" />
-            )}
-            {state.status === 'completed' && (
-              <div className="w-6 h-6 rounded-full bg-green-100 flex items-center justify-center">
-                <Check className="w-4 h-4 text-green-600" />
-              </div>
-            )}
-            {state.status === 'error' && (
-              <span className="text-sm text-red-500">Failed</span>
-            )}
-            {state.status === 'cancelled' && (
-              <span className="text-sm text-gray-500">Cancelled</span>
-            )}
-          </div>
-        </div>
-
-        {/* Progress Bar */}
-        {(state.status === 'downloading' || (state.status === 'completed' && hasSizes)) && (
-          <div className="space-y-2">
-            <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-gradient-to-r from-gray-700 to-gray-900 rounded-full transition-all duration-300"
-                style={{ width: `${state.progress.percent}%` }}
-              />
-            </div>
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-gray-600">
-                {hasSizes
-                  ? `${state.progress.downloadedMb.toFixed(1)} ${sizeUnit} / ${state.progress.totalMb.toFixed(1)} ${sizeUnit}`
-                  : 'Downloading...'}
-              </span>
-              <div className="flex items-center gap-2">
-                {hasSizes && state.progress.speedMbps > 0 && (
-                  <span className="text-gray-500">
-                    {state.progress.speedMbps.toFixed(1)} {sizeUnit}/s
-                  </span>
-                )}
-                <span className="font-semibold text-gray-900">
-                  {Math.round(state.progress.percent)}%
-                </span>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {(state.status === 'error' || state.status === 'cancelled') && (
-          <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded-md">
-            <p className="text-sm text-red-600 font-medium">
-              {state.status === 'cancelled' ? 'Download cancelled' : 'Download Error'}
-            </p>
-            {state.error && <p className="text-xs text-red-500 mt-1">{state.error}</p>}
-            {onRetry && (
-              <button
-                onClick={onRetry}
-                className="mt-3 w-full h-9 px-4 bg-gray-900 hover:bg-gray-800 text-white text-sm font-medium rounded-md transition-colors flex items-center justify-center gap-2"
-              >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
-                Try Again
-              </button>
-            )}
-          </div>
-        )}
-      </div>
-    );
+  // "Try Again" for a card: audio.cpp retries re-request the catalogued model,
+  // the summary card keeps its built-in AI path.
+  const retryHandlerFor = (card: OnboardingDownloadCard): (() => void) | undefined => {
+    const target = onboardingDownloadRetryTarget(card);
+    if (target === 'builtin-ai') return handleRetrySummaryDownload;
+    if (target === 'audiocpp' && card !== 'summary') {
+      return () => handleRetryAudioCppDownload(card);
+    }
+    return undefined;
   };
 
   const transcriptionCard = audioCppStates.transcription;
@@ -508,30 +537,32 @@ export function DownloadProgressStep() {
       <div className="flex flex-col items-center space-y-6">
         {/* Download Cards */}
         <div className="w-full max-w-lg space-y-4">
-          {renderDownloadCard(
-            'transcription',
-            'Transcription Engine',
-            <Mic className="w-5 h-5 text-gray-600" />,
-            transcriptionCard,
-            formatAudioCppModelSizeLabel(transcriptionCard.progress.totalMb)
-          )}
+          <DownloadCard
+            title="Transcription Engine"
+            icon={<Mic className="w-5 h-5 text-gray-600" />}
+            state={transcriptionCard}
+            modelSize={formatAudioCppModelSizeLabel(transcriptionCard.progress.totalMb)}
+            sizeUnit="MB"
+            onRetry={retryHandlerFor('transcription')}
+          />
 
-          {renderDownloadCard(
-            'diarization',
-            'Speaker Diarization',
-            <Users className="w-5 h-5 text-gray-600" />,
-            diarizationCard,
-            formatAudioCppModelSizeLabel(diarizationCard.progress.totalMb)
-          )}
+          <DownloadCard
+            title="Speaker Diarization"
+            icon={<Users className="w-5 h-5 text-gray-600" />}
+            state={diarizationCard}
+            modelSize={formatAudioCppModelSizeLabel(diarizationCard.progress.totalMb)}
+            sizeUnit="MB"
+            onRetry={retryHandlerFor('diarization')}
+          />
 
-          {renderDownloadCard(
-            'summary',
-            'Summary Engine',
-            <Sparkles className="w-5 h-5 text-gray-600" />,
-            summaryState,
-            getSummaryModelSizeLabel(selectedSummaryModel || recommendedSummaryModel),
-            'MiB'
-          )}
+          <DownloadCard
+            title="Summary Engine"
+            icon={<Sparkles className="w-5 h-5 text-gray-600" />}
+            state={summaryState}
+            modelSize={getSummaryModelSizeLabel(selectedSummaryModel || recommendedSummaryModel)}
+            sizeUnit="MiB"
+            onRetry={retryHandlerFor('summary')}
+          />
         </div>
 
         {/* Info Message - show once the app is usable but downloads continue */}

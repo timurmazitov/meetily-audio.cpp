@@ -242,6 +242,10 @@ pub async fn complete_onboarding<R: Runtime>(
 
     status.completed = true;
     status.current_step = 4; // Max step (4 on macOS with permissions, 3 on other platforms)
+    // These are a snapshot of the moment onboarding finished, not a verified
+    // disk check: this command has no access to the model manager. The
+    // frontend re-verifies the installed models before calling it, and any
+    // later entry into onboarding reconciles against `audiocpp_get_available_models`.
     status.model_status.gigaam = "downloaded".to_string();
     status.model_status.diarization = "downloaded".to_string();
     status.model_status.summary = "downloaded".to_string();
