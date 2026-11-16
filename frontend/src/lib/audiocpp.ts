@@ -41,6 +41,12 @@ export type AudioCppDownloadEventStatus = 'downloading' | 'completed' | 'cancell
 export interface AudioCppDownloadProgressEvent {
   modelName: string;
   progress: number;
+  /** Downloaded size in MiB, from the catalogued model size. */
+  downloaded_mb?: number;
+  /** Catalogued model size in MiB. */
+  total_mb?: number;
+  /** Measured rate since the previous report, in MiB/s. */
+  speed_mbps?: number;
   status: AudioCppDownloadEventStatus;
 }
 
