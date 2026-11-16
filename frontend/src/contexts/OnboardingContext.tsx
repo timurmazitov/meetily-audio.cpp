@@ -14,12 +14,15 @@ import {
   hasActiveAudioCppDownload,
   initialAudioCppModelStates,
   isAudioCppModelInstalled,
+  markAudioCppCardError,
   reconcileAudioCppModelList,
-  setAudioCppModelDownloaded,
-  setAudioCppModelsDownloaded,
+  seedAudioCppModelSizes,
+  setAudioCppCardDownloaded,
+  setAudioCppCardsDownloaded,
   startAudioCppModelDownload,
   type AudioCppModelDownloadStatus,
   type AudioCppModelProgressInfo,
+  type AudioCppModelRole,
   type AudioCppModelStates,
 } from '@/lib/onboarding-audiocpp-status';
 import {
@@ -54,13 +57,11 @@ interface SummaryModelProgressInfo {
 interface OnboardingContextType {
   currentStep: number;
   transcriptionModelDownloaded: boolean;
-  transcriptionModelProgress: number;
   transcriptionModelProgressInfo: AudioCppModelProgressInfo;
   /** Card status, including `error`/`cancelled`, so the step can offer a retry. */
   transcriptionModelStatus: AudioCppModelDownloadStatus;
   transcriptionModelError: string | null;
   diarizationModelDownloaded: boolean;
-  diarizationModelProgress: number;
   diarizationModelProgressInfo: AudioCppModelProgressInfo;
   /** Card status, including `error`/`cancelled`, so the step can offer a retry. */
   diarizationModelStatus: AudioCppModelDownloadStatus;
@@ -87,6 +88,8 @@ interface OnboardingContextType {
   setDatabaseExists: (value: boolean) => void;
   setPermissionStatus: (permission: keyof OnboardingPermissions, status: PermissionStatus) => void;
   setPermissionsSkipped: (skipped: boolean) => void;
+  /** Surface a failed download request on a card so "Try Again" stays reachable. */
+  markAudioCppModelError: (role: AudioCppModelRole, message: string) => void;
   completeOnboarding: () => Promise<void>;
   startBackgroundDownloads: (options: StartBackgroundDownloadsOptions) => Promise<void>;
 }
@@ -109,12 +112,10 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
     useState<AudioCppModelStates>(initialAudioCppModelStates);
   const transcriptionModelDownloaded =
     audioCppModelStates.transcription.status === 'completed';
-  const transcriptionModelProgress = audioCppModelStates.transcription.progress.percent;
   const transcriptionModelProgressInfo = audioCppModelStates.transcription.progress;
   const transcriptionModelStatus = audioCppModelStates.transcription.status;
   const transcriptionModelError = audioCppModelStates.transcription.error ?? null;
   const diarizationModelDownloaded = audioCppModelStates.diarization.status === 'completed';
-  const diarizationModelProgress = audioCppModelStates.diarization.progress.percent;
   const diarizationModelProgressInfo = audioCppModelStates.diarization.progress;
   const diarizationModelStatus = audioCppModelStates.diarization.status;
   const diarizationModelError = audioCppModelStates.diarization.error ?? null;
@@ -354,7 +355,7 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
           setCurrentStep(status.current_step);
           setCompleted(true);
           setAudioCppModelStates(states =>
-            setAudioCppModelsDownloaded(states, {
+            setAudioCppCardsDownloaded(states, {
               transcription: status.model_status.gigaam === 'downloaded',
               diarization: status.model_status.diarization === 'downloaded',
             })
@@ -373,7 +374,7 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
         setCurrentStep(verifiedStatus.currentStep);
         setCompleted(verifiedStatus.completed);
         setAudioCppModelStates(states =>
-          setAudioCppModelsDownloaded(states, {
+          setAudioCppCardsDownloaded(states, {
             transcription: verifiedStatus.transcriptionModelDownloaded,
             diarization: verifiedStatus.diarizationModelDownloaded,
           })
@@ -416,6 +417,8 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
         models,
         AUDIOCPP_DIARIZATION_MODEL
       );
+      // Catalogued sizes make the cards readable before any progress event.
+      setAudioCppModelStates(states => seedAudioCppModelSizes(states, models));
       console.log(
         '[OnboardingContext] audio.cpp models verified on disk:',
         { transcriptionModelDownloaded, diarizationModelDownloaded }
@@ -526,9 +529,10 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
         requestSummaryModelDownload(modelToSave);
       }
 
-      // Mark both audio.cpp models as installed. The completion command writes
-      // the audioCpp transcript config; the ASR gate is re-checked here instead
-      // of trusting the card state alone.
+      // Re-check the ASR gate and the diarization install here instead of
+      // blindly marking both cards installed: the completion command writes
+      // the audioCpp transcript config, so a missing GigaAM must not be
+      // remembered as downloaded.
       try {
         await invoke(AUDIOCPP_COMMANDS.init);
         const transcriptionReady = await invoke<boolean>(
@@ -537,8 +541,18 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
         if (!transcriptionReady) {
           console.warn('[OnboardingContext] audio.cpp transcription model is not installed on completion');
         }
+        const models = await invoke<AudioCppModelInfo[]>(
+          AUDIOCPP_COMMANDS.getAvailableModels
+        );
+        const diarizationReady = isAudioCppModelInstalled(
+          models,
+          AUDIOCPP_DIARIZATION_MODEL
+        );
         setAudioCppModelStates(states =>
-          setAudioCppModelsDownloaded(states, { transcription: true, diarization: true })
+          setAudioCppCardsDownloaded(states, {
+            transcription: transcriptionReady,
+            diarization: diarizationReady,
+          })
         );
       } catch (error) {
         console.warn('[OnboardingContext] Failed to verify audio.cpp models on completion:', error);
@@ -599,6 +613,12 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
       // audio.cpp downloads need the model manager, which is created lazily.
       if (shouldStartTranscription || shouldStartDiarization) {
         await invoke(AUDIOCPP_COMMANDS.init);
+        // The catalog list seeds each card's size before the first progress
+        // event, so the step shows "~422 MB" instead of a bare title.
+        const models = await invoke<AudioCppModelInfo[]>(
+          AUDIOCPP_COMMANDS.getAvailableModels
+        );
+        setAudioCppModelStates(states => reconcileAudioCppModelList(states, models));
       }
 
       // Transcription model first (speech recognition - always required).
@@ -668,15 +688,22 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
 
   const setTranscriptionModelDownloaded = useCallback((value: boolean) => {
     setAudioCppModelStates(states =>
-      setAudioCppModelDownloaded(states, 'transcription', value)
+      setAudioCppCardDownloaded(states, 'transcription', value)
     );
   }, []);
 
   const setDiarizationModelDownloaded = useCallback((value: boolean) => {
     setAudioCppModelStates(states =>
-      setAudioCppModelDownloaded(states, 'diarization', value)
+      setAudioCppCardDownloaded(states, 'diarization', value)
     );
   }, []);
+
+  const markAudioCppModelError = useCallback(
+    (role: AudioCppModelRole, message: string) => {
+      setAudioCppModelStates(states => markAudioCppCardError(states, role, message));
+    },
+    []
+  );
 
   const setPermissionStatus = useCallback((permission: keyof OnboardingPermissions, status: PermissionStatus) => {
     setPermissions((prev: OnboardingPermissions) => ({
@@ -710,12 +737,10 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
       value={{
         currentStep,
         transcriptionModelDownloaded,
-        transcriptionModelProgress,
         transcriptionModelProgressInfo,
         transcriptionModelStatus,
         transcriptionModelError,
         diarizationModelDownloaded,
-        diarizationModelProgress,
         diarizationModelProgressInfo,
         diarizationModelStatus,
         diarizationModelError,
@@ -738,6 +763,7 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
         setDatabaseExists,
         setPermissionStatus,
         setPermissionsSkipped,
+        markAudioCppModelError,
         completeOnboarding,
         startBackgroundDownloads,
       }}

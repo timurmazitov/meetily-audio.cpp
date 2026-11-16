@@ -290,7 +290,9 @@ pub async fn audiocpp_download_model<R: Runtime>(
 
     let app_for_progress = app_handle.clone();
     let progress_model = model_name.clone();
-    let speed = Arc::new(Mutex::new(DownloadSpeed::new(total_mb, Instant::now())));
+    // Owned by the progress closure; `Mutex` supplies the interior mutability
+    // a `Fn` closure needs, so no `Arc` is required.
+    let speed = Mutex::new(DownloadSpeed::new(total_mb, Instant::now()));
     let progress: Option<Box<dyn Fn(u8) + Send>> = Some(Box::new(move |reported| {
         let speed_mbps = speed
             .lock()
