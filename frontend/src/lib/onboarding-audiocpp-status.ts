@@ -6,12 +6,17 @@
  * lives here so it can be tested without Tauri (see
  * `frontend/tests/lib/onboarding-audiocpp-status.test.mjs`).
  *
- * This module deliberately has no runtime imports: model names are duplicated
- * from the native catalog (`audio_cpp_engine::catalog`), matching the earlier
- * `PARAKEET_MODEL` constant. Event/model shapes are imported type-only, so the
- * module stays importable from plain unit tests.
+ * Model names are duplicated from the native catalog
+ * (`audio_cpp_engine::catalog`), matching the earlier `PARAKEET_MODEL`
+ * constant. Status predicates are reused from `./audiocpp`; the unit test
+ * loader resolves that relative import through the same transpiler.
  */
 
+import {
+  downloadProgress,
+  isAvailableStatus,
+  isDownloadingStatus,
+} from './audiocpp';
 import type {
   AudioCppDownloadCompleteEvent,
   AudioCppDownloadErrorEvent,
@@ -55,7 +60,8 @@ export interface AudioCppModelStates {
 }
 
 /** The subset of a catalogued model these helpers read. */
-export type AudioCppModelSummary = Pick<AudioCppModelInfo, 'name' | 'status'>;
+export type AudioCppModelSummary = Pick<AudioCppModelInfo, 'name' | 'status'> &
+  Partial<Pick<AudioCppModelInfo, 'size_mb'>>;
 
 const ZERO_PROGRESS: AudioCppModelProgressInfo = {
   percent: 0,
@@ -162,7 +168,7 @@ export function applyAudioCppErrorEvent(
  * retry shows a clean "waiting" card; an in-flight download keeps reporting its
  * own state.
  */
-export function setAudioCppModelDownloaded(
+export function setAudioCppCardDownloaded(
   states: AudioCppModelStates,
   role: AudioCppModelRole,
   downloaded: boolean
@@ -189,6 +195,25 @@ export function setAudioCppModelDownloaded(
 }
 
 /**
+ * Mark a card as failed without a native event, e.g. when a retried download
+ * request rejects before the manager can emit its own error.
+ *
+ * The previous size and percentage are kept so the card does not lose the
+ * information it already showed.
+ */
+export function markAudioCppCardError(
+  states: AudioCppModelStates,
+  role: AudioCppModelRole,
+  error: string
+): AudioCppModelStates {
+  return updateRole(states, role, {
+    status: 'error',
+    progress: { ...states[role].progress },
+    error,
+  });
+}
+
+/**
  * Mark a card as downloading as soon as the download is requested.
  *
  * Progress events arrive a moment later; without this the card would still say
@@ -208,16 +233,16 @@ export function startAudioCppModelDownload(
  * Apply both verified downloaded flags at once, as reported by the saved
  * onboarding status or by a check of the installed models.
  */
-export function setAudioCppModelsDownloaded(
+export function setAudioCppCardsDownloaded(
   states: AudioCppModelStates,
   downloaded: { transcription: boolean; diarization: boolean }
 ): AudioCppModelStates {
-  const withTranscription = setAudioCppModelDownloaded(
+  const withTranscription = setAudioCppCardDownloaded(
     states,
     'transcription',
     downloaded.transcription
   );
-  return setAudioCppModelDownloaded(withTranscription, 'diarization', downloaded.diarization);
+  return setAudioCppCardDownloaded(withTranscription, 'diarization', downloaded.diarization);
 }
 
 /**
@@ -233,10 +258,11 @@ export function isContinueEnabled(states: AudioCppModelStates): boolean {
 /**
  * Size label under a card title, taken from the reported/catalogued size.
  *
- * Mirrors `formatModelSize` from the audio.cpp model manager ("422MB",
- * "1.9GB") so the onboarding card reads like the rest of the model UI. Returns
- * an empty string while no size is known yet, so the card shows just its title
- * until the first progress event arrives.
+ * The `~` is intentional: the catalogued size is an estimate of the download.
+ * The model manager's `formatModelSize` prints the exact figure ("422MB"), so
+ * the two labels differ by design. Returns an empty string while no size is
+ * known yet, so the card shows just its title until the size is seeded from
+ * the catalog or the first progress event arrives.
  */
 export function formatAudioCppModelSizeLabel(sizeMb: number): string {
   if (!Number.isFinite(sizeMb) || sizeMb <= 0) return '';
@@ -247,9 +273,12 @@ export function formatAudioCppModelSizeLabel(sizeMb: number): string {
 /** Where a card's "Try Again" button sends its download request. */
 export type OnboardingDownloadRetryTarget = 'audiocpp' | 'builtin-ai';
 
+/** Every card on the download step. */
+export type OnboardingDownloadCard = AudioCppModelRole | 'summary';
+
 /** Download entry point for an onboarding card; unknown cards get `null`. */
 export function onboardingDownloadRetryTarget(
-  card: string
+  card: OnboardingDownloadCard
 ): OnboardingDownloadRetryTarget | null {
   if (card === 'transcription' || card === 'diarization') return 'audiocpp';
   if (card === 'summary') return 'builtin-ai';
@@ -263,7 +292,7 @@ export function onboardingDownloadRetryTarget(
  * point, so retrying is the same `audiocpp_download_model` call. Returns `null`
  * for the summary card, which keeps its own built-in AI download path.
  */
-export function audioCppRetryModelName(role: string): string | null {
+export function audioCppRetryModelName(role: OnboardingDownloadCard): string | null {
   if (role === 'transcription') return AUDIOCPP_TRANSCRIPTION_MODEL;
   if (role === 'diarization') return AUDIOCPP_DIARIZATION_MODEL;
   return null;
@@ -293,9 +322,11 @@ export function shouldShowBackgroundDownloadNotice({
 /**
  * Decision for `handleContinue` after re-checking the native ASR gate.
  *
- * `promote` means the card is stale and should be corrected before continuing;
- * `blocked` means the transcription model is missing after a reported failure.
- * Downloads or verified installs proceed and finish in the background.
+ * `proceed` requires the transcription model to be installed on disk; the card
+ * is only a projection of the events and can drift. `promote` corrects a stale
+ * card when the model is installed but the card has not caught up; `blocked`
+ * means onboarding must stay put: there is no installed ASR model, whether the
+ * download is in flight, failed, or never started.
  */
 export type TranscriptionGateAction = 'proceed' | 'promote' | 'blocked';
 
@@ -306,25 +337,13 @@ export function resolveTranscriptionGate({
   installedOnDisk: boolean;
   state: AudioCppModelCardState;
 }): TranscriptionGateAction {
-  if (installedOnDisk) {
-    return state.status === 'completed' ? 'proceed' : 'promote';
-  }
-
-  if (state.status === 'error' || state.status === 'cancelled') {
-    return 'blocked';
-  }
-
-  return 'proceed';
+  if (!installedOnDisk) return 'blocked';
+  return state.status === 'completed' ? 'proceed' : 'promote';
 }
 
 /** Whether any catalogued model currently reports an in-flight download. */
 export function hasActiveAudioCppDownload(models: AudioCppModelSummary[]): boolean {
-  return models.some(
-    model =>
-      typeof model.status === 'object' &&
-      model.status !== null &&
-      'Downloading' in model.status
-  );
+  return models.some(model => isDownloadingStatus(model.status));
 }
 
 /** Whether a named catalogued model is installed and usable. */
@@ -332,18 +351,27 @@ export function isAudioCppModelInstalled(
   models: AudioCppModelSummary[],
   modelName: string
 ): boolean {
-  return models.some(model => model.name === modelName && model.status === 'Available');
+  return models.some(
+    model => model.name === modelName && isAvailableStatus(model.status)
+  );
+}
+
+/** Catalogued size of a model from the native list, or `null` if unknown. */
+function cataloguedSizeMb(models: AudioCppModelSummary[], modelName: string): number | null {
+  const model = models.find(candidate => candidate.name === modelName);
+  if (!model) return null;
+  const sizeMb = model.size_mb;
+  return typeof sizeMb === 'number' && Number.isFinite(sizeMb) && sizeMb > 0 ? sizeMb : null;
 }
 
 /**
- * Restore card state from the native model list when onboarding re-enters.
+ * Seed each card's size from the catalog so it is visible before the first
+ * progress event arrives.
  *
- * An in-flight download re-appears as `downloading` with its reported
- * percentage, an installed model as `completed`. A card already shown as
- * completed is never rewound by a stale listing, and models other than the two
- * onboarding ones are ignored.
+ * Only empty sizes are filled: a size already reported by an event is at least
+ * as accurate. Card statuses are left untouched.
  */
-export function reconcileAudioCppModelList(
+export function seedAudioCppModelSizes(
   states: AudioCppModelStates,
   models: AudioCppModelSummary[]
 ): AudioCppModelStates {
@@ -352,22 +380,53 @@ export function reconcileAudioCppModelList(
   for (const role of ['transcription', 'diarization'] as const) {
     const modelName =
       role === 'transcription' ? AUDIOCPP_TRANSCRIPTION_MODEL : AUDIOCPP_DIARIZATION_MODEL;
+    if (next[role].progress.totalMb > 0) continue;
+
+    const sizeMb = cataloguedSizeMb(models, modelName);
+    if (sizeMb === null) continue;
+
+    next = updateRole(next, role, {
+      ...next[role],
+      progress: { ...next[role].progress, totalMb: sizeMb },
+    });
+  }
+
+  return next;
+}
+
+/**
+ * Restore card state from the native model list when onboarding re-enters.
+ *
+ * An in-flight download re-appears as `downloading` with its reported
+ * percentage, an installed model as `completed`. The card's size is seeded
+ * from the catalog so it is visible before the first progress event. A card
+ * already shown as completed is never rewound by a stale listing, and models
+ * other than the two onboarding ones are ignored.
+ */
+export function reconcileAudioCppModelList(
+  states: AudioCppModelStates,
+  models: AudioCppModelSummary[]
+): AudioCppModelStates {
+  let next = seedAudioCppModelSizes(states, models);
+
+  for (const role of ['transcription', 'diarization'] as const) {
+    const modelName =
+      role === 'transcription' ? AUDIOCPP_TRANSCRIPTION_MODEL : AUDIOCPP_DIARIZATION_MODEL;
     const model = models.find(candidate => candidate.name === modelName);
     if (!model) continue;
 
-    if (model.status === 'Available') {
-      next = setAudioCppModelDownloaded(next, role, true);
+    if (isAvailableStatus(model.status)) {
+      next = setAudioCppCardDownloaded(next, role, true);
       continue;
     }
 
-    const downloading =
-      typeof model.status === 'object' && model.status !== null && 'Downloading' in model.status;
-    if (downloading && next[role].status !== 'completed') {
+    const percent = downloadProgress(model.status);
+    if (percent !== null && next[role].status !== 'completed') {
       next = updateRole(next, role, {
         status: 'downloading',
         progress: {
           ...next[role].progress,
-          percent: (model.status as { Downloading: { progress: number } }).Downloading.progress,
+          percent,
         },
       });
     }

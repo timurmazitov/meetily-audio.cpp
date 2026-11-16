@@ -16,8 +16,16 @@ const modulePath = path.join(
 );
 const require = createRequire(import.meta.url);
 
+// Loads a `src/lib` TypeScript module, resolving relative imports between
+// those modules through the same transpiler (they are not compiled on disk).
+const moduleCache = new Map();
+
 function loadTsModule(filePath) {
-  const source = fs.readFileSync(filePath, 'utf8');
+  const resolved = path.resolve(filePath);
+  const cached = moduleCache.get(resolved);
+  if (cached) return cached.exports;
+
+  const source = fs.readFileSync(resolved, 'utf8');
   const compiled = ts.transpileModule(source, {
     compilerOptions: {
       module: ts.ModuleKind.CommonJS,
@@ -26,10 +34,19 @@ function loadTsModule(filePath) {
   }).outputText;
 
   const module = { exports: {} };
+  moduleCache.set(resolved, module);
+
+  const localRequire = specifier => {
+    if (specifier.startsWith('.')) {
+      return loadTsModule(path.resolve(path.dirname(resolved), `${specifier}.ts`));
+    }
+    return require(specifier);
+  };
+
   vm.runInNewContext(compiled, {
     exports: module.exports,
     module,
-    require,
+    require: localRequire,
   });
   return module.exports;
 }
@@ -47,11 +64,13 @@ const {
   initialAudioCppModelStates,
   isAudioCppModelInstalled,
   isContinueEnabled,
+  markAudioCppCardError,
   onboardingDownloadRetryTarget,
   reconcileAudioCppModelList,
   resolveTranscriptionGate,
-  setAudioCppModelDownloaded,
-  setAudioCppModelsDownloaded,
+  seedAudioCppModelSizes,
+  setAudioCppCardDownloaded,
+  setAudioCppCardsDownloaded,
   shouldShowBackgroundDownloadNotice,
   startAudioCppModelDownload,
 } = loadTsModule(modulePath);
@@ -146,7 +165,7 @@ assert.deepEqual(stateOf(initialAudioCppModelStates(), 'diarization'), idleDiari
 
 // Cancellation resets the matching card and clears its progress.
 {
-  const downloaded = setAudioCppModelDownloaded(
+  const downloaded = setAudioCppCardDownloaded(
     initialAudioCppModelStates(),
     'transcription',
     true
@@ -219,7 +238,7 @@ assert.deepEqual(stateOf(initialAudioCppModelStates(), 'diarization'), idleDiari
 {
   const downloading = applyAudioCppProgressEvent(initialAudioCppModelStates(), progressEvent());
   assert.deepEqual(
-    stateOf(setAudioCppModelDownloaded(initialAudioCppModelStates(), 'transcription', true), 'transcription'),
+    stateOf(setAudioCppCardDownloaded(initialAudioCppModelStates(), 'transcription', true), 'transcription'),
     {
       status: 'completed',
       percent: 100,
@@ -229,13 +248,13 @@ assert.deepEqual(stateOf(initialAudioCppModelStates(), 'diarization'), idleDiari
     }
   );
   assert.equal(
-    setAudioCppModelDownloaded(downloading, 'transcription', false).transcription.status,
+    setAudioCppCardDownloaded(downloading, 'transcription', false).transcription.status,
     'downloading',
     'clearing an undownloaded flag must not reset an in-flight download'
   );
   assert.equal(
-    setAudioCppModelDownloaded(
-      setAudioCppModelDownloaded(initialAudioCppModelStates(), 'transcription', true),
+    setAudioCppCardDownloaded(
+      setAudioCppCardDownloaded(initialAudioCppModelStates(), 'transcription', true),
       'transcription',
       false
     ).transcription.status,
@@ -250,7 +269,7 @@ assert.deepEqual(stateOf(initialAudioCppModelStates(), 'diarization'), idleDiari
     modelName: AUDIOCPP_DIARIZATION_MODEL,
     error: 'timeout',
   });
-  const reset = setAudioCppModelDownloaded(failed, 'diarization', false);
+  const reset = setAudioCppCardDownloaded(failed, 'diarization', false);
   assert.deepEqual(stateOf(reset, 'diarization'), idleDiarization);
   assert.equal(reset.diarization.error, undefined);
 }
@@ -292,7 +311,7 @@ assert.deepEqual(stateOf(initialAudioCppModelStates(), 'diarization'), idleDiari
 
 // A saved status applies both flags in one step.
 {
-  const next = setAudioCppModelsDownloaded(initialAudioCppModelStates(), {
+  const next = setAudioCppCardsDownloaded(initialAudioCppModelStates(), {
     transcription: true,
     diarization: false,
   });
@@ -336,7 +355,7 @@ assert.deepEqual(stateOf(initialAudioCppModelStates(), 'diarization'), idleDiari
 
 // A completed card is never rewound to downloading by a stale list.
 {
-  const completed = setAudioCppModelsDownloaded(initialAudioCppModelStates(), {
+  const completed = setAudioCppCardsDownloaded(initialAudioCppModelStates(), {
     transcription: true,
     diarization: false,
   });
@@ -352,7 +371,7 @@ assert.deepEqual(stateOf(initialAudioCppModelStates(), 'diarization'), idleDiari
   assert.equal(isContinueEnabled(initialAudioCppModelStates()), false);
   assert.equal(isContinueEnabled(downloading), false);
 
-  const transcriptionDone = setAudioCppModelDownloaded(
+  const transcriptionDone = setAudioCppCardDownloaded(
     initialAudioCppModelStates(),
     'transcription',
     true
@@ -368,7 +387,7 @@ assert.deepEqual(stateOf(initialAudioCppModelStates(), 'diarization'), idleDiari
 
   // An installed diarization model does not stand in for the ASR gate.
   const diarizationOnly = applyAudioCppErrorEvent(
-    setAudioCppModelsDownloaded(initialAudioCppModelStates(), {
+    setAudioCppCardsDownloaded(initialAudioCppModelStates(), {
       transcription: false,
       diarization: true,
     }),
@@ -457,6 +476,8 @@ assert.deepEqual(stateOf(initialAudioCppModelStates(), 'diarization'), idleDiari
 }
 
 // Continue verifies the native ASR gate, catching state drift and failures.
+// `proceed` requires the model to be installed on disk: a card that merely
+// looks finished (or a download still in flight) must not pass the gate.
 {
   const downloading = applyAudioCppProgressEvent(initialAudioCppModelStates(), progressEvent());
   assert.equal(
@@ -465,7 +486,7 @@ assert.deepEqual(stateOf(initialAudioCppModelStates(), 'diarization'), idleDiari
     'an installed model must correct a stale card and continue'
   );
 
-  const completed = setAudioCppModelDownloaded(
+  const completed = setAudioCppCardDownloaded(
     initialAudioCppModelStates(),
     'transcription',
     true
@@ -473,6 +494,12 @@ assert.deepEqual(stateOf(initialAudioCppModelStates(), 'diarization'), idleDiari
   assert.equal(
     resolveTranscriptionGate({ installedOnDisk: true, state: completed.transcription }),
     'proceed'
+  );
+
+  assert.equal(
+    resolveTranscriptionGate({ installedOnDisk: false, state: completed.transcription }),
+    'blocked',
+    'a completed-looking card without the model on disk must not proceed'
   );
 
   const failed = applyAudioCppErrorEvent(initialAudioCppModelStates(), {
@@ -495,8 +522,93 @@ assert.deepEqual(stateOf(initialAudioCppModelStates(), 'diarization'), idleDiari
 
   assert.equal(
     resolveTranscriptionGate({ installedOnDisk: false, state: downloading.transcription }),
-    'proceed',
-    'an in-flight download proceeds and finishes in the background'
+    'blocked',
+    'an in-flight download is not an installed model'
+  );
+  assert.equal(
+    resolveTranscriptionGate({
+      installedOnDisk: false,
+      state: initialAudioCppModelStates().transcription,
+    }),
+    'blocked',
+    'a waiting card without the model on disk must not proceed'
+  );
+}
+
+// Card sizes are seeded from the catalog before any progress event arrives.
+{
+  const next = reconcileAudioCppModelList(initialAudioCppModelStates(), [
+    { name: AUDIOCPP_TRANSCRIPTION_MODEL, status: 'Missing', size_mb: 422 },
+    { name: AUDIOCPP_DIARIZATION_MODEL, status: 'Missing', size_mb: 1900 },
+  ]);
+  assert.equal(next.transcription.progress.totalMb, 422);
+  assert.equal(next.diarization.progress.totalMb, 1900);
+  assert.equal(next.transcription.status, 'waiting');
+  assert.equal(next.diarization.status, 'waiting');
+  assert.equal(
+    formatAudioCppModelSizeLabel(next.transcription.progress.totalMb),
+    '~422 MB'
+  );
+
+  // A reported size on a downloading card is kept when the catalog agrees.
+  const downloading = applyAudioCppProgressEvent(initialAudioCppModelStates(), progressEvent());
+  const reconciled = reconcileAudioCppModelList(downloading, [
+    { name: AUDIOCPP_TRANSCRIPTION_MODEL, status: { Downloading: { progress: 40 } }, size_mb: 422 },
+  ]);
+  assert.equal(reconciled.transcription.progress.totalMb, 422);
+  assert.equal(reconciled.transcription.progress.percent, 40);
+
+  // A list entry without a size leaves the card's known size untouched.
+  const withoutSize = reconcileAudioCppModelList(initialAudioCppModelStates(), [
+    { name: AUDIOCPP_TRANSCRIPTION_MODEL, status: 'Missing' },
+  ]);
+  assert.equal(withoutSize.transcription.progress.totalMb, 0);
+}
+
+// Sizes can be seeded from the catalog alone, without touching card statuses.
+{
+  const initial = initialAudioCppModelStates();
+  const seeded = seedAudioCppModelSizes(initial, [
+    { name: AUDIOCPP_TRANSCRIPTION_MODEL, status: 'Missing', size_mb: 422 },
+    { name: AUDIOCPP_DIARIZATION_MODEL, status: 'Missing', size_mb: 1900 },
+  ]);
+  assert.equal(seeded.transcription.status, 'waiting');
+  assert.equal(seeded.diarization.status, 'waiting');
+  assert.equal(seeded.transcription.progress.totalMb, 422);
+  assert.equal(seeded.diarization.progress.totalMb, 1900);
+
+  // A size already reported by an event is not overwritten.
+  const reported = applyAudioCppProgressEvent(initialAudioCppModelStates(), progressEvent());
+  assert.equal(
+    seedAudioCppModelSizes(reported, [
+      { name: AUDIOCPP_TRANSCRIPTION_MODEL, status: 'Missing', size_mb: 999 },
+    ]).transcription.progress.totalMb,
+    422
+  );
+
+  assert.deepEqual(seedAudioCppModelSizes(initial, []), initial);
+}
+
+// A failed retry marks the card as errored again so "Try Again" stays reachable.
+{
+  const errored = markAudioCppCardError(
+    initialAudioCppModelStates(),
+    'transcription',
+    'network unreachable'
+  );
+  assert.equal(errored.transcription.status, 'error');
+  assert.equal(errored.transcription.error, 'network unreachable');
+  assert.equal(errored.diarization.status, 'waiting');
+  assert.equal(errored.diarization.error, undefined);
+
+  const previous = applyAudioCppProgressEvent(initialAudioCppModelStates(), progressEvent());
+  const failedRetry = markAudioCppCardError(previous, 'transcription', 'timeout');
+  assert.equal(failedRetry.transcription.status, 'error');
+  assert.equal(failedRetry.transcription.error, 'timeout');
+  assert.equal(
+    failedRetry.transcription.progress.totalMb,
+    422,
+    'a failed retry keeps the size already known for the card'
   );
 }
 
