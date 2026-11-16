@@ -102,7 +102,7 @@ where
     }
 
     let client = reqwest::Client::builder()
-        .user_agent(concat!("Meetily/", env!("CARGO_PKG_VERSION")))
+        .user_agent(concat!("Samobranka/", env!("CARGO_PKG_VERSION")))
         .build()
         .map_err(|e| anyhow!("Failed to create download client: {}", e))?;
 
@@ -333,7 +333,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn download_file_sends_meetily_user_agent() {
+    async fn download_file_sends_samobranka_user_agent() {
         let dir = tempfile::tempdir().unwrap();
         let file_path = dir.path().join("model.bin");
         let (url, request, server) = response_http_server(4, b"ggml").await;
@@ -345,7 +345,7 @@ mod tests {
         server.await.unwrap();
 
         assert!(request.to_ascii_lowercase().contains(&format!(
-            "user-agent: meetily/{}",
+            "user-agent: samobranka/{}",
             env!("CARGO_PKG_VERSION")
         )));
     }

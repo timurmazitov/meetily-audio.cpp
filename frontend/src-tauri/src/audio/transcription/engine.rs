@@ -341,7 +341,7 @@ pub async fn get_or_init_audio_cpp_provider_with_model<R: Runtime>(
     };
 
     let manager = crate::audio_cpp_engine::commands::model_manager().ok_or_else(|| {
-        "The audioCpp model manager is not initialized. Restart Meetily and try again.".to_string()
+        "The audioCpp model manager is not initialized. Restart Samobranka and try again.".to_string()
     })?;
 
     let models = manager

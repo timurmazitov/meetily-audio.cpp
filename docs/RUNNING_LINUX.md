@@ -1,4 +1,4 @@
-# Запуск и сборка Meetily на Linux
+# Запуск и сборка Samobranka на Linux
 
 Практическая инструкция для локального запуска приложения из исходников на Linux
 (Ubuntu/Debian). Проверено на Ubuntu 26.04, Rust 1.98, Node 26, pnpm 9.15.9.
@@ -137,7 +137,7 @@ cd <repo>/frontend
 ```
 
 Логи разработки: терминал + `logs-dev/` в каталоге данных приложения:
-`${XDG_DATA_HOME:-$HOME/.local/share}/com.meetily.ai/logs-dev/`.
+`${XDG_DATA_HOME:-$HOME/.local/share}/com.samobranka.ai/logs-dev/`.
 
 ---
 

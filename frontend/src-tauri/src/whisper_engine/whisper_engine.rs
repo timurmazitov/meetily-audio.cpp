@@ -138,7 +138,7 @@ impl WhisperEngine {
                 dirs::data_dir()
                     .or_else(|| dirs::home_dir())
                     .ok_or_else(|| anyhow!("Could not find system data directory"))?
-                    .join("Meetily")
+                    .join("Samobranka")
                     .join("models")
             }
         };
@@ -1428,7 +1428,7 @@ mod tests {
 
         assert!(error.to_string().contains("too small"));
         assert!(request.to_ascii_lowercase().contains(&format!(
-            "user-agent: meetily/{}",
+            "user-agent: samobranka/{}",
             env!("CARGO_PKG_VERSION")
         )));
         assert!(!engine.active_downloads.lock().await.contains_key("tiny"));

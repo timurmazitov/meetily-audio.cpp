@@ -104,7 +104,7 @@ This document provides a quick overview of all available CI/CD workflows in this
 - All platforms in parallel
 - Uses reusable `build.yml` workflow
 - 30-day artifact retention
-- Artifacts prefixed with `meetily-test-`
+- Artifacts prefixed with `samobranka-test-`
 
 **Triggers:**
 - Manual dispatch only
@@ -263,13 +263,13 @@ Standalone (don't use build.yml):
 ## Artifact Naming Convention
 
 ```
-meetily-{workflow}-{platform}-{target}-{version}
+samobranka-{workflow}-{platform}-{target}-{version}
 ```
 
 **Examples:**
-- `meetily-devtest-macOS-aarch64-apple-darwin-0.1.3`
-- `meetily-test-windows-x86_64-pc-windows-msvc-0.1.3`
-- `meetily-macos-aarch64-release-0.1.3`
+- `samobranka-devtest-macOS-aarch64-apple-darwin-0.1.3`
+- `samobranka-test-windows-x86_64-pc-windows-msvc-0.1.3`
+- `samobranka-macos-aarch64-release-0.1.3`
 
 ---
 
@@ -297,8 +297,11 @@ All workflows require these secrets to be configured:
 - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` - Key password
 
 ### Application Configuration
-- `MEETILY_RSA_PUBLIC_KEY` - License validation public key
-- `MEETILY_DOODLE_URL` - Seasonal sidebar icon URL (repository variable, not a secret; unset = feature off)
+<!-- TODO(brand): secrets/variables were renamed to the SAMOBRANKA_* prefix during the rebrand.
+     Recreate them under the new names in the GitHub repo settings before the first samobranka release;
+     old-prefixed entries can then be deleted. See docs/adr/0002-rebrand-to-samobranka.md. -->
+- `SAMOBRANKA_RSA_PUBLIC_KEY` - License validation public key
+- `SAMOBRANKA_DOODLE_URL` - Seasonal sidebar icon URL (repository variable, not a secret; unset = feature off)
 - `SUPABASE_URL` - Online license verification
 - `SUPABASE_ANON_KEY` - Supabase anonymous key
 
