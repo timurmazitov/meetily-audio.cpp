@@ -220,6 +220,103 @@ export function setAudioCppModelsDownloaded(
   return setAudioCppModelDownloaded(withTranscription, 'diarization', downloaded.diarization);
 }
 
+/**
+ * Whether the step's Continue button is enabled.
+ *
+ * Only the transcription model gates onboarding; diarization downloads in the
+ * background and a failure there must never keep the user on this screen.
+ */
+export function isContinueEnabled(states: AudioCppModelStates): boolean {
+  return states.transcription.status === 'completed';
+}
+
+/**
+ * Size label under a card title, taken from the reported/catalogued size.
+ *
+ * Mirrors `formatModelSize` from the audio.cpp model manager ("422MB",
+ * "1.9GB") so the onboarding card reads like the rest of the model UI. Returns
+ * an empty string while no size is known yet, so the card shows just its title
+ * until the first progress event arrives.
+ */
+export function formatAudioCppModelSizeLabel(sizeMb: number): string {
+  if (!Number.isFinite(sizeMb) || sizeMb <= 0) return '';
+  if (sizeMb >= 1000) return `~${(sizeMb / 1000).toFixed(1)} GB`;
+  return `~${Math.round(sizeMb)} MB`;
+}
+
+/** Where a card's "Try Again" button sends its download request. */
+export type OnboardingDownloadRetryTarget = 'audiocpp' | 'builtin-ai';
+
+/** Download entry point for an onboarding card; unknown cards get `null`. */
+export function onboardingDownloadRetryTarget(
+  card: string
+): OnboardingDownloadRetryTarget | null {
+  if (card === 'transcription' || card === 'diarization') return 'audiocpp';
+  if (card === 'summary') return 'builtin-ai';
+  return null;
+}
+
+/**
+ * Catalogued model name a retry re-requests.
+ *
+ * audio.cpp has no separate retry command: downloading is the idempotent entry
+ * point, so retrying is the same `audiocpp_download_model` call. Returns `null`
+ * for the summary card, which keeps its own built-in AI download path.
+ */
+export function audioCppRetryModelName(role: string): string | null {
+  if (role === 'transcription') return AUDIOCPP_TRANSCRIPTION_MODEL;
+  if (role === 'diarization') return AUDIOCPP_DIARIZATION_MODEL;
+  return null;
+}
+
+/**
+ * Whether to tell the user they can leave the screen.
+ *
+ * Only meaningful once the app is usable (transcription installed) while a
+ * background download is still pending.
+ */
+export function shouldShowBackgroundDownloadNotice({
+  transcriptionDownloaded,
+  diarizationDownloaded,
+  summaryDownloaded,
+}: {
+  transcriptionDownloaded: boolean;
+  diarizationDownloaded: boolean;
+  summaryDownloaded: boolean;
+}): boolean {
+  return (
+    transcriptionDownloaded &&
+    !(diarizationDownloaded && summaryDownloaded)
+  );
+}
+
+/**
+ * Decision for `handleContinue` after re-checking the native ASR gate.
+ *
+ * `promote` means the card is stale and should be corrected before continuing;
+ * `blocked` means the transcription model is missing after a reported failure.
+ * Downloads or verified installs proceed and finish in the background.
+ */
+export type TranscriptionGateAction = 'proceed' | 'promote' | 'blocked';
+
+export function resolveTranscriptionGate({
+  installedOnDisk,
+  state,
+}: {
+  installedOnDisk: boolean;
+  state: AudioCppModelCardState;
+}): TranscriptionGateAction {
+  if (installedOnDisk) {
+    return state.status === 'completed' ? 'proceed' : 'promote';
+  }
+
+  if (state.status === 'error' || state.status === 'cancelled') {
+    return 'blocked';
+  }
+
+  return 'proceed';
+}
+
 /** Whether any catalogued model currently reports an in-flight download. */
 export function hasActiveAudioCppDownload(models: AudioCppModelSummary[]): boolean {
   return models.some(
