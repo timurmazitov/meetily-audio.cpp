@@ -171,7 +171,80 @@
   (`user-agent: Samobranka/<ver>`), `tauri.conf.json`, `About.tsx`, `Sidebar/index.tsx`.
 - **Diarization** — у upstream в v0.5.0 нет diarization/sortformer (`grep -i 'diariz|sortformer'`
   пуст), коллизии нет.
-- **CI/сборка** — форк не содержит `4cf4836` и `21de5b5`: в `build-gpu.sh`, `dev-gpu.sh`, `*.bat`
-  нет `CMAKE_DISABLE_FIND_PACKAGE_OpenSSL`, все workflows на `rust-toolchain@stable`, а
-  `release.yml` держит `validate-release` на `ubuntu-22.04`. Практически значимые пропуски;
-  нужность `install-linux.sh` для форка — не подтверждено.
+- **CI/сборка** — на момент аудита форк не содержал `4cf4836` и `21de5b5`: в `build-gpu.sh`,
+  `dev-gpu.sh`, `*.bat` не было `CMAKE_DISABLE_FIND_PACKAGE_OpenSSL`, все workflows стояли на
+  `rust-toolchain@stable`, а `release.yml` держал `validate-release` на `ubuntu-22.04`. Все три
+  пропуска закрыты синхронизацией — см. раздел 6.
+
+## 6. Состояние после синхронизации
+
+Синхронизация выполнена двумя merge-коммитами в ветке `feat/upstream-0.5.0-sync`:
+
+| # | Merge-коммит | Влито | Конфликты |
+| --- | --- | --- | --- |
+| 1 | `45d5175` | тег `v0.5.0` (`9e50dc2`) — CI-фиксы сборки | нет |
+| 2 | `ba19819` | `upstream/main` (`2166bc6`) — три пост-теговых коммита, структура README и примечание про glibc 2.35 | два: `README.md`, `tauri.conf.json` |
+
+Содержательная часть релиза (разделы 1–3) и 53 общих файла (раздел 5) уже были в форке до
+синхронизации; merge-коммиты принесли только CI/сборочные файлы и README, суммарно 11 файлов.
+Что именно влито по каждому из двух диапазонов, какие коммиты отсутствовали и чем это
+грозило — разделы 4 и 5. Подробности по шагам синхронизации — спека и тикеты в
+`.scratch/upstream-0.5.0-sync/`.
+
+### Что принято
+
+- **Сборочные фиксы upstream целиком:** `CMAKE_DISABLE_FIND_PACKAGE_OpenSSL=TRUE` в
+  `frontend/{build,dev}-gpu.{sh,bat}` и во всех пяти build-workflow; пин
+  `dtolnay/rust-toolchain@1.99.1` вместо `@stable`; `validate-release` на `ubuntu-24.04`.
+- **README:** структура установки upstream (Windows и macOS одной таблицей) и примечание про
+  glibc 2.35; раздел установки, ссылки на релизы и бренд остались форковыми.
+- **`tauri.conf.json`:** принята сторона форка целиком, формулировки upstream отклонены.
+
+### Что осознанно не взято
+
+`scripts/install-linux.sh` (304 строки, коммит `72c1d13`) — новый файл, который merge принёс,
+и он удалён в merge-коммите `ba19819`. Причина: скрипт адресует `REPO="Zackriya-Solutions/meetily"`,
+чужие пути данных (`~/.local/share/com.meetily.ai`, `~/.config/meetily`,
+`~/Documents/meetily-recordings`) и чужой бинарь `meetily.AppImage`. В дереве его нет
+(`git ls-tree -r HEAD | grep -c install-linux.sh` → `0`). Перебрендированный установщик под
+`ai.samobranka.app` — отдельная работа; возвращать текущий файл merge-ом нельзя.
+
+### Релизная валидация
+
+Предсуществующий дефект пайплайна устранён. До синхронизации inline-Python в
+`validate-release` читал `plugins.updater.pubkey` безусловно и падал с `KeyError`, а вместе с
+`release-summary` требовал `latest.json`, которого при `createUpdaterArtifacts: false` не
+существует. Логика вынесена в самостоятельный скрипт `scripts/check-release-assets.py`
+(тикет 03, merge `68bad18`), а workflow переведён на него (тикет 04, merge `79a9871`):
+
+- режим определяется наличием `plugins.updater.pubkey` в конфиге бандла, отдельного флага нет;
+- при выключенном автообновлении (текущее состояние, ADR 0002) проверяется только наличие
+  пакетов, `latest.json` не создаётся и не загружается, minisign-верификация не выполняется;
+- `release-summary` не зависит от манифеста и не утверждает, что `.sig` и `app.tar.gz` загружены.
+
+Скрипт покрыт тестами `scripts/test_check_release_assets.py` (`python3 -m unittest discover -s scripts`).
+
+### Brand-lint
+
+`python3 scripts/check-brand.py` проходит на чистом дереве. Этот документ внесён в
+`EXCLUDED_FILES` в `scripts/check-brand.py` по полному repo-relative пути: имена upstream-проекта
+и его путей здесь предмет исследования, а не регресс бренда. Остальные файлы в `docs/research/`
+проверяются как обычно.
+
+### Что осталось непроверенным
+
+- **Реальный прогон CI.** Локально невозможен: не подтверждено, что macOS-сборка проходит на
+  OpenSSL 4, что пин Rust 1.99.1 снимает падения `tauri-build`/`ort-sys` на всех раннерах,
+  что `validate-release` на `ubuntu-24.04` находит `minisign` и что GitHub-раннеры отдают
+  имена ассетов, которых ожидает скрипт.
+- **Поведение Tauri при `createUpdaterArtifacts: false`** на реальном прогоне: не наблюдалось,
+  что `.sig` и `*.app.tar.gz` действительно не выпускаются для macOS и Windows.
+- **Настоящая minisign-подпись** артефактов, собранных Tauri: проверялись синтетические файлы,
+  подписанные локально сгенерированной парой ключей.
+
+### Правила для следующей синхронизации
+
+- Начинать с `git fetch upstream --tags`; remote `upstream` настроен на
+  `https://github.com/Zackriya-Solutions/meetily.git`.
+- Пин `1.99.1` снимать только вместе с обновлением `tauri-build` и `ort`.
+- `scripts/install-linux.sh` не возвращать без собственного `REPO`, путей и имён ассетов.

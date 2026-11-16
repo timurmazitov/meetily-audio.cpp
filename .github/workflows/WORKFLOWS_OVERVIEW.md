@@ -77,7 +77,7 @@ This document provides a quick overview of all available CI/CD workflows in this
 **Key Features:**
 - Support for Ubuntu 22.04 and 24.04
 - Multiple bundle formats (DEB, AppImage, RPM)
-- Tauri updater signing
+- No package signing (release signing lives in `build.yml`)
 - AppImage compatibility fixes
 - Package verification
 
@@ -136,9 +136,10 @@ This document provides a quick overview of all available CI/CD workflows in this
 - Creates GitHub Release (draft)
 - Version tags from `tauri.conf.json`
 - Uploads release assets
-- **macOS and Windows only** (Linux excluded from production releases)
-- Auto-generates `latest.json` for Tauri updater
-- **Auto-increment versioning**: If tag exists, auto-increments (e.g., `0.1.1` -> `0.1.1.1` -> `0.1.1.2`, up to `.100`)
+- Builds macOS (Apple Silicon), Linux (`deb`, `appimage`) and Windows
+- Fails if tag `v<version>` already exists — bump the version in `tauri.conf.json` instead
+- No updater artifacts: automatic updates are disabled (see
+  `docs/adr/0002-rebrand-to-samobranka.md`), so no `latest.json` is generated
 
 **Triggers:**
 - Manual dispatch only
@@ -149,18 +150,14 @@ This document provides a quick overview of all available CI/CD workflows in this
 
 **Outputs:**
 - GitHub Release (draft)
-- macOS: DMG installer, app.tar.gz (updater), .sig
-- Windows: MSI installer (signed), NSIS installer (signed), .sig files
-- Updater manifest: latest.json
+- macOS: DMG installer (signed and notarized when the Apple secrets are set)
+- Windows: MSI installer (signed via `signCommand`), NSIS installer
+- Linux: DEB and AppImage packages, each with a minisign `.sig`
 - Release notes auto-generated
 
 **Version Behavior:**
-- If `v0.1.1` tag doesn't exist: creates `v0.1.1`
-- If `v0.1.1` exists: creates `v0.1.1.1`
-- If `v0.1.1.1` exists: creates `v0.1.1.2`
-- Maximum: `v0.1.1.100` (then update `tauri.conf.json`)
-
-**Note:** Linux builds are not included in releases. Use `build-linux.yml` for Linux testing.
+- If tag `v<version>` exists, the workflow exits with an error; raise the version in
+  `frontend/src-tauri/tauri.conf.json` and release again
 
 ---
 
