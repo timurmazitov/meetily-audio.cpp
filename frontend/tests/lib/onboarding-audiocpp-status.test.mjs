@@ -41,12 +41,18 @@ const {
   applyAudioCppErrorEvent,
   applyAudioCppProgressEvent,
   audioCppModelRole,
+  audioCppRetryModelName,
+  formatAudioCppModelSizeLabel,
   hasActiveAudioCppDownload,
   initialAudioCppModelStates,
   isAudioCppModelInstalled,
+  isContinueEnabled,
+  onboardingDownloadRetryTarget,
   reconcileAudioCppModelList,
+  resolveTranscriptionGate,
   setAudioCppModelDownloaded,
   setAudioCppModelsDownloaded,
+  shouldShowBackgroundDownloadNotice,
   startAudioCppModelDownload,
 } = loadTsModule(modulePath);
 
@@ -338,6 +344,160 @@ assert.deepEqual(stateOf(initialAudioCppModelStates(), 'diarization'), idleDiari
     { name: AUDIOCPP_TRANSCRIPTION_MODEL, status: { Downloading: { progress: 10 } } },
   ]);
   assert.equal(next.transcription.status, 'completed');
+}
+
+// Continue is gated on the transcription (GigaAM) card alone.
+{
+  const downloading = applyAudioCppProgressEvent(initialAudioCppModelStates(), progressEvent());
+  assert.equal(isContinueEnabled(initialAudioCppModelStates()), false);
+  assert.equal(isContinueEnabled(downloading), false);
+
+  const transcriptionDone = setAudioCppModelDownloaded(
+    initialAudioCppModelStates(),
+    'transcription',
+    true
+  );
+  assert.equal(isContinueEnabled(transcriptionDone), true);
+
+  // A failed or cancelled diarization download never blocks Continue.
+  const diarizationFailed = applyAudioCppErrorEvent(transcriptionDone, {
+    modelName: AUDIOCPP_DIARIZATION_MODEL,
+    error: 'boom',
+  });
+  assert.equal(isContinueEnabled(diarizationFailed), true);
+
+  // An installed diarization model does not stand in for the ASR gate.
+  const diarizationOnly = applyAudioCppErrorEvent(
+    setAudioCppModelsDownloaded(initialAudioCppModelStates(), {
+      transcription: false,
+      diarization: true,
+    }),
+    { modelName: AUDIOCPP_TRANSCRIPTION_MODEL, error: 'boom' }
+  );
+  assert.equal(isContinueEnabled(diarizationOnly), false);
+
+  const cancelled = applyAudioCppProgressEvent(
+    transcriptionDone,
+    progressEvent({ progress: 0, status: 'cancelled' })
+  );
+  assert.equal(isContinueEnabled(cancelled), false);
+}
+
+// Card size labels come from the reported payload, not a hardcoded size.
+{
+  assert.equal(formatAudioCppModelSizeLabel(0), '');
+  assert.equal(formatAudioCppModelSizeLabel(-5), '');
+  assert.equal(formatAudioCppModelSizeLabel(422), '~422 MB');
+  assert.equal(formatAudioCppModelSizeLabel(189.6), '~190 MB');
+  assert.equal(formatAudioCppModelSizeLabel(1900), '~1.9 GB');
+
+  const next = applyAudioCppProgressEvent(
+    initialAudioCppModelStates(),
+    progressEvent({ total_mb: 512 })
+  );
+  assert.equal(formatAudioCppModelSizeLabel(next.transcription.progress.totalMb), '~512 MB');
+  assert.equal(
+    formatAudioCppModelSizeLabel(
+      applyAudioCppProgressEvent(initialAudioCppModelStates(), progressEvent({ total_mb: 190 }))
+        .transcription.progress.totalMb
+    ),
+    '~190 MB'
+  );
+}
+
+// Each card's "Try Again" resolves to its own download entry point.
+{
+  assert.equal(onboardingDownloadRetryTarget('transcription'), 'audiocpp');
+  assert.equal(onboardingDownloadRetryTarget('diarization'), 'audiocpp');
+  assert.equal(onboardingDownloadRetryTarget('summary'), 'builtin-ai');
+  assert.equal(onboardingDownloadRetryTarget('other'), null);
+
+  // The retry entry point maps back to the catalogued model name.
+  assert.equal(onboardingDownloadRetryTarget('transcription'), 'audiocpp');
+  assert.equal(audioCppRetryModelName('transcription'), AUDIOCPP_TRANSCRIPTION_MODEL);
+  assert.equal(audioCppRetryModelName('diarization'), AUDIOCPP_DIARIZATION_MODEL);
+  assert.equal(audioCppRetryModelName('summary'), null);
+}
+
+// The background-download notice appears only once the app can be used (GigaAM
+// done) and something else is still pending.
+{
+  assert.equal(
+    shouldShowBackgroundDownloadNotice({
+      transcriptionDownloaded: false,
+      diarizationDownloaded: false,
+      summaryDownloaded: false,
+    }),
+    false
+  );
+  assert.equal(
+    shouldShowBackgroundDownloadNotice({
+      transcriptionDownloaded: true,
+      diarizationDownloaded: false,
+      summaryDownloaded: true,
+    }),
+    true
+  );
+  assert.equal(
+    shouldShowBackgroundDownloadNotice({
+      transcriptionDownloaded: true,
+      diarizationDownloaded: true,
+      summaryDownloaded: false,
+    }),
+    true
+  );
+  assert.equal(
+    shouldShowBackgroundDownloadNotice({
+      transcriptionDownloaded: true,
+      diarizationDownloaded: true,
+      summaryDownloaded: true,
+    }),
+    false
+  );
+}
+
+// Continue verifies the native ASR gate, catching state drift and failures.
+{
+  const downloading = applyAudioCppProgressEvent(initialAudioCppModelStates(), progressEvent());
+  assert.equal(
+    resolveTranscriptionGate({ installedOnDisk: true, state: downloading.transcription }),
+    'promote',
+    'an installed model must correct a stale card and continue'
+  );
+
+  const completed = setAudioCppModelDownloaded(
+    initialAudioCppModelStates(),
+    'transcription',
+    true
+  );
+  assert.equal(
+    resolveTranscriptionGate({ installedOnDisk: true, state: completed.transcription }),
+    'proceed'
+  );
+
+  const failed = applyAudioCppErrorEvent(initialAudioCppModelStates(), {
+    modelName: AUDIOCPP_TRANSCRIPTION_MODEL,
+    error: 'boom',
+  });
+  assert.equal(
+    resolveTranscriptionGate({ installedOnDisk: false, state: failed.transcription }),
+    'blocked'
+  );
+
+  const cancelled = applyAudioCppProgressEvent(
+    initialAudioCppModelStates(),
+    progressEvent({ progress: 0, status: 'cancelled' })
+  );
+  assert.equal(
+    resolveTranscriptionGate({ installedOnDisk: false, state: cancelled.transcription }),
+    'blocked'
+  );
+
+  assert.equal(
+    resolveTranscriptionGate({ installedOnDisk: false, state: downloading.transcription }),
+    'proceed',
+    'an in-flight download proceeds and finishes in the background'
+  );
 }
 
 console.log('onboarding-audiocpp-status tests passed');
