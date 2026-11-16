@@ -109,9 +109,9 @@ Copy-Item target\release\llama-helper.exe `
 ```powershell
 cd <repo>
 powershell -ExecutionPolicy Bypass -File "frontend/src-tauri/scripts/stage-audiocpp-runtime.ps1" `
-  -Version "v0.9.4" `
-  -Archive "audio-v0.9.4-lib-windows-x64-vulkan.zip" `
-  -Sha256 "cf2fabd8630050491a92c002d7bdfd29eca722c31fb3b8cb0ba9b9c5e6e9ff3d" `
+  -Version "v0.9.5" `
+  -Archive "audio-v0.9.5-lib-windows-x64-vulkan.zip" `
+  -Sha256 "33b16d1afa800c9f73bbcc3d230873296a51fee1dc79512afe0ad14c29fe2d62" `
   -Destination "frontend/src-tauri/audiocpp-runtime"
 ```
 

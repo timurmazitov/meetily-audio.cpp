@@ -16,3 +16,7 @@
 - Windows: аудио.cpp собирается MSVC — бандлим `msvcp140*`/`vcruntime140*`/`vcomp140` DLL рядом с приложением.
 - Версионирование: пин на релизных lib-архивах, гейт по `audiocpp_abi_version()` (major must match, minor только добавляет entry points).
 - Лицензии весов отделены от кода движка: GigaAM — MIT, Nemotron-3-Diarization — OpenMDW-1.1 (учитывать при распространении).
+
+## Update 2026-11-16: пин поднят до v0.9.5
+
+Проверенный релиз поднят с v0.9.4 (ABI 0.2.0) до **v0.9.5** (ABI 0.3.0, опубликован 2026-11-14). Заголовок и статус-коды (0..7) не изменились; ABI-minor поднялся 0.2 → 0.3 единственным добавлением — колбэк логирования `audiocpp_log_set` (PR #1235). Гейт совместимости (major must match, minor ≥ 2) принимает v0.9.5 без изменений FFI. Обновлены: SHA256-пин в `stage-audiocpp-runtime.ps1` и Windows-workflows (`.github/workflows/build.yml`, `build-windows.yml`), `docs/BUILDING.md`, `docs/RUNNING_WINDOWS.md`, `docs/RUNNING_LINUX.md`. `audiocpp_log_set` пока не используем (логи движка продолжают идти в stderr).

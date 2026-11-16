@@ -157,7 +157,7 @@ impl AudioCpp {
         self.api.abi_version()
     }
 
-    /// audio.cpp's own build version, e.g. "0.9.4".
+    /// audio.cpp's own build version, e.g. "0.9.5".
     pub fn build_version(&self) -> String {
         self.api.build_version()
     }

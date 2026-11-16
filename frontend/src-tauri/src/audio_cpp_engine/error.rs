@@ -1,8 +1,8 @@
 //! Error, status and ABI-version types for the audio.cpp FFI layer.
 //!
 //! The numeric status codes and the ABI versioning rule come from the
-//! pinned audio.cpp release header (`include/audiocpp.h`, v0.9.4, ABI
-//! 0.2.0). See `docs/research/audio-cpp-c-api.md`.
+//! pinned audio.cpp release header (`include/audiocpp.h`, v0.9.5, ABI
+//! 0.3.0). See `docs/research/audio-cpp-c-api.md`.
 
 use std::fmt;
 use std::path::PathBuf;
@@ -23,10 +23,13 @@ pub struct AbiVersion {
 }
 
 impl AbiVersion {
-    /// The ABI of the pinned audio.cpp release we bind against (0.2.0).
+    /// The ABI of the pinned audio.cpp release we bind against (v0.9.5,
+    /// header `include/audiocpp.h`: 0.3.0). Runtime loading still accepts
+    /// any `0.{AUDIOCPP_ABI_MINOR_MIN}.x` or newer minor, per
+    /// [`AbiVersion::is_compatible`].
     pub const PINNED: AbiVersion = AbiVersion {
         major: AUDIOCPP_ABI_MAJOR,
-        minor: AUDIOCPP_ABI_MINOR_MIN,
+        minor: 3,
         patch: 0,
     };
 
@@ -52,7 +55,8 @@ impl fmt::Display for AbiVersion {
     }
 }
 
-/// `audiocpp_status` codes from `include/audiocpp.h` (v0.9.4).
+/// `audiocpp_status` codes from `include/audiocpp.h` (v0.9.5; unchanged
+/// since v0.9.4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(i32)]
 pub enum Status {
@@ -228,7 +232,7 @@ impl std::error::Error for AudioCppError {}
 mod tests {
     use super::*;
 
-    // Independent source of truth: include/audiocpp.h @ v0.9.4.
+    // Independent source of truth: include/audiocpp.h @ v0.9.5.
     const HEADER_STATUS_CODES: &[(i32, Status, &str)] = &[
         (0, Status::Ok, "AUDIOCPP_OK"),
         (1, Status::InvalidArgument, "AUDIOCPP_ERR_INVALID_ARGUMENT"),

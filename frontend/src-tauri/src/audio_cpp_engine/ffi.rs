@@ -1,7 +1,8 @@
 //! Raw `extern "C"` bindings to the audio.cpp C ABI.
 //!
 //! Handwritten against the pinned release header `include/audiocpp.h`
-//! (audio.cpp v0.9.4, ABI 0.2.0) — there are no official Rust bindings.
+//! (audio.cpp v0.9.5, ABI 0.3.0; minimum 0.2.x) — there are no official
+//! Rust bindings.
 //! This module is the only place that loads the native library and calls
 //! into it; the rest of the app uses the safe wrappers in `super::wrapper`.
 //!
@@ -238,7 +239,7 @@ impl AudiocppApi {
         AbiVersion::from_packed(unsafe { (self.abi_version)() })
     }
 
-    /// audio.cpp's own build version, e.g. "0.9.4".
+    /// audio.cpp's own build version, e.g. "0.9.5".
     pub fn build_version(&self) -> String {
         unsafe { borrowed_str((self.build_version)()) }.unwrap_or_default()
     }

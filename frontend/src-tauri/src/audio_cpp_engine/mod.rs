@@ -2,7 +2,7 @@
 //! model management.
 //!
 //! Handwritten `extern "C"` binding to the audio.cpp C ABI (pinned release
-//! v0.9.4, ABI 0.2.0; there are no official Rust bindings). All
+//! v0.9.5, ABI 0.3.0; minimum 0.2.x — there are no official Rust bindings). All
 //! interaction with the native library is isolated in `ffi` (raw symbols) and
 //! `wrapper` (safe opaque handles); the rest of the app only sees
 //! [`AudioCpp`], its handle wrappers, [`AudioCppError`] and the diagnostic

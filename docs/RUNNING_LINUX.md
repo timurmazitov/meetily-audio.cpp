@@ -143,7 +143,8 @@ cd <repo>/frontend
 ## 5. Провайдер audioCpp и нативная библиотека
 
 Whisper и Parakeet работают без дополнительных действий. Провайдер **audioCpp**
-требует нативную библиотеку `libaudiocpp.so` (ABI 0.2.0, релиз v0.9.4).
+требует нативную библиотеку `libaudiocpp.so` (релиз v0.9.5, ABI 0.3.0;
+совместимость: major 0, minor ≥ 2).
 
 Обнаружение библиотеки (`audio_cpp_engine/wrapper.rs`), по порядку:
 
@@ -154,7 +155,7 @@ Whisper и Parakeet работают без дополнительных дей�
 **Вариант А — переменная окружения (для разработки):**
 
 ```bash
-# распакуйте из релиза audio.cpp v0.9.4 архив lib-ubuntu-x64-{cpu,vulkan}.tar.gz
+# распакуйте из релиза audio.cpp v0.9.5 архив lib-ubuntu-x64-{cpu,vulkan}.tar.gz
 export AUDIOCPP_LIBRARY_PATH=/абсолютный/путь/до/libaudiocpp.so
 cd <repo>/frontend && pnpm run tauri:dev
 ```
