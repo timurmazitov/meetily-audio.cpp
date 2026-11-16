@@ -1,10 +1,10 @@
-# Meetily Privacy Policy
+# Samobranka Privacy Policy
 
 *Last updated: [Current Date]*
 
 ## Our Privacy-First Commitment
 
-Meetily is built on the principle that your meeting data should remain private and under your control. This privacy policy explains how we handle data in our open-source meeting assistant.
+Samobranka is built on the principle that your meeting data should remain private and under your control. This privacy policy explains how we handle data in our open-source meeting assistant.
 
 ## Data Processing Philosophy
 
@@ -14,7 +14,7 @@ Meetily is built on the principle that your meeting data should remain private a
 - **Meeting content**: Remains on your infrastructure
 - **AI summaries**: Generated locally or through your chosen LLM provider
 
-Official builds may fetch seasonal assets from meetily.ai.
+Official builds may fetch seasonal assets from samobranka.ai.
 
 ### Your Data Ownership
 - You own all meeting data, transcripts, and recordings
@@ -25,7 +25,7 @@ Official builds may fetch seasonal assets from meetily.ai.
 ## Usage Analytics
 
 ### What We Collect
-Usage analytics is optional and off by default. When you choose to enable it, Meetily collects minimal, anonymized usage data:
+Usage analytics is optional and off by default. When you choose to enable it, Samobranka collects minimal, anonymized usage data:
 
 **Application Usage:**
 - Feature usage patterns (which tools you use most)
@@ -114,9 +114,9 @@ We will notify users of any material changes to this privacy policy through:
 ## Contact Us
 
 For privacy-related questions or concerns:
-- **GitHub Issues**: [Create an issue](https://github.com/Zackriya-Solutions/meeting-minutes/issues)
-- **Email**: [Contact form](https://www.zackriya.com/service-interest-form/)
-- **Community**: [Discord](https://discord.gg/crRymMQBFH)
+- **GitHub Issues**: [Create an issue](https://github.com/timurmazitov/samobranka/issues)
+
+<!-- TODO(brand): add samobranka.ai privacy contact (email/contact form) before the first public release -->
 
 ## Open Source Commitment
 
@@ -128,4 +128,4 @@ As an open-source project under MIT license, you can:
 
 ---
 
-*This privacy policy applies to Meetily v0.0.5 and later versions. For enterprise deployments, additional privacy controls may be available.*
+*This privacy policy applies to Samobranka v0.0.5 and later versions. For enterprise deployments, additional privacy controls may be available.*

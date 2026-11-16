@@ -347,7 +347,7 @@ mod tests {
     #[test]
     fn unavailable_report_carries_error_text() {
         let error = AudioCppError::LibraryNotFound {
-            searched_paths: vec![PathBuf::from("/opt/meetily/libaudiocpp.so")],
+            searched_paths: vec![PathBuf::from("/opt/samobranka/libaudiocpp.so")],
         };
         let report = AudioCppDiagnostics::unavailable(&error);
         assert!(!report.available);

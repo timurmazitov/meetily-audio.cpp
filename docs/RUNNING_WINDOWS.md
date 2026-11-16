@@ -1,4 +1,4 @@
-# Запуск и сборка Meetily на Windows
+# Запуск и сборка Samobranka на Windows
 
 Практическая инструкция для локальной сборки установщика на Windows x64.
 
@@ -150,7 +150,7 @@ $env:TAURI_GPU_FEATURE="none";   pnpm run tauri:dev   # CPU-only
 $env:TAURI_GPU_FEATURE="cuda";   pnpm run tauri:dev   # нужен CUDA toolkit
 ```
 
-Логи разработки: терминал + `%APPDATA%\com.meetily.ai\logs-dev\`.
+Логи разработки: терминал + `%APPDATA%\ai.samobranka.app\logs-dev\`.
 
 ---
 

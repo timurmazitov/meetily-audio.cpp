@@ -5,6 +5,10 @@
  * Simple HTTP server to serve latest.json for local OTA update testing.
  * Use this to test the update flow before publishing to GitHub Releases.
  *
+ * NOTE: The updater config is currently absent from tauri.conf.json
+ * (removed during the rebrand, see docs/adr/0002-rebrand-to-samobranka.md).
+ * This script applies once updater support is re-enabled.
+ *
  * Usage:
  *   1. Generate latest.json with the manifest generator script
  *   2. Run: node scripts/test-update-locally.js
@@ -22,7 +26,7 @@ const PORT = 8080;
 const LATEST_JSON_PATH = path.join(__dirname, '..', 'latest.json');
 
 console.log('=========================================');
-console.log('  Meetily Update Testing Server');
+console.log('  Samobranka Update Testing Server');
 console.log('=========================================\n');
 
 // Check if latest.json exists
@@ -105,7 +109,7 @@ server.listen(PORT, () => {
 
   console.log('⚠️  IMPORTANT: Restore production endpoint after testing!');
   console.log('   Change back to:');
-  console.log('   "endpoints": ["https://github.com/Zackriya-Solutions/meeting-minutes/releases/latest/download/latest.json"]\n');
+  console.log('   "endpoints": ["https://github.com/timurmazitov/samobranka/releases/latest/download/latest.json"]\n');
 
   console.log('=========================================');
   console.log('Press Ctrl+C to stop the server');

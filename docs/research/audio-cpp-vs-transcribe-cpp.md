@@ -2,7 +2,7 @@
 
 Дата исследования: 2026-11-13. Источники: README и исходники репозиториев на GitHub, карточки моделей на Hugging Face, issue-трекеры. Всё ниже — только из первоисточников.
 
-Задача приложения (Meetily): запись/транскрибация встреч, Rust/Tauri-ядро, нужны две модели:
+Задача приложения (Samobranka): запись/транскрибация встреч, Rust/Tauri-ядро, нужны две модели:
 
 1. **GigaAM v3 e2e CTC** — русскоязычная ASR (SberDevices / ai-sage): <https://huggingface.co/handy-computer/gigaam-v3-e2e-ctc-gguf>
 2. **Nemotron-3-Diarization** — диаризация до 8 спикеров (NVIDIA): <https://huggingface.co/audio-cpp/Nemotron-3-Diarization-GGUF>
@@ -93,7 +93,7 @@
 
 ---
 
-## 3. Сравнение как замены whisper.cpp для Meetily (Tauri/Rust)
+## 3. Сравнение как замены whisper.cpp для Samobranka (Tauri/Rust)
 
 | Критерий | audio.cpp | transcribe.cpp |
 |---|---|---|
@@ -122,7 +122,7 @@
 
 - **audio.cpp: обе модели — «да»** (но для GigaAM использовать пакет из `audio-cpp/audio.cpp-gguf`, а не handy-computer). Подтверждение: примеры в репозитории + официальные GGUF-пакеты + документация по обеим семьям.
 - **transcribe.cpp: GigaAM — «да», Nemotron-3-Diarization — «нет»**. Подтверждение: каталог моделей + открытый issue #170 + карточка модели.
-- **Рекомендация для Meetily:** если нужны именно эти две модели в одном движке — **audio.cpp** (семейства `gigaam_asr` + `nemotron_3_diar`, Apache-2.0, C ABI с готовыми lib-пакетами, CLI/HTTP-сервер для вызова из Tauri). Если приоритет — минимальная интеграция через официальный Rust-биндинг и MIT-лицензия, и диаризацию можно заменить на Sortformer — **transcribe.cpp** (GigaAM v3 e2e CTC работает из коробки), а Nemotron-3-Diarization ждать по issue #170 или запускать отдельно.
+- **Рекомендация для Samobranka:** если нужны именно эти две модели в одном движке — **audio.cpp** (семейства `gigaam_asr` + `nemotron_3_diar`, Apache-2.0, C ABI с готовыми lib-пакетами, CLI/HTTP-сервер для вызова из Tauri). Если приоритет — минимальная интеграция через официальный Rust-биндинг и MIT-лицензия, и диаризацию можно заменить на Sortformer — **transcribe.cpp** (GigaAM v3 e2e CTC работает из коробки), а Nemotron-3-Diarization ждать по issue #170 или запускать отдельно.
 
 ### Не подтверждено первоисточниками
 

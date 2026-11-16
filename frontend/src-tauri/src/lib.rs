@@ -100,7 +100,7 @@ fn acquire_startup_logger<T, E>(
     acquire(StartupLogDestination::Stream).map(|logger| (logger, false))
 }
 
-fn meetily_log_builder(
+fn samobranka_log_builder(
     targets: Vec<tauri_plugin_log::Target>,
     verbose: bool,
 ) -> tauri_plugin_log::Builder {
@@ -185,7 +185,7 @@ fn split_startup_logger<R: Runtime>(
                 }
             }
         };
-        let (_, level, logger) = meetily_log_builder(targets, verbose).split(app)?;
+        let (_, level, logger) = samobranka_log_builder(targets, verbose).split(app)?;
         Ok((level, logger))
     })
 }
@@ -573,7 +573,9 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_log::Builder::new().skip_logger().build())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
+        // Updater disabled per ADR 0002 (config section removed; re-enable with
+        // a new endpoint + minisign key pair and the updater capability).
+        // .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .manage(whisper_engine::parallel_commands::ParallelProcessorState::new())
         .manage(Arc::new(RwLock::new(
@@ -583,17 +585,17 @@ pub fn run() {
         .manage(summary::summary_engine::ModelManagerState(Arc::new(tokio::sync::Mutex::new(None))))
         .setup(|_app| {
             let verbose = cfg!(debug_assertions)
-                || std::env::var("MEETILY_DEBUG_LOG")
+                || std::env::var("SAMOBRANKA_DEBUG_LOG")
                     .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
                     .unwrap_or(false);
             let app_data_dir = _app.path().app_data_dir().ok();
             match split_startup_logger(_app.handle(), app_data_dir, verbose) {
                 Ok(((level, logger), persistent)) => {
                     if tauri_plugin_log::attach_logger(level, logger).is_err() || !persistent {
-                        eprintln!("Meetily logging is unavailable or degraded.");
+                        eprintln!("Samobranka logging is unavailable or degraded.");
                     }
                 }
-                Err(_) => eprintln!("Meetily logging is unavailable or degraded."),
+                Err(_) => eprintln!("Samobranka logging is unavailable or degraded."),
             }
 
             log::info!("Starting application...");

@@ -203,9 +203,9 @@ impl fmt::Display for AudioCppError {
                 write!(
                     f,
                     "incompatible audio.cpp ABI: library reports {found}, but this build of \
-                     Meetily requires ABI {AUDIOCPP_ABI_MAJOR}.{AUDIOCPP_ABI_MINOR_MIN}.x \
+                     Samobranka requires ABI {AUDIOCPP_ABI_MAJOR}.{AUDIOCPP_ABI_MINOR_MIN}.x \
                      (major must match, minor may be newer). Update the audio.cpp library \
-                     or the Meetily audio.cpp integration."
+                     or the Samobranka audio.cpp integration."
                 )
             }
             AudioCppError::Native {
@@ -393,9 +393,9 @@ mod tests {
     #[test]
     fn library_not_found_display_lists_searched_paths() {
         let err = AudioCppError::LibraryNotFound {
-            searched_paths: vec![PathBuf::from("/opt/meetily/libaudiocpp.so")],
+            searched_paths: vec![PathBuf::from("/opt/samobranka/libaudiocpp.so")],
         };
         let text = err.to_string();
-        assert!(text.contains("/opt/meetily/libaudiocpp.so"), "text: {text}");
+        assert!(text.contains("/opt/samobranka/libaudiocpp.so"), "text: {text}");
     }
 }
