@@ -93,21 +93,18 @@ Whether you're a defense consultant, enterprise executive, legal professional, o
 
 ## Installation
 
-### 🪟 **Windows**
+### Windows and macOS
 
-1. Download the latest `x64-setup.exe` from [Releases](https://github.com/timurmazitov/samobranka/releases/latest)
-2. Run the installer
+| Platform | Download Link | Instructions |
+|----------|---------------|-------------|
+| **Windows (x64)** | [.exe installer](https://github.com/timurmazitov/samobranka/releases/latest) | Download and run the installer |
+| **macOS (Apple Silicon)** | [.dmg installer](https://github.com/timurmazitov/samobranka/releases/latest) | Open the installer, drag **Samobranka** to Applications, then open it from Applications |
 
 > **Windows compatibility:** The packaged installer uses a Vulkan-enabled Whisper build. It requires an AVX2-capable x64 CPU; AVX-512 is not required. CUDA acceleration requires a source build configured with a compatible NVIDIA CUDA toolchain.
 
-### 🍎 **macOS**
+### Linux
 
-1. Download the latest `samobranka_<version>_aarch64.dmg` from [Releases](https://github.com/timurmazitov/samobranka/releases/latest)
-2. Open the downloaded `.dmg` file
-3. Drag **Samobranka** to your Applications folder
-4. Open **Samobranka** from Applications folder
-
-### 🐧 **Linux**
+Requires x86_64 Linux with glibc 2.35 or newer (.deb preferred, otherwise AppImage).
 
 1. Download the latest `.deb` or `.AppImage` package for Linux x64 from [Releases](https://github.com/timurmazitov/samobranka/releases/latest).
 2. Install or run your preferred package:
