@@ -31,15 +31,15 @@ def get_default_db_path() -> Path:
     system = platform.system()
 
     if system == "Darwin":  # macOS
-        base_path = Path.home() / "Library" / "Application Support" / "Samobranka"
+        base_path = Path.home() / "Library" / "Application Support" / "ai.samobranka.app"
     elif system == "Windows":
         appdata = os.environ.get("APPDATA", "")
         if appdata:
-            base_path = Path(appdata) / "Samobranka"
+            base_path = Path(appdata) / "ai.samobranka.app"
         else:
-            base_path = Path.home() / "AppData" / "Roaming" / "Samobranka"
+            base_path = Path.home() / "AppData" / "Roaming" / "ai.samobranka.app"
     else:  # Linux and others
-        base_path = Path.home() / ".config" / "Samobranka"
+        base_path = Path.home() / ".local" / "share" / "ai.samobranka.app"
 
     return base_path / "meeting_minutes.sqlite"
 

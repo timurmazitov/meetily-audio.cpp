@@ -293,6 +293,14 @@ All workflows require these secrets to be configured:
 - `SM_CODE_SIGNING_CERT_SHA1_HASH` - Certificate hash
 
 ### Tauri Updater (All Platforms)
+
+> **NOTE: The Tauri updater is currently DISABLED.** It was removed from
+> `tauri.conf.json` during the Samobranka rebrand (see
+> `docs/adr/0002-rebrand-to-samobranka.md`). All updater-related sections in
+> this document (e.g. updater signing, `latest.json` manifests, updater
+> artifacts) apply only once the updater is re-enabled against the owner's own
+> release contour.
+
 - `TAURI_SIGNING_PRIVATE_KEY` - Ed25519 private key
 - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` - Key password
 

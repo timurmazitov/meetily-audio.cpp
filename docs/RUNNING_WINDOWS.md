@@ -150,7 +150,7 @@ $env:TAURI_GPU_FEATURE="none";   pnpm run tauri:dev   # CPU-only
 $env:TAURI_GPU_FEATURE="cuda";   pnpm run tauri:dev   # нужен CUDA toolkit
 ```
 
-Логи разработки: терминал + `%APPDATA%\com.samobranka.ai\logs-dev\`.
+Логи разработки: терминал + `%APPDATA%\ai.samobranka.app\logs-dev\`.
 
 ---
 

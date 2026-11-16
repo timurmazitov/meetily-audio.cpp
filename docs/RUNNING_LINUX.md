@@ -137,7 +137,7 @@ cd <repo>/frontend
 ```
 
 Логи разработки: терминал + `logs-dev/` в каталоге данных приложения:
-`${XDG_DATA_HOME:-$HOME/.local/share}/com.samobranka.ai/logs-dev/`.
+`${XDG_DATA_HOME:-$HOME/.local/share}/ai.samobranka.app/logs-dev/`.
 
 ---
 

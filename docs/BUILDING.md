@@ -82,9 +82,9 @@ Release builds normally log `app_lib` at Info level under `logs/`. To enable Deb
 
 | Platform | App data directory |
 | --- | --- |
-| Linux | `${XDG_DATA_HOME:-$HOME/.local/share}/com.samobranka.ai` |
-| macOS | `~/Library/Application Support/com.samobranka.ai` |
-| Windows | `%APPDATA%\com.samobranka.ai` |
+| Linux | `${XDG_DATA_HOME:-$HOME/.local/share}/ai.samobranka.app` |
+| macOS | `~/Library/Application Support/ai.samobranka.app` |
+| Windows | `%APPDATA%\ai.samobranka.app` |
 
 Append `logs-dev/` for development builds or `logs/` for release builds. If the persistent log path is unavailable or unwritable, logging may fall back to a stream, so log files are not guaranteed.
 

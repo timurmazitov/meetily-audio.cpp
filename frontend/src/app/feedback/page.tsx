@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
 
-// TODO(brand): Discord/social/PRO cards removed during the Samobranka -> Samobranka rebrand.
+// TODO(brand): Discord/social/PRO cards removed during the Meetily -> Samobranka rebrand.
 // Re-add community links here once samobranka.ai channels exist.
 const cards = [
   {

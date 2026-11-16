@@ -5,6 +5,10 @@
  * Simple HTTP server to serve latest.json for local OTA update testing.
  * Use this to test the update flow before publishing to GitHub Releases.
  *
+ * NOTE: The updater config is currently absent from tauri.conf.json
+ * (removed during the rebrand, see docs/adr/0002-rebrand-to-samobranka.md).
+ * This script applies once updater support is re-enabled.
+ *
  * Usage:
  *   1. Generate latest.json with the manifest generator script
  *   2. Run: node scripts/test-update-locally.js
