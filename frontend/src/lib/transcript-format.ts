@@ -46,6 +46,13 @@ export function formatSpeakerDisplayLabel(
  * Whether any segment carries a diarization label. Only then do lines get the
  * `[MM:SS–MM:SS]` range and a speaker prefix; otherwise the legacy format is
  * kept byte-for-byte.
+ *
+ * Deliberate legacy decision: a transcript without diarization labels keeps
+ * the old `[MM:SS] text` format unchanged. The legacy `speaker` column also
+ * documented `mic`/`system` and stored free-form strings; those are audio
+ * sources, not people, so they never produce a prefix or a time range. The
+ * transcript chip, the Speakers panel and the per-row dropdown follow the same
+ * rule (see `isDiarizationSpeakerLabel`).
  */
 export function hasSpeakerLabels(transcripts: Transcript[]): boolean {
   return transcripts.some(t => isDiarizationSpeakerLabel(t.speaker));
