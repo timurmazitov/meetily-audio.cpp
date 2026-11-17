@@ -6,7 +6,6 @@ After analyzing the src-tauri codebase, I've identified several areas requiring 
 ## Key Issues Identified
 
 ### 1. **Legacy Code Presence**
-- **`lib_old_complex.rs`** (2,437 lines) - Large legacy file that appears to contain old implementation
 - **Dual Audio Systems** - Both `audio/` and `audio_v2/` modules exist, indicating migration in progress
 - Multiple `pub use *` wildcard imports creating unclear dependency boundaries
 
@@ -30,9 +29,8 @@ After analyzing the src-tauri codebase, I've identified several areas requiring 
 ### Phase 1: Remove Dead Code & Legacy Systems
 **Priority: High | Risk: Low | Estimated: 2-3 hours**
 
-1. **Remove legacy file**
-   - Delete `lib_old_complex.rs` after ensuring no active dependencies
-   - Update any remaining references
+1. **Remove legacy file** — done: `lib_old_complex.rs` удалён (не был объявлен как модуль).
+   - Удаление выполнено вместе с удалением Usage Analytics (см. `.scratch/remove-usage-analytics/`)
 
 2. **Consolidate audio systems**
    - Evaluate audio_v2 completion status

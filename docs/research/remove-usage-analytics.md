@@ -25,7 +25,7 @@ Rust-ядро (`posthog-rs`). Sentry/Amplitude/Mixpanel/Matomo не исполь
 | `src/analytics/commands.rs` | 1–373 | Tauri-команды + глобальный статик `ANALYTICS_CLIENT` (7). Захардкожен PostHog API key (12) и host (13). 25 команд: `init_analytics`, `disable_analytics`, `track_event`, `identify_user`, `track_meeting_started/ended`, `track_recording_started/stopped`, `track_meeting_deleted`, `track_settings_changed`, `track_feature_used`, `is_analytics_enabled`, `start/end_analytics_session`, `track_daily_active_user`, `track_user_first_launch`, `track_summary_generation_started/completed`, `track_summary_regenerated`, `track_model_changed`, `track_custom_prompt_used`, `track_analytics_enabled/disabled/transparency_viewed`, `is_analytics_session_active`. |
 | `src/analytics/mod.rs` | 1–4 | `pub mod analytics; pub use analytics::*;` |
 | `src/lib.rs` | 39, 458, 753–777 | `pub mod analytics;` (39), регистрация всех 25 команд в `invoke_handler` (753–777). |
-| `src/lib_old_complex.rs` | 11, 25, 47, 1814–1913+ | **Мёртвый код**: старая монолитная копия с собственным `init_analytics`. В сборку не подключён (не объявлен как модуль). |
+| `src/lib_old_complex.rs` | 11, 25, 47, 1814–1913+ | **Мёртвый код**: старая монолитная копия с собственным `init_analytics`. В сборку не подключён (не объявлен как модуль). **Удалён** вместе с этим изменением. |
 | `LOGGING_OPTIMIZATIONS.md` | 69 | Упоминание `analytics/analytics.rs`. |
 
 ### TS-клиент (`frontend/src/lib`)
@@ -134,7 +134,7 @@ Rust-ядро (`posthog-rs`). Sentry/Amplitude/Mixpanel/Matomo не исполь
 - Удалить каталог `frontend/src-tauri/src/analytics/` (`mod.rs`, `commands.rs`, `analytics.rs`).
 - `src/lib.rs`: убрать `pub mod analytics;` (39) и все 25 регистраций команд (753–777).
 - `Cargo.toml`: убрать `posthog-rs`; обновить `Cargo.lock` (`cargo check`).
-- Мёртвый `src/lib_old_complex.rs` на сборку не влияет — удалить отдельным шагом по желанию.
+- Мёртвый `src/lib_old_complex.rs` удалён (файл не был объявлен как модуль).
 - `LOGGING_OPTIMIZATIONS.md:69` — убрать упоминание.
 
 ### Шаг 2 — TS-клиент
@@ -161,7 +161,7 @@ Rust-ядро (`posthog-rs`). Sentry/Amplitude/Mixpanel/Matomo не исполь
 ### Шаг 5 — Данные и пост-задачи
 - Локальный `analytics.json` (app data dir) станет мусором — при желании одноразовая
   очистка при миграции (не обязательно).
-- Отозвать/ротировать PostHog API key `phc_***`.
+- Отозвать/ротировать PostHog API key `phc_***`; второй старый ключ был в удалённом `lib_old_complex.rs` — тоже ротировать.
 - Документация аналитику не упоминает — обновлять не нужно.
 
 ### Проверка

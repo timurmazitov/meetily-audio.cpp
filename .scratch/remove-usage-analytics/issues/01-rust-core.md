@@ -16,7 +16,7 @@ Research: [docs/research/remove-usage-analytics.md](../../../docs/research/remov
 - `frontend/src-tauri/Cargo.toml`: убрать `posthog-rs = "0.3.7"`; обновить `Cargo.lock` (через `cargo check`).
 - `frontend/src-tauri/LOGGING_OPTIMIZATIONS.md`: убрать упоминание `analytics/analytics.rs`.
 - Общие крейты (`uuid`, `chrono`, `serde`, `tokio`, `log`) НЕ трогать.
-- `src/lib_old_complex.rs` НЕ удалять (out of scope).
+- `src/lib_old_complex.rs` — удалён по отдельному запросу пользователя (файл не был объявлен как модуль).
 
 ## Критерии приёмки
 
@@ -28,7 +28,7 @@ Research: [docs/research/remove-usage-analytics.md](../../../docs/research/remov
 
 2026-11-17 (implementer):
 - Остаточные совпадения `rg -i "posthog|analytics"` в `frontend/src-tauri`:
-  - `src/lib_old_complex.rs` — мёртвый файл (не объявлен как модуль, не компилируется), содержит старую копию аналитики и **второй** захардкоженный ключ `phc_cohh…`. Удаление файла — Out of Scope по спеке; ключ требует отдельной ротации.
+  - `src/lib_old_complex.rs` — мёртвый файл (не объявлен как модуль, не компилируется), содержал старую копию аналитики и **второй** захардкоженный ключ `phc_cohh…`. Файл удалён по отдельному запросу пользователя; ключ всё равно требует ротации.
   - `src/notifications/manager.rs:325` — «for analytics/debugging»: внутренняя диагностика, не Usage Analytics (Out of Scope).
   - `src/tray.rs:94,192` — комментарии про analytics вычищены в рамках тикета.
 - Блок `track_meeting_ended` в `src/audio/recording_commands.rs` удалён — он ссылался на удалённый модуль (в research-заметке эта точка не была перечислена, добавлена при верификации компиляции).
