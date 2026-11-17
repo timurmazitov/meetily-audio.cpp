@@ -7,7 +7,7 @@ use sqlx::{
     Connection, Error as SqlxError, Executor, FromRow, Sqlite, SqliteConnection, SqlitePool,
     Transaction,
 };
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use uuid::Uuid;
 
 use crate::api::{MeetingSpeaker, SpeakerAssignment, SpeakerNameEntry};
@@ -126,6 +126,86 @@ fn is_unique_violation(error: &SqlxError) -> bool {
             .contains("UNIQUE constraint failed"),
         _ => false,
     }
+}
+
+/// Result of reconciling one meeting's name bindings against the speaker
+/// labels its transcript actually has.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct ReconcileOutcome {
+    /// True when at least one binding existed and none of its labels survived,
+    /// so the UI should explain that the names were reset.
+    pub names_reset: bool,
+    /// Number of `meeting_speakers` rows removed.
+    pub removed_bindings: usize,
+    /// Number of orphaned `speakers` rows removed with them.
+    pub removed_people: usize,
+}
+
+/// Aligns the meeting's name bindings with the speaker labels written by the
+/// last recount (import, retranscription, post-recording diarization).
+///
+/// A label that still exists keeps its name even when its segment count
+/// changed; a label that disappeared loses its binding, and a person nobody
+/// references any more is removed from the directory. When none of the old
+/// labels survived, every binding is gone and [`ReconcileOutcome::names_reset`]
+/// is true so the caller can tell the user why the names vanished.
+///
+/// Takes a raw connection so the caller can run it inside the transaction that
+/// writes the labels: the recount and the binding cleanup then commit together.
+pub async fn reconcile_meeting_speaker_assignments(
+    conn: &mut SqliteConnection,
+    meeting_id: &str,
+) -> Result<ReconcileOutcome, SqlxError> {
+    let label_rows: Vec<(String,)> =
+        sqlx::query_as("SELECT DISTINCT speaker FROM transcripts WHERE meeting_id = ?")
+            .bind(meeting_id)
+            .fetch_all(&mut *conn)
+            .await?;
+    let current: HashSet<String> = label_rows
+        .into_iter()
+        .map(|(label,)| label)
+        .filter(|label| is_speaker_label(label))
+        .collect();
+
+    let bound_rows: Vec<(String,)> =
+        sqlx::query_as("SELECT label FROM meeting_speakers WHERE meeting_id = ?")
+            .bind(meeting_id)
+            .fetch_all(&mut *conn)
+            .await?;
+    let bound_before = bound_rows.len();
+
+    let mut outcome = ReconcileOutcome::default();
+    for (label,) in &bound_rows {
+        if current.contains(label) {
+            continue;
+        }
+        let result = sqlx::query("DELETE FROM meeting_speakers WHERE meeting_id = ? AND label = ?")
+            .bind(meeting_id)
+            .bind(label)
+            .execute(&mut *conn)
+            .await?;
+        outcome.removed_bindings += result.rows_affected() as usize;
+    }
+
+    if outcome.removed_bindings > 0 {
+        let result = sqlx::query(
+            "DELETE FROM speakers
+             WHERE id NOT IN (SELECT speaker_id FROM meeting_speakers)",
+        )
+        .execute(&mut *conn)
+        .await?;
+        outcome.removed_people = result.rows_affected() as usize;
+
+        sqlx::query("UPDATE meetings SET updated_at = ? WHERE id = ?")
+            .bind(Utc::now().naive_utc())
+            .bind(meeting_id)
+            .execute(&mut *conn)
+            .await?;
+
+        outcome.names_reset = bound_before > 0 && outcome.removed_bindings == bound_before;
+    }
+
+    Ok(outcome)
 }
 
 pub struct SpeakersRepository;
@@ -547,10 +627,10 @@ impl SpeakersRepository {
 
 #[cfg(test)]
 mod tests {
-    use super::{SpeakerError, SpeakersRepository};
+    use super::{reconcile_meeting_speaker_assignments, ReconcileOutcome, SpeakerError, SpeakersRepository};
     use crate::api::SpeakerAssignment;
     use sqlx::sqlite::SqlitePoolOptions;
-    use sqlx::{Row, SqlitePool};
+    use sqlx::{Connection, Row, SqlitePool};
 
     async fn migrated_pool() -> SqlitePool {
         let pool = SqlitePoolOptions::new()
@@ -1549,6 +1629,260 @@ mod tests {
                 "Extra 05".to_string(),
             ],
             "used names first, then the alphabet, capped at 8"
+        );
+    }
+
+    /// Runs the reconcile inside a transaction owned by the caller, the way the
+    /// import, retranscription and diarization paths call it.
+    async fn reconcile(pool: &SqlitePool, meeting_id: &str) -> ReconcileOutcome {
+        let mut conn = pool.acquire().await.unwrap();
+        let mut transaction = conn.begin().await.unwrap();
+        let outcome = reconcile_meeting_speaker_assignments(&mut transaction, meeting_id)
+            .await
+            .expect("reconcile");
+        transaction.commit().await.unwrap();
+        outcome
+    }
+
+    /// Rewrites the meeting's transcripts with a new set of labels, the way a
+    /// recount does (`DELETE FROM transcripts` + re-INSERT).
+    async fn recount_labels(pool: &SqlitePool, meeting_id: &str, labels: &[Option<&str>]) {
+        sqlx::query("DELETE FROM transcripts WHERE meeting_id = ?")
+            .bind(meeting_id)
+            .execute(pool)
+            .await
+            .unwrap();
+        for (index, label) in labels.iter().enumerate() {
+            insert_transcript(
+                pool,
+                &format!("{meeting_id}-recount-{index}"),
+                meeting_id,
+                *label,
+                Some(index as f64),
+            )
+            .await;
+        }
+    }
+
+    #[tokio::test]
+    async fn an_unchanged_label_set_keeps_every_name() {
+        let pool = migrated_pool().await;
+        insert_meeting(&pool, "meeting-1").await;
+        insert_transcript(&pool, "t-0", "meeting-1", Some("speaker_0"), Some(0.0)).await;
+        insert_transcript(&pool, "t-1", "meeting-1", Some("speaker_1"), Some(1.0)).await;
+        assign_name(&pool, "meeting-1", "speaker_0", "Alex").await;
+        assign_name(&pool, "meeting-1", "speaker_1", "Zoe").await;
+
+        let outcome = reconcile(&pool, "meeting-1").await;
+
+        assert_eq!(
+            bindings(&pool, "meeting-1").await,
+            [
+                ("speaker_0".to_string(), "Alex".to_string()),
+                ("speaker_1".to_string(), "Zoe".to_string()),
+            ]
+        );
+        assert!(!outcome.names_reset);
+        assert_eq!(outcome.removed_bindings, 0);
+    }
+
+    #[tokio::test]
+    async fn a_grown_label_set_keeps_the_old_names_and_leaves_the_new_label_unnamed() {
+        let pool = migrated_pool().await;
+        insert_meeting(&pool, "meeting-1").await;
+        insert_transcript(&pool, "t-0", "meeting-1", Some("speaker_0"), Some(0.0)).await;
+        assign_name(&pool, "meeting-1", "speaker_0", "Alex").await;
+
+        recount_labels(
+            &pool,
+            "meeting-1",
+            &[Some("speaker_0"), Some("speaker_1")],
+        )
+        .await;
+        let outcome = reconcile(&pool, "meeting-1").await;
+
+        assert_eq!(
+            bindings(&pool, "meeting-1").await,
+            [("speaker_0".to_string(), "Alex".to_string())],
+            "the surviving label keeps its name"
+        );
+        assert!(!outcome.names_reset);
+        assert_eq!(outcome.removed_bindings, 0);
+        assert_eq!(
+            SpeakersRepository::meeting_speakers(&pool, "meeting-1")
+                .await
+                .unwrap()
+                .iter()
+                .map(|speaker| (speaker.label.as_str(), speaker.speaker_name.as_deref()))
+                .collect::<Vec<_>>(),
+            [("speaker_0", Some("Alex")), ("speaker_1", None)]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_label_that_survives_keeps_its_name_even_when_its_segment_count_changed() {
+        let pool = migrated_pool().await;
+        insert_meeting(&pool, "meeting-1").await;
+        insert_transcript(&pool, "t-0", "meeting-1", Some("speaker_0"), Some(0.0)).await;
+        insert_transcript(&pool, "t-1", "meeting-1", Some("speaker_1"), Some(1.0)).await;
+        assign_name(&pool, "meeting-1", "speaker_0", "Alex").await;
+
+        recount_labels(
+            &pool,
+            "meeting-1",
+            &[
+                Some("speaker_0"),
+                Some("speaker_0"),
+                Some("speaker_0"),
+                Some("speaker_1"),
+                Some("speaker_1"),
+            ],
+        )
+        .await;
+        reconcile(&pool, "meeting-1").await;
+
+        assert_eq!(
+            bindings(&pool, "meeting-1").await,
+            [("speaker_0".to_string(), "Alex".to_string())],
+            "segments are counted by label, not by segment"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_shrunk_label_set_drops_the_removed_binding_and_its_orphaned_person() {
+        let pool = migrated_pool().await;
+        insert_meeting(&pool, "meeting-1").await;
+        insert_transcript(&pool, "t-0", "meeting-1", Some("speaker_0"), Some(0.0)).await;
+        insert_transcript(&pool, "t-1", "meeting-1", Some("speaker_1"), Some(1.0)).await;
+        assign_name(&pool, "meeting-1", "speaker_0", "Alex").await;
+        assign_name(&pool, "meeting-1", "speaker_1", "Zoe").await;
+
+        recount_labels(&pool, "meeting-1", &[Some("speaker_0")]).await;
+        let outcome = reconcile(&pool, "meeting-1").await;
+
+        assert_eq!(
+            bindings(&pool, "meeting-1").await,
+            [("speaker_0".to_string(), "Alex".to_string())]
+        );
+        assert_eq!(
+            speaker_rows(&pool).await,
+            [(speaker_rows(&pool).await[0].0.clone(), "Alex".to_string())],
+            "the person only the removed label used is gone"
+        );
+        assert!(!outcome.names_reset, "one label survived");
+        assert_eq!(outcome.removed_bindings, 1);
+    }
+
+    #[tokio::test]
+    async fn a_completely_different_label_set_resets_the_names() {
+        let pool = migrated_pool().await;
+        insert_meeting(&pool, "meeting-1").await;
+        insert_transcript(&pool, "t-0", "meeting-1", Some("speaker_0"), Some(0.0)).await;
+        insert_transcript(&pool, "t-1", "meeting-1", Some("speaker_1"), Some(1.0)).await;
+        assign_name(&pool, "meeting-1", "speaker_0", "Alex").await;
+        assign_name(&pool, "meeting-1", "speaker_1", "Zoe").await;
+
+        recount_labels(
+            &pool,
+            "meeting-1",
+            &[Some("speaker_4"), Some("speaker_5")],
+        )
+        .await;
+        let outcome = reconcile(&pool, "meeting-1").await;
+
+        assert!(
+            bindings(&pool, "meeting-1").await.is_empty(),
+            "no old label survived, so every binding is gone"
+        );
+        assert!(speaker_rows(&pool).await.is_empty(), "orphans deleted");
+        assert!(outcome.names_reset, "the UI must show the reset hint");
+        assert_eq!(outcome.removed_bindings, 2);
+    }
+
+    #[tokio::test]
+    async fn a_transcript_without_labels_reconciles_to_nothing_without_error() {
+        let pool = migrated_pool().await;
+        insert_meeting(&pool, "meeting-1").await;
+        insert_transcript(&pool, "t-0", "meeting-1", None, Some(0.0)).await;
+
+        let outcome = reconcile(&pool, "meeting-1").await;
+
+        assert!(bindings(&pool, "meeting-1").await.is_empty());
+        assert!(!outcome.names_reset);
+        assert_eq!(outcome.removed_bindings, 0);
+        assert_eq!(outcome.removed_people, 0);
+    }
+
+    #[tokio::test]
+    async fn audio_source_values_are_not_labels_and_do_not_keep_a_binding_alive() {
+        let pool = migrated_pool().await;
+        insert_meeting(&pool, "meeting-1").await;
+        insert_transcript(&pool, "t-0", "meeting-1", Some("speaker_0"), Some(0.0)).await;
+        assign_name(&pool, "meeting-1", "speaker_0", "Alex").await;
+
+        recount_labels(
+            &pool,
+            "meeting-1",
+            &[Some("mic"), Some("system"), Some("Guest A")],
+        )
+        .await;
+        let outcome = reconcile(&pool, "meeting-1").await;
+
+        assert!(
+            bindings(&pool, "meeting-1").await.is_empty(),
+            "mic/system/free-form are audio sources, not speakers"
+        );
+        assert!(outcome.names_reset);
+        assert!(speaker_rows(&pool).await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn reconcile_bumps_the_meeting_timestamp_only_when_it_removes_something() {
+        let pool = migrated_pool().await;
+        insert_meeting(&pool, "meeting-1").await;
+        insert_transcript(&pool, "t-0", "meeting-1", Some("speaker_0"), Some(0.0)).await;
+        assign_name(&pool, "meeting-1", "speaker_0", "Alex").await;
+        let before = updated_at(&pool, "meeting-1").await;
+
+        reconcile(&pool, "meeting-1").await;
+        assert_eq!(
+            updated_at(&pool, "meeting-1").await,
+            before,
+            "an unchanged label set is a no-op"
+        );
+
+        recount_labels(&pool, "meeting-1", &[Some("speaker_1")]).await;
+        reconcile(&pool, "meeting-1").await;
+        assert_ne!(
+            updated_at(&pool, "meeting-1").await,
+            before,
+            "removing a binding is a change to the meeting"
+        );
+    }
+
+    #[tokio::test]
+    async fn reconcile_touches_only_its_own_meeting() {
+        let pool = migrated_pool().await;
+        insert_meeting(&pool, "meeting-1").await;
+        insert_meeting(&pool, "meeting-2").await;
+        insert_transcript(&pool, "t-0", "meeting-1", Some("speaker_0"), Some(0.0)).await;
+        insert_transcript(&pool, "t-1", "meeting-2", Some("speaker_0"), Some(0.0)).await;
+        assign_name(&pool, "meeting-1", "speaker_0", "Alex").await;
+        assign_name(&pool, "meeting-2", "speaker_0", "Zoe").await;
+
+        recount_labels(&pool, "meeting-1", &[Some("speaker_3")]).await;
+        let outcome = reconcile(&pool, "meeting-1").await;
+
+        assert!(outcome.names_reset);
+        assert_eq!(
+            bindings(&pool, "meeting-2").await,
+            [("speaker_0".to_string(), "Zoe".to_string())],
+            "another meeting keeps its names"
+        );
+        assert_eq!(
+            speaker_rows(&pool).await,
+            [(speaker_rows(&pool).await[0].0.clone(), "Zoe".to_string())],
+            "a person still used elsewhere is not orphaned"
         );
     }
 }
