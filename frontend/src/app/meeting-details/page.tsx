@@ -8,6 +8,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { LoaderIcon } from "lucide-react";
 import { useConfig } from "@/contexts/ConfigContext";
 import { usePaginatedTranscripts } from "@/hooks/usePaginatedTranscripts";
+import { useSpeakerNamesResetListener } from "@/hooks/useSpeakerNamesResetListener";
 import { parseSummaryContent } from "@/lib/summary-content";
 
 interface MeetingDetailsResponse {
@@ -165,6 +166,10 @@ function MeetingDetailsContent() {
     window.addEventListener('transcripts-updated', onTranscriptsUpdated);
     return () => window.removeEventListener('transcripts-updated', onTranscriptsUpdated);
   }, [meetingId, refetch]);
+
+  // A recount of the labels (retranscription, post-recording diarization) can
+  // wipe every name; the backend says why and we reload so the names vanish.
+  useSpeakerNamesResetListener(meetingId, refetch);
 
   // Extract fetchMeetingDetails for use in child components (now refetches via hook)
   const fetchMeetingDetails = useCallback(async () => {
