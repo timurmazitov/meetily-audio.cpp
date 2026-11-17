@@ -222,7 +222,8 @@ function MeetingDetailsContent() {
 
   // A recount of the labels (retranscription, post-recording diarization) can
   // wipe every name; the backend says why and we reload so the names vanish.
-  useSpeakerNamesResetListener(meetingId, refetch);
+  // The speaker list is reloaded together with the transcripts it belongs to.
+  useSpeakerNamesResetListener(meetingId, refetchTranscriptsAndSpeakers);
 
   // Extract fetchMeetingDetails for use in child components (now refetches via hook)
   const fetchMeetingDetails = useCallback(async () => {
