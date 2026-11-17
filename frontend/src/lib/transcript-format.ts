@@ -1,5 +1,8 @@
 import { Transcript } from '@/types';
 
+/** Matches the only values the diarization pass writes (`speaker_0`, `speaker_1`, …). */
+const DIARIZATION_LABEL = /^speaker_(\d+)$/;
+
 /**
  * Format recording-relative seconds as MM:SS.
  */
@@ -9,6 +12,43 @@ export function formatTranscriptTime(seconds: number | undefined): string {
   const mins = Math.floor(totalSecs / 60);
   const secs = totalSecs % 60;
   return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+}
+
+/**
+ * Whether a speaker value is a diarization label (`speaker_N`).
+ *
+ * The legacy `speaker` column also documented `mic`/`system` audio-source
+ * values, and free-form strings are not diarization labels either; neither
+ * counts as a speaker (same rule as the transcript chip).
+ */
+export function isDiarizationSpeakerLabel(speaker: string | undefined): boolean {
+  return speaker !== undefined && DIARIZATION_LABEL.test(speaker);
+}
+
+/**
+ * Display label for a single segment's speaker: the assigned name, else
+ * `Speaker N` (1-based, N taken from the `speaker_N` label suffix), else
+ * `null` when the segment has no diarization label (no prefix at all).
+ * The name is used verbatim; an empty or whitespace-only name counts as absent.
+ */
+export function formatSpeakerDisplayLabel(
+  speaker: string | undefined,
+  speakerName: string | undefined,
+): string | null {
+  if (!speaker) return null;
+  const match = DIARIZATION_LABEL.exec(speaker);
+  if (!match) return null;
+  if (speakerName && speakerName.trim()) return speakerName;
+  return `Speaker ${Number(match[1]) + 1}`;
+}
+
+/**
+ * Whether any segment carries a diarization label. Only then do lines get the
+ * `[MM:SS–MM:SS]` range and a speaker prefix; otherwise the legacy format is
+ * kept byte-for-byte.
+ */
+export function hasSpeakerLabels(transcripts: Transcript[]): boolean {
+  return transcripts.some(t => isDiarizationSpeakerLabel(t.speaker));
 }
 
 export interface FormatTranscriptOptions {
@@ -27,16 +67,16 @@ export interface FormatTranscriptOptions {
  * Format transcript segments as plain text, one line per segment.
  *
  * When any segment carries a diarization speaker label, every line includes a
- * `[MM:SS–MM:SS]` time range and a raw `speaker_N:` prefix; lines without a
- * speaker keep the range but omit the prefix. When no segment has a speaker,
- * lines keep the legacy `[MM:SS]` format. A segment without audio_end_time
- * falls back to a single `[MM:SS]` label.
+ * `[MM:SS–MM:SS]` time range and a speaker prefix — the assigned name, else
+ * `Speaker N`. Lines without a label keep the range but omit the prefix. When
+ * no segment has a diarization label, lines keep the legacy `[MM:SS]` format.
+ * A segment without audio_end_time falls back to a single `[MM:SS]` label.
  */
 export function formatTranscriptText(
   transcripts: Transcript[],
   options: FormatTranscriptOptions = {},
 ): string {
-  const hasSpeakers = transcripts.some(t => t.speaker);
+  const hasSpeakers = hasSpeakerLabels(transcripts);
   const suffix = options.markdownLineBreaks ? '  ' : '';
 
   const lines = transcripts.map(t => {
@@ -50,7 +90,8 @@ export function formatTranscriptText(
         : start;
       prefix = `[${timeLabel}]`;
     }
-    const speakerLabel = hasSpeakers && t.speaker ? `${t.speaker}: ` : '';
+    const displayLabel = hasSpeakers ? formatSpeakerDisplayLabel(t.speaker, t.speaker_name) : null;
+    const speakerLabel = displayLabel ? `${displayLabel}: ` : '';
     return `${prefix} ${speakerLabel}${t.text}${suffix}`;
   });
 
