@@ -22,6 +22,7 @@ import {
   CommandList,
 } from '@/components/ui/command';
 import { DIARIZATION_UNAVAILABLE_HINT } from '@/lib/diarization';
+import { formatSpeakerDisplayLabel } from '@/lib/transcript-format';
 import type { MeetingSpeaker, SpeakerAssignment, SpeakerNameEntry } from '@/types';
 
 /** How long the name picker waits for more typing before searching. */
@@ -31,8 +32,7 @@ const DIRECTORY_LIMIT = 20;
 
 /** `speaker_0` → `Speaker 1`; anything else is shown as-is. */
 function displayLabel(label: string): string {
-  const match = /^speaker_(\d+)$/.exec(label);
-  return match ? `Speaker ${Number(match[1]) + 1}` : label;
+  return formatSpeakerDisplayLabel(label, undefined) ?? label;
 }
 
 function segmentCountLabel(count: number): string {
