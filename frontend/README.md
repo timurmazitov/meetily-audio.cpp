@@ -130,7 +130,7 @@ pnpm run tauri:build
 
 ## Local Transcription
 
-Current Samobranka does not require a separate FastAPI service, Docker backend, or manually started whisper-server process. Local transcription is handled by the Rust/Tauri desktop app.
+Local transcription is handled entirely by the Rust/Tauri desktop app; no separate service needs to be installed or started manually.
 
 For build and acceleration details, see:
 

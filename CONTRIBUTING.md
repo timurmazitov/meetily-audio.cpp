@@ -1,6 +1,6 @@
 # Contributing to Samobranka
 
-Thank you for contributing to Samobranka! Current application work belongs in `frontend/` and its Rust/Tauri core; `backend/` is an unsupported legacy archive.
+Thank you for contributing to Samobranka! All application work belongs in `frontend/`: the Next.js/React UI and its Rust/Tauri core.
 
 ## Before You Start
 
