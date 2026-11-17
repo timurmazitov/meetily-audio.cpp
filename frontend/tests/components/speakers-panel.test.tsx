@@ -448,7 +448,7 @@ test('empty panel shows the diarization hint', async () => {
   expect(text(instance)).toContain(DIARIZATION_UNAVAILABLE_HINT);
 });
 
-test('a conflict names both rows the draft just bound to one person', async () => {
+test('a conflict lands on the edited row, not on the speaker number from the message', async () => {
   // The backend says "already assigned to Speaker 1", but the row the user
   // edited in this batch is the second one. The message must land there.
   speakers = [
