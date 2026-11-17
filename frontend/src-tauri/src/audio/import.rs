@@ -25,9 +25,11 @@ use super::constants::AUDIO_EXTENSIONS;
 use super::recording_preferences::get_default_recordings_folder;
 use super::transcription::diarization_service::{
     diarize_segments, unavailable_segments, DIARIZATION_UNAVAILABLE_MESSAGE,
+    SPEAKER_NAMES_RESET_EVENT, SPEAKER_NAMES_RESET_MESSAGE,
 };
 use super::transcription::engine::get_or_init_audio_cpp_provider_with_model;
 use super::transcription::provider::TranscriptionProvider;
+use crate::database::repositories::speaker::{self, ReconcileOutcome};
 
 /// Global flag to track if import is in progress
 static IMPORT_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
@@ -711,13 +713,25 @@ async fn run_import<R: Runtime>(
         .try_state::<AppState>()
         .ok_or_else(|| anyhow!("App state not available"))?;
 
-    let meeting_id = create_meeting_with_transcripts(
+    let (meeting_id, reconcile) = create_meeting_with_transcripts(
         app_state.db_manager.pool(),
         &title,
         &segments,
         meeting_folder.to_string_lossy().to_string(),
     )
     .await?;
+
+    // A brand new meeting has no earlier names to lose, but the recount runs
+    // in every path so the hint is wired here too and cannot rot.
+    if reconcile.names_reset {
+        let _ = app.emit(
+            SPEAKER_NAMES_RESET_EVENT,
+            serde_json::json!({
+                "meeting_id": meeting_id,
+                "message": SPEAKER_NAMES_RESET_MESSAGE,
+            }),
+        );
+    }
 
     // Write transcripts.json and metadata.json to the meeting folder
     emit_progress(&app, "saving", 90, "Writing transcript files...");
@@ -765,7 +779,7 @@ async fn create_meeting_with_transcripts(
     title: &str,
     segments: &[TranscriptSegment],
     folder_path: String,
-) -> Result<String> {
+) -> Result<(String, ReconcileOutcome)> {
     let meeting_id = format!("meeting-{}", Uuid::new_v4());
     let now = chrono::Utc::now();
 
@@ -811,6 +825,12 @@ async fn create_meeting_with_transcripts(
         .map_err(|e| anyhow!("Failed to insert transcript: {}", e))?;
     }
 
+    // New meeting: no earlier names can survive, but the reconcile runs here
+    // as in the other recount paths so all three stay uniform.
+    let reconcile = speaker::reconcile_meeting_speaker_assignments(&mut tx, &meeting_id)
+        .await
+        .map_err(|e| anyhow!("Failed to reconcile speaker names: {}", e))?;
+
     tx.commit()
         .await
         .map_err(|e| anyhow!("Failed to commit transaction: {}", e))?;
@@ -821,7 +841,7 @@ async fn create_meeting_with_transcripts(
         segments.len()
     );
 
-    Ok(meeting_id)
+    Ok((meeting_id, reconcile))
 }
 
 /// Get or initialize the Whisper engine
