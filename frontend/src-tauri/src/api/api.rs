@@ -605,6 +605,45 @@ pub async fn api_save_model_config<R: Runtime>(
 }
 
 #[tauri::command]
+pub async fn api_get_summary_system_prompt<R: Runtime>(
+    _app: AppHandle<R>,
+    state: tauri::State<'_, AppState>,
+    _auth_token: Option<String>,
+) -> Result<String, String> {
+    log_info!("api_get_summary_system_prompt called (native)");
+
+    match SettingsRepository::get_summary_system_prompt(state.db_manager.pool()).await {
+        Ok(stored) => Ok(crate::summary::system_prompt::stored_or_default(stored)),
+        Err(e) => {
+            log_error!("Failed to get summary system prompt: {}", e);
+            Err(e.to_string())
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn api_save_summary_system_prompt<R: Runtime>(
+    _app: AppHandle<R>,
+    state: tauri::State<'_, AppState>,
+    prompt: String,
+    _auth_token: Option<String>,
+) -> Result<serde_json::Value, String> {
+    log_info!(
+        "Saving summary system prompt ({} chars)",
+        prompt.chars().count()
+    );
+
+    SettingsRepository::save_summary_system_prompt(state.db_manager.pool(), &prompt)
+        .await
+        .map_err(|e| {
+            log_error!("Failed to save summary system prompt: {}", e);
+            e.to_string()
+        })?;
+
+    Ok(serde_json::json!({ "status": "success" }))
+}
+
+#[tauri::command]
 pub async fn api_get_api_key<R: Runtime>(
     _app: AppHandle<R>,
     state: tauri::State<'_, AppState>,
