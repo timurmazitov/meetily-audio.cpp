@@ -33,6 +33,38 @@ pub fn stored_or_default(stored: Option<String>) -> String {
     }
 }
 
+fn is_present(prompt: Option<&str>) -> Option<&str> {
+    prompt.filter(|value| !value.trim().is_empty())
+}
+
+/// Picks the system prompt that is actually sent for the final report.
+///
+/// A template's own system prompt wins over the base prompt from settings, which
+/// wins over the built-in default. Replacement is complete: the base prompt is
+/// never concatenated with the template prompt.
+pub fn resolve_effective_prompt<'a>(
+    template_prompt: Option<&'a str>,
+    base_prompt: Option<&'a str>,
+) -> &'a str {
+    is_present(template_prompt)
+        .or_else(|| is_present(base_prompt))
+        .unwrap_or(DEFAULT_SUMMARY_SYSTEM_PROMPT)
+}
+
+/// Substitutes the template placeholders in an effective system prompt.
+///
+/// A placeholder that the prompt does not contain is simply not substituted;
+/// nothing is appended elsewhere.
+pub fn substitute_placeholders(
+    prompt: &str,
+    section_instructions: &str,
+    template_markdown: &str,
+) -> String {
+    prompt
+        .replace("{section_instructions}", section_instructions)
+        .replace("{template}", template_markdown)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -62,5 +94,66 @@ mod tests {
             stored_or_default(Some("My prompt".to_string())),
             "My prompt"
         );
+    }
+
+    #[test]
+    fn template_prompt_replaces_base_prompt_entirely() {
+        let resolved = resolve_effective_prompt(
+            Some("Template prompt"),
+            Some("Base prompt"),
+        );
+
+        assert_eq!(resolved, "Template prompt");
+        assert!(!resolved.contains("Base prompt"));
+    }
+
+    #[test]
+    fn base_prompt_is_used_when_template_prompt_is_unset_or_blank() {
+        assert_eq!(
+            resolve_effective_prompt(None, Some("Base prompt")),
+            "Base prompt"
+        );
+        assert_eq!(
+            resolve_effective_prompt(Some("   "), Some("Base prompt")),
+            "Base prompt"
+        );
+    }
+
+    #[test]
+    fn default_prompt_is_used_when_both_are_unset_or_blank() {
+        assert_eq!(
+            resolve_effective_prompt(None, None),
+            DEFAULT_SUMMARY_SYSTEM_PROMPT
+        );
+        assert_eq!(
+            resolve_effective_prompt(Some(""), Some("\n\t")),
+            DEFAULT_SUMMARY_SYSTEM_PROMPT
+        );
+    }
+
+    #[test]
+    fn substitutes_both_placeholders() {
+        let prompt = substitute_placeholders(
+            "A: {section_instructions}\nB: {template}",
+            "- section",
+            "# Title",
+        );
+
+        assert_eq!(prompt, "A: - section\nB: # Title");
+    }
+
+    #[test]
+    fn substitutes_a_single_placeholder_when_the_other_is_absent() {
+        let prompt = substitute_placeholders("Only {template} here", "- section", "# Title");
+
+        assert_eq!(prompt, "Only # Title here");
+        assert!(!prompt.contains("- section"));
+    }
+
+    #[test]
+    fn leaves_prompt_untouched_without_placeholders() {
+        let prompt = substitute_placeholders("Plain instructions", "- section", "# Title");
+
+        assert_eq!(prompt, "Plain instructions");
     }
 }
