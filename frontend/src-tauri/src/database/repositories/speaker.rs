@@ -2,7 +2,7 @@
 // a diarization label. `transcripts.speaker` stays the label (`speaker_N`);
 // a real name is a separate entity (see `.scratch/speaker-names/spec.md`).
 
-use sqlx::{FromRow, Executor, Sqlite, SqlitePool};
+use sqlx::{Executor, FromRow, Sqlite, SqlitePool};
 use std::collections::HashMap;
 
 /// One row of the meeting's speaker list: a diarization label, the optionally
@@ -177,7 +177,11 @@ mod tests {
             .unwrap();
 
         assert_eq!(names.get("speaker_0").map(String::as_str), Some("Alex"));
-        assert_eq!(names.get("speaker_1"), None, "an unnamed label has no entry");
+        assert_eq!(
+            names.get("speaker_1"),
+            None,
+            "an unnamed label has no entry"
+        );
 
         let other = SpeakersRepository::speaker_name_map(&pool, "meeting-2")
             .await

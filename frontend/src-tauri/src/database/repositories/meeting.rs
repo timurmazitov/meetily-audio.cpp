@@ -10,10 +10,7 @@ pub struct MeetingsRepository;
 
 /// Resolves the real name for a segment from the meeting's label→name map.
 /// The segment keeps its diarization label; the name is a separate entity.
-fn resolve_speaker_name(
-    label: &Option<String>,
-    names: &HashMap<String, String>,
-) -> Option<String> {
+fn resolve_speaker_name(label: &Option<String>, names: &HashMap<String, String>) -> Option<String> {
     label.as_ref().and_then(|label| names.get(label)).cloned()
 }
 
@@ -395,8 +392,16 @@ mod tests {
 
         assert_eq!(by_id("t-0").speaker_name.as_deref(), Some("Alex"));
         assert_eq!(by_id("t-0").speaker.as_deref(), Some("speaker_0"));
-        assert_eq!(by_id("t-1").speaker_name, None, "an unnamed label keeps none");
-        assert_eq!(by_id("t-2").speaker_name, None, "an unlabelled segment keeps none");
+        assert_eq!(
+            by_id("t-1").speaker_name,
+            None,
+            "an unnamed label keeps none"
+        );
+        assert_eq!(
+            by_id("t-2").speaker_name,
+            None,
+            "an unlabelled segment keeps none"
+        );
     }
 
     #[tokio::test]
