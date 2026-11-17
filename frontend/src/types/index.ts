@@ -138,13 +138,18 @@ export interface PaginatedTranscriptsResponse {
   has_more: boolean;
 }
 
-/** One row of the meeting's speaker panel (`api_get_meeting_speakers`). */
+/**
+ * One row of the meeting's speaker panel (`api_get_meeting_speakers`).
+ * Also used by the per-row speaker dropdown on the transcript lines.
+ */
 export interface MeetingSpeaker {
   /** Diarization label, e.g. `speaker_0`. */
   label: string;
   /** Assigned person's name; `null` while the label is unnamed. */
   speaker_name: string | null;
+  /** Number of segments carrying this label. */
   segment_count: number;
+  /** Start time of the first segment; `null` when unknown. */
   first_start_time: number | null;
   /** Directory names suggested while picking, most-used first. */
   top_speaker_names: string[];

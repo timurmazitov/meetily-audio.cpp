@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { MeetingSummary, SummaryProcessResponse } from '@/types';
+import { MeetingSpeaker, MeetingSummary, SummaryProcessResponse } from '@/types';
 import { useSidebar } from '@/components/Sidebar/SidebarProvider';
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
@@ -33,6 +33,8 @@ export default function PageContent({
   totalCount,
   loadedCount,
   onLoadMore,
+  meetingSpeakers,
+  onSpeakerChanged,
 }: {
   meeting: any;
   summaryData: MeetingSummary | null;
@@ -48,6 +50,9 @@ export default function PageContent({
   totalCount?: number;
   loadedCount?: number;
   onLoadMore?: () => void;
+  // Speakers of this meeting, used by the per-row dropdown
+  meetingSpeakers?: MeetingSpeaker[];
+  onSpeakerChanged?: (transcriptId: string, label: string | null) => void | Promise<void>;
 }) {
   console.log('📄 PAGE CONTENT: Initializing with data:', {
     meetingId: meeting.id,
@@ -213,6 +218,8 @@ export default function PageContent({
               meetingId={meeting.id}
               meetingFolderPath={meeting.folder_path}
               onRefetchTranscripts={onRefetchTranscripts}
+              meetingSpeakers={meetingSpeakers}
+              onSpeakerChanged={onSpeakerChanged}
             />
           }
           summary={

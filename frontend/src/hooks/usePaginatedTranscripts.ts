@@ -25,6 +25,8 @@ interface UsePaginatedTranscriptsReturn {
     loadMore: () => Promise<void>;
     reset: () => void;
     refetch: () => Promise<void>;
+    /** Apply a row's speaker edit locally (after the backend accepted it). */
+    setTranscriptSpeaker: (transcriptId: string, label: string | null, speakerName?: string | null) => void;
 }
 
 /**
@@ -38,6 +40,7 @@ function convertTranscriptsToSegments(transcripts: Transcript[]): TranscriptSegm
         text: t.text,
         confidence: t.confidence,
         speaker: t.speaker,
+        speaker_name: t.speaker_name,
     }));
 }
 
@@ -207,6 +210,20 @@ export function usePaginatedTranscripts({
         [transcripts]
     );
 
+    // Keep a row edit visible without waiting for the refetch: the chip reads
+    // the name from the segment, which the backend does not recompute for us.
+    const setTranscriptSpeaker = useCallback((
+        transcriptId: string,
+        label: string | null,
+        speakerName?: string | null,
+    ) => {
+        setTranscripts(prev => prev.map(t => (
+            t.id === transcriptId
+                ? { ...t, speaker: label ?? undefined, speaker_name: speakerName ?? undefined }
+                : t
+        )));
+    }, []);
+
     return {
         metadata,
         segments,
@@ -220,5 +237,6 @@ export function usePaginatedTranscripts({
         loadMore,
         reset,
         refetch,
+        setTranscriptSpeaker,
     };
 }

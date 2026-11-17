@@ -155,4 +155,28 @@ describe('paginated transcript request ownership', () => {
     await resolve(stale, metadata('A'));
     expect(requests).toHaveLength(1);
   });
+
+  test('segments carry the assigned speaker name of each transcript', async () => {
+    await show('A');
+    await resolve(request('metadata', 'A'), metadata('A'));
+    await resolve(request('transcripts', 'A'), {
+      transcripts: [
+        { id: 't1', text: 'Named', timestamp: '00:00', audio_start_time: 0, speaker: 'speaker_0', speaker_name: 'Alex' },
+        { id: 't2', text: 'Unnamed', timestamp: '00:01', audio_start_time: 1, speaker: 'speaker_1' },
+      ],
+      total_count: 2, has_more: false,
+    });
+    expect(state.segments.map(s => [s.speaker, s.speaker_name])).toEqual([
+      ['speaker_0', 'Alex'],
+      ['speaker_1', undefined],
+    ]);
+  });
+
+  test('a row edit is visible in the segments before the next refetch', async () => {
+    await load('A');
+    await act(async () => { state.setTranscriptSpeaker('A', 'speaker_1', 'Maria'); });
+    expect(state.segments[0]).toMatchObject({ speaker: 'speaker_1', speaker_name: 'Maria' });
+    await act(async () => { state.setTranscriptSpeaker('A', null); });
+    expect(state.segments[0]).toMatchObject({ speaker: undefined, speaker_name: undefined });
+  });
 });

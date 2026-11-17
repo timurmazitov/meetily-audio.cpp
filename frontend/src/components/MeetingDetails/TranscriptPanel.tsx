@@ -1,6 +1,6 @@
 "use client";
 
-import { Transcript, TranscriptSegmentData } from '@/types';
+import { MeetingSpeaker, Transcript, TranscriptSegmentData } from '@/types';
 import { TranscriptView } from '@/components/TranscriptView';
 import { VirtualizedTranscriptView } from '@/components/VirtualizedTranscriptView';
 import { TranscriptButtonGroup } from './TranscriptButtonGroup';
@@ -29,6 +29,10 @@ interface TranscriptPanelProps {
   meetingId?: string;
   meetingFolderPath?: string | null;
   onRefetchTranscripts?: () => Promise<void>;
+
+  // Speakers of this meeting (per-row dropdown on the meeting page)
+  meetingSpeakers?: MeetingSpeaker[];
+  onSpeakerChanged?: (transcriptId: string, label: string | null) => void | Promise<void>;
 }
 
 export function TranscriptPanel({
@@ -50,6 +54,8 @@ export function TranscriptPanel({
   meetingId,
   meetingFolderPath,
   onRefetchTranscripts,
+  meetingSpeakers,
+  onSpeakerChanged,
 }: TranscriptPanelProps) {
   // Convert transcripts to segments if pagination is not used but we want virtualization
   const convertedSegments = useMemo(() => {
@@ -64,6 +70,7 @@ export function TranscriptPanel({
       text: t.text,
       confidence: t.confidence,
       speaker: t.speaker,
+      speaker_name: t.speaker_name,
     }));
   }, [transcripts, usePagination, segments]);
 
@@ -98,6 +105,8 @@ export function TranscriptPanel({
           totalCount={totalCount}
           loadedCount={loadedCount}
           onLoadMore={onLoadMore}
+          meetingSpeakers={meetingSpeakers}
+          onSpeakerChange={onSpeakerChanged}
         />
       </div>
 
