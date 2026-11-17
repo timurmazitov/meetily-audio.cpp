@@ -39,6 +39,35 @@ pub struct Transcript {
     /// transcripts that were never diarized (Whisper/Parakeet, or a missing
     /// audioCpp diarization model). See GLOSSARY: «спикер».
     pub speaker: Option<String>,
+    /// Real person's name resolved through `meeting_speakers` for this label,
+    /// `None` while no name is assigned. Not a column: readers fill it from the
+    /// meeting's label→name map after the rows are loaded.
+    /// See GLOSSARY: «имя спикера».
+    #[sqlx(skip)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speaker_name: Option<String>,
+}
+
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+pub struct MeetingSpeaker {
+    pub id: String,
+    pub meeting_id: String,
+    /// Diarization label (`speaker_N`) this person is assigned to.
+    pub label: String,
+    pub speaker_id: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// A person in the global directory of names. A row exists regardless of how
+/// many meetings reference it; `name` is unique case-insensitively and is
+/// never renamed (see GLOSSARY: «имя спикера»).
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+pub struct Speaker {
+    pub id: String,
+    pub name: String,
+    pub created_at: String,
+    pub updated_at: String,
 }
 
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
