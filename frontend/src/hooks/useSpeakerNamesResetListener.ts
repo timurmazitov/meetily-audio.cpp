@@ -43,7 +43,9 @@ export function useSpeakerNamesResetListener(
   listenImpl: SpeakerNamesResetListen = tauriListen,
 ): void {
   const onResetRef = useRef(onReset);
-  onResetRef.current = onReset;
+  useEffect(() => {
+    onResetRef.current = onReset;
+  }, [onReset]);
 
   useEffect(() => {
     if (!meetingId) return;
