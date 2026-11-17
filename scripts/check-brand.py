@@ -17,7 +17,6 @@ VCS_METADATA = {".git", ".hg", ".svn", ".bzr", "CVS"}
 
 EXCLUDED_DIRS = {
     "node_modules", "target", ".next", "dist", ".turbo",
-    "backend",        # legacy archive, intentionally untouched
     ".scratch",       # planning docs; historical references are facts
 }
 # Repo-root-relative paths, compared as normalized `a/b/c` paths on every platform.
