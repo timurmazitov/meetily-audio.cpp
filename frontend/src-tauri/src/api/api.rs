@@ -1463,6 +1463,51 @@ pub async fn api_test_custom_openai_connection<R: Runtime>(
 }
 
 #[cfg(test)]
+mod meeting_transcript_contract_tests {
+    use super::MeetingTranscript;
+
+    fn segment(speaker: Option<&str>, speaker_name: Option<&str>) -> MeetingTranscript {
+        MeetingTranscript {
+            id: "t-0".into(),
+            text: "Hello".into(),
+            timestamp: "2024-01-01T00:00:00Z".into(),
+            audio_start_time: Some(0.0),
+            audio_end_time: Some(1.0),
+            duration: Some(1.0),
+            speaker: speaker.map(str::to_owned),
+            speaker_name: speaker_name.map(str::to_owned),
+        }
+    }
+
+    #[test]
+    fn an_assigned_name_is_serialized_next_to_its_label() {
+        let json = serde_json::to_value(segment(Some("speaker_0"), Some("Alex"))).unwrap();
+        assert_eq!(json["speaker"], "speaker_0");
+        assert_eq!(json["speaker_name"], "Alex");
+    }
+
+    #[test]
+    fn an_absent_name_is_not_serialized_and_older_payloads_still_parse() {
+        let json = serde_json::to_value(segment(Some("speaker_0"), None)).unwrap();
+        assert!(
+            json.get("speaker_name").is_none(),
+            "the field stays absent, as other optional fields do"
+        );
+
+        // A payload from before names existed deserializes without the field.
+        let legacy: MeetingTranscript = serde_json::from_value(serde_json::json!({
+            "id": "t-0",
+            "text": "Hello",
+            "timestamp": "2024-01-01T00:00:00Z",
+            "speaker": "speaker_0",
+        }))
+        .unwrap();
+        assert_eq!(legacy.speaker.as_deref(), Some("speaker_0"));
+        assert_eq!(legacy.speaker_name, None);
+    }
+}
+
+#[cfg(test)]
 mod external_url_tests {
     use super::parse_external_url;
 
