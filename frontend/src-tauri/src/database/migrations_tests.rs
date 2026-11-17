@@ -11,16 +11,87 @@ mod tests {
 
     /// Applies the repo's real migration chain to an in-memory database.
     async fn migrated_pool() -> SqlitePool {
-        let pool = SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect("sqlite::memory:")
-            .await
-            .expect("in-memory sqlite");
+        let pool = empty_pool().await;
         sqlx::migrate!("./migrations")
             .run(&pool)
             .await
             .expect("migrations apply to a fresh database");
         pool
+    }
+
+    async fn empty_pool() -> SqlitePool {
+        SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("in-memory sqlite")
+    }
+
+    const SPEAKER_NAMES_MIGRATION_VERSION: i64 = 20_261_118_000_000;
+
+    /// Applies the chain up to (but excluding) the speaker-names migration, so
+    /// a test can seed rows that existed before names were introduced.
+    async fn migrated_pool_before_speaker_names() -> SqlitePool {
+        let pool = empty_pool().await;
+        let all = sqlx::migrate!("./migrations");
+        let older = sqlx::migrate::Migrator {
+            migrations: std::borrow::Cow::Owned(
+                all.migrations
+                    .iter()
+                    .filter(|migration| migration.version < SPEAKER_NAMES_MIGRATION_VERSION)
+                    .cloned()
+                    .collect(),
+            ),
+            ..sqlx::migrate::Migrator::DEFAULT
+        };
+        older
+            .run(&pool)
+            .await
+            .expect("pre-speaker-names migrations apply");
+        pool
+    }
+
+    async fn apply_full_migration_chain(pool: &SqlitePool) {
+        sqlx::migrate!("./migrations")
+            .run(pool)
+            .await
+            .expect("the speaker-names migration applies on top of an existing database");
+    }
+
+    /// Adds one speaker to the global directory and returns its id.
+    async fn insert_speaker(pool: &SqlitePool, id: &str, name: &str) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "INSERT INTO speakers (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)",
+        )
+        .bind(id)
+        .bind(name)
+        .bind("2024-01-01T00:00:00Z")
+        .bind("2024-01-01T00:00:00Z")
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn insert_meeting_speaker(
+        pool: &SqlitePool,
+        id: &str,
+        meeting_id: &str,
+        label: &str,
+        speaker_id: &str,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "INSERT INTO meeting_speakers (id, meeting_id, label, speaker_id, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?)",
+        )
+        .bind(id)
+        .bind(meeting_id)
+        .bind(label)
+        .bind(speaker_id)
+        .bind("2024-01-01T00:00:00Z")
+        .bind("2024-01-01T00:00:00Z")
+        .execute(pool)
+        .await?;
+        Ok(())
     }
 
     #[tokio::test]
@@ -130,6 +201,147 @@ mod tests {
                 .as_deref(),
             Some("Updated prompt")
         );
+    }
+
+    #[tokio::test]
+    async fn speaker_names_migration_applies_to_a_database_with_legacy_transcripts() {
+        let pool = migrated_pool_before_speaker_names().await;
+
+        sqlx::query("INSERT INTO meetings (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)")
+            .bind("meeting-legacy")
+            .bind("Legacy meeting")
+            .bind("2024-01-01T00:00:00Z")
+            .bind("2024-01-01T00:00:00Z")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        sqlx::query(
+            "INSERT INTO transcripts (id, meeting_id, transcript, timestamp, speaker)
+             VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind("transcript-legacy")
+        .bind("meeting-legacy")
+        .bind("Legacy text")
+        .bind("2024-01-01T00:00:00Z")
+        .bind("speaker_0")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        apply_full_migration_chain(&pool).await;
+
+        // The legacy rows survive the migration untouched.
+        let row = sqlx::query(
+            "SELECT transcript, speaker FROM transcripts WHERE id = 'transcript-legacy'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(row.get::<String, _>("transcript"), "Legacy text");
+        assert_eq!(row.get::<Option<String>, _>("speaker").as_deref(), Some("speaker_0"));
+
+        // No name was invented for the old label.
+        let names: Vec<(String,)> = sqlx::query_as("SELECT id FROM meeting_speakers")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+        assert!(names.is_empty(), "legacy meetings get no speaker names");
+
+        let speakers: Vec<(String,)> = sqlx::query_as("SELECT id FROM speakers")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+        assert!(speakers.is_empty(), "the directory starts empty");
+    }
+
+    #[tokio::test]
+    async fn meeting_speakers_reject_a_duplicate_label_within_one_meeting() {
+        let pool = migrated_pool().await;
+
+        sqlx::query("INSERT INTO meetings (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)")
+            .bind("meeting-1")
+            .bind("Meeting")
+            .bind("2024-01-01T00:00:00Z")
+            .bind("2024-01-01T00:00:00Z")
+            .execute(&pool)
+            .await
+            .unwrap();
+        insert_speaker(&pool, "speaker-alex", "Alex").await.unwrap();
+        insert_speaker(&pool, "speaker-maria", "Maria").await.unwrap();
+
+        insert_meeting_speaker(&pool, "ms-1", "meeting-1", "speaker_0", "speaker-alex")
+            .await
+            .unwrap();
+
+        let duplicate = insert_meeting_speaker(
+            &pool,
+            "ms-2",
+            "meeting-1",
+            "speaker_0",
+            "speaker-maria",
+        )
+        .await;
+        assert!(
+            duplicate.is_err(),
+            "one label cannot map to two people in the same meeting"
+        );
+    }
+
+    #[tokio::test]
+    async fn meeting_speakers_reject_one_person_assigned_to_two_labels() {
+        let pool = migrated_pool().await;
+
+        sqlx::query("INSERT INTO meetings (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)")
+            .bind("meeting-1")
+            .bind("Meeting")
+            .bind("2024-01-01T00:00:00Z")
+            .bind("2024-01-01T00:00:00Z")
+            .execute(&pool)
+            .await
+            .unwrap();
+        insert_speaker(&pool, "speaker-alex", "Alex").await.unwrap();
+
+        insert_meeting_speaker(&pool, "ms-1", "meeting-1", "speaker_0", "speaker-alex")
+            .await
+            .unwrap();
+
+        let duplicate =
+            insert_meeting_speaker(&pool, "ms-2", "meeting-1", "speaker_1", "speaker-alex").await;
+        assert!(
+            duplicate.is_err(),
+            "one person cannot be two speakers of the same meeting"
+        );
+
+        // The same person may still speak in another meeting.
+        sqlx::query("INSERT INTO meetings (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)")
+            .bind("meeting-2")
+            .bind("Another meeting")
+            .bind("2024-01-01T00:00:00Z")
+            .bind("2024-01-01T00:00:00Z")
+            .execute(&pool)
+            .await
+            .unwrap();
+        insert_meeting_speaker(&pool, "ms-3", "meeting-2", "speaker_0", "speaker-alex")
+            .await
+            .expect("the directory is global across meetings");
+    }
+
+    #[tokio::test]
+    async fn speaker_names_are_unique_case_insensitively() {
+        let pool = migrated_pool().await;
+
+        insert_speaker(&pool, "speaker-alex", "Alex").await.unwrap();
+
+        let duplicate = insert_speaker(&pool, "speaker-alex-2", "alex").await;
+        assert!(
+            duplicate.is_err(),
+            "Alex and alex are the same person in the directory"
+        );
+
+        insert_speaker(&pool, "speaker-maria", "Maria")
+            .await
+            .expect("a different name is accepted");
     }
 
     #[tokio::test]
