@@ -144,6 +144,11 @@ pub struct MeetingTranscript {
     /// Diarization speaker label; absent when the segment was not diarized.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub speaker: Option<String>,
+    /// Real person's name for this segment's label, resolved per meeting from
+    /// the global directory. Absent while no name is assigned; the label above
+    /// stays untouched. See GLOSSARY: «имя спикера».
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speaker_name: Option<String>,
 }
 
 /// Meeting metadata without transcripts (for pagination)
@@ -952,6 +957,7 @@ pub async fn api_get_meeting_transcripts<R: Runtime>(
                     audio_start_time: t.audio_start_time,
                     audio_end_time: t.audio_end_time,
                     duration: t.duration,
+                    speaker_name: t.speaker_name,
                     speaker: t.speaker,
                 })
                 .collect::<Vec<_>>();
