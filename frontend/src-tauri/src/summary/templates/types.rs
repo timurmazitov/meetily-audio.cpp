@@ -30,6 +30,10 @@ pub struct Template {
     /// Brief description of the template's purpose
     pub description: String,
 
+    /// Optional custom system prompt; replaces the base system prompt when set
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub system_prompt: Option<String>,
+
     /// List of sections in the template
     pub sections: Vec<TemplateSection>,
 }
@@ -118,6 +122,7 @@ mod tests {
         let template = Template {
             name: "Test Template".to_string(),
             description: "A test template".to_string(),
+            system_prompt: None,
             sections: vec![
                 TemplateSection {
                     title: "Summary".to_string(),
@@ -137,6 +142,7 @@ mod tests {
         let template = Template {
             name: "".to_string(),
             description: "A test template".to_string(),
+            system_prompt: None,
             sections: vec![],
         };
 
@@ -144,10 +150,72 @@ mod tests {
     }
 
     #[test]
+    fn test_deserialize_without_system_prompt() {
+        let json = r#"{
+            "name": "Test",
+            "description": "A test template",
+            "sections": [
+                {
+                    "title": "Summary",
+                    "instruction": "Provide a summary",
+                    "format": "paragraph"
+                }
+            ]
+        }"#;
+
+        let template: Template = serde_json::from_str(json).unwrap();
+        assert_eq!(template.system_prompt, None);
+    }
+
+    #[test]
+    fn test_deserialize_with_system_prompt() {
+        let json = r#"{
+            "name": "Test",
+            "description": "A test template",
+            "system_prompt": "You are a meeting assistant.",
+            "sections": [
+                {
+                    "title": "Summary",
+                    "instruction": "Provide a summary",
+                    "format": "paragraph"
+                }
+            ]
+        }"#;
+
+        let template: Template = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            template.system_prompt,
+            Some("You are a meeting assistant.".to_string())
+        );
+    }
+
+    #[test]
+    fn test_system_prompt_roundtrip() {
+        let json = r#"{
+            "name": "Test",
+            "description": "A test template",
+            "system_prompt": "You are a meeting assistant.",
+            "sections": [
+                {
+                    "title": "Summary",
+                    "instruction": "Provide a summary",
+                    "format": "paragraph"
+                }
+            ]
+        }"#;
+
+        let template: Template = serde_json::from_str(json).unwrap();
+        let serialized = serde_json::to_string(&template).unwrap();
+        let deserialized: Template = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(deserialized.system_prompt, template.system_prompt);
+    }
+
+    #[test]
     fn test_validate_invalid_format() {
         let template = Template {
             name: "Test".to_string(),
             description: "Test".to_string(),
+            system_prompt: None,
             sections: vec![
                 TemplateSection {
                     title: "Test".to_string(),
