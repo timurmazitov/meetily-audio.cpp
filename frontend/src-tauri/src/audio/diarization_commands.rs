@@ -14,8 +14,10 @@ use serde::Serialize;
 use tauri::{command, AppHandle, Emitter, Runtime};
 
 use crate::audio::transcription::diarization_service::{
-    diarize_recording_folder, DIARIZATION_UNAVAILABLE_MESSAGE,
+    diarize_recording_folder, DIARIZATION_UNAVAILABLE_MESSAGE, SPEAKER_NAMES_RESET_EVENT,
+    SPEAKER_NAMES_RESET_MESSAGE,
 };
+use crate::database::repositories::speaker;
 use crate::state::AppState;
 
 /// Result of diarizing a saved meeting.
@@ -89,9 +91,23 @@ pub async fn audiocpp_diarize_meeting<R: Runtime>(
                 .await
                 .map_err(|error| format!("Failed to update speaker label: {error}"))?;
         }
+        // The labels were replaced wholesale, so drop the names whose labels
+        // no longer exist before the change becomes visible.
+        let reconcile = speaker::reconcile_meeting_speaker_assignments(&mut tx, &meeting_id)
+            .await
+            .map_err(|error| format!("Failed to reconcile speaker names: {error}"))?;
         tx.commit()
             .await
             .map_err(|error| format!("Failed to commit speaker labels: {error}"))?;
+        if reconcile.names_reset {
+            let _ = app.emit(
+                SPEAKER_NAMES_RESET_EVENT,
+                serde_json::json!({
+                    "meeting_id": meeting_id,
+                    "message": SPEAKER_NAMES_RESET_MESSAGE,
+                }),
+            );
+        }
         info!(
             "Diarized meeting {}: {} transcript segments labeled",
             meeting_id, total_segments

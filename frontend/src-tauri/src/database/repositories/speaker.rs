@@ -627,7 +627,9 @@ impl SpeakersRepository {
 
 #[cfg(test)]
 mod tests {
-    use super::{reconcile_meeting_speaker_assignments, ReconcileOutcome, SpeakerError, SpeakersRepository};
+    use super::{
+        reconcile_meeting_speaker_assignments, ReconcileOutcome, SpeakerError, SpeakersRepository,
+    };
     use crate::api::SpeakerAssignment;
     use sqlx::sqlite::SqlitePoolOptions;
     use sqlx::{Connection, Row, SqlitePool};
@@ -1693,12 +1695,7 @@ mod tests {
         insert_transcript(&pool, "t-0", "meeting-1", Some("speaker_0"), Some(0.0)).await;
         assign_name(&pool, "meeting-1", "speaker_0", "Alex").await;
 
-        recount_labels(
-            &pool,
-            "meeting-1",
-            &[Some("speaker_0"), Some("speaker_1")],
-        )
-        .await;
+        recount_labels(&pool, "meeting-1", &[Some("speaker_0"), Some("speaker_1")]).await;
         let outcome = reconcile(&pool, "meeting-1").await;
 
         assert_eq!(
@@ -1782,12 +1779,7 @@ mod tests {
         assign_name(&pool, "meeting-1", "speaker_0", "Alex").await;
         assign_name(&pool, "meeting-1", "speaker_1", "Zoe").await;
 
-        recount_labels(
-            &pool,
-            "meeting-1",
-            &[Some("speaker_4"), Some("speaker_5")],
-        )
-        .await;
+        recount_labels(&pool, "meeting-1", &[Some("speaker_4"), Some("speaker_5")]).await;
         let outcome = reconcile(&pool, "meeting-1").await;
 
         assert!(
