@@ -2,13 +2,24 @@
 
 import { useCallback, useRef, useReducer, startTransition, useEffect, useState, memo } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { invoke } from "@tauri-apps/api/core";
+import { toast } from "sonner";
+import { Check } from "lucide-react";
 import { useAutoScroll } from "@/hooks/useAutoScroll";
 import { useTranscriptStreaming } from "@/hooks/useTranscriptStreaming";
 import { ConfidenceIndicator } from "./ConfidenceIndicator";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from "./ui/dropdown-menu";
 import { RecordingStatusBar } from "./RecordingStatusBar";
 import { motion, AnimatePresence } from "framer-motion";
-import { TranscriptSegmentData } from "@/types";
+import { MeetingSpeaker, TranscriptSegmentData } from "@/types";
+import { formatSpeakerDisplayLabel, isDiarizationSpeakerLabel } from "@/lib/transcript-format";
 
 export interface VirtualizedTranscriptViewProps {
     /** Transcript segments to display */
@@ -34,22 +45,25 @@ export interface VirtualizedTranscriptViewProps {
     totalCount?: number;
     loadedCount?: number;
     onLoadMore?: () => void;
+
+    /**
+     * Speakers of this meeting (label + assigned name). When provided and
+     * non-empty, a diarized row's chip becomes a dropdown that reassigns
+     * that single row. The live panel passes nothing, so it stays inert.
+     */
+    meetingSpeakers?: MeetingSpeaker[];
+    /** Called after a row's speaker was changed and refetched from the backend. */
+    onSpeakerChange?: (transcriptId: string, label: string | null) => void | Promise<void>;
 }
 
 // Threshold for enabling virtualization (below this, use simple rendering)
 const VIRTUALIZATION_THRESHOLD = 10;
 
-// Helper function to format a diarization speaker label for display.
-// Only diarization labels (`speaker_0`, `speaker_1`, …) get a chip: they are
-// the only values the diarization pass writes (GLOSSARY: «спикер» identified
-// by order of appearance). The legacy `speaker` column documented
-// `'mic'`/`'system'` audio-source values, and any other free-form value is
-// not a diarization label, so it must not render as a speaker chip.
-function formatSpeakerLabel(speaker: string | undefined): string | null {
-    if (!speaker) return null;
-    const match = /^speaker_(\d+)$/.exec(speaker);
-    if (!match) return null;
-    return `Speaker ${Number(match[1]) + 1}`;
+// Display label for a meeting speaker used in the row dropdown. Falls back to
+// `Speaker N` (taken from the label suffix) when the label has no name.
+function formatMeetingSpeakerLabel(speaker: MeetingSpeaker): string {
+    return formatSpeakerDisplayLabel(speaker.label, speaker.speaker_name ?? undefined)
+        ?? speaker.label;
 }
 
 // Helper function to format seconds as recording-relative time [MM:SS]
@@ -83,19 +97,115 @@ const TranscriptSegment = memo(function TranscriptSegment({
     text,
     confidence,
     speaker,
+    speakerName,
     isStreaming,
     showConfidence,
+    meetingSpeakers,
+    onSpeakerChange,
+    allowSpeakerEdit,
 }: {
     id: string;
     timestamp: number;
     text: string;
     confidence?: number;
     speaker?: string;
+    speakerName?: string;
     isStreaming: boolean;
     showConfidence: boolean;
+    meetingSpeakers?: MeetingSpeaker[];
+    onSpeakerChange?: (transcriptId: string, label: string | null) => void | Promise<void>;
+    /** False while recording and when the host does not support row edits. */
+    allowSpeakerEdit: boolean;
 }) {
     const displayText = cleanStopWords(text) || (text.trim() === '' ? '[Silence]' : text);
-    const speakerLabel = formatSpeakerLabel(speaker);
+
+    // Optimistic row state: set as soon as the user picks an item, cleared
+    // once the refetched segment arrives (or on failure).
+    const [override, setOverride] = useState<{ speaker?: string; speakerName?: string } | null>(null);
+    useEffect(() => {
+        setOverride(null);
+    }, [speaker, speakerName]);
+
+    const effectiveSpeaker = override ? override.speaker : speaker;
+    const effectiveSpeakerName = override ? override.speakerName : speakerName;
+    const speakerLabel = formatSpeakerDisplayLabel(effectiveSpeaker, effectiveSpeakerName);
+
+    // The dropdown exists only on the meeting page: the live panel passes no
+    // speaker list, and a meeting without labels has nothing to pick.
+    // `mic`/`system`/free-form values are not diarization labels, so they stay
+    // inert even when the list is present. A row without a label is editable —
+    // its current value is "No speaker".
+    const canReassign = !effectiveSpeaker || isDiarizationSpeakerLabel(effectiveSpeaker);
+    const interactive = allowSpeakerEdit
+        && !!onSpeakerChange
+        && (meetingSpeakers?.length ?? 0) > 0
+        && canReassign;
+
+    const handleSelect = async (label: string | null) => {
+        if (!onSpeakerChange) return;
+        if (label === (effectiveSpeaker ?? null)) return;
+
+        const selected = label
+            ? meetingSpeakers?.find(s => s.label === label)
+            : undefined;
+        setOverride({ speaker: label ?? undefined, speakerName: selected?.speaker_name ?? undefined });
+
+        try {
+            await invoke('api_set_transcript_speaker', { transcriptId: id, label });
+            await onSpeakerChange(id, label);
+        } catch (error) {
+            setOverride(null);
+            toast.error('Failed to update speaker', { description: String(error) });
+        }
+    };
+
+    const chipClassName = "inline-flex items-center rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700";
+    const noSpeakerChipClassName = "inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500";
+
+    const chipTitle = effectiveSpeaker
+        ? `Speaker attributed by diarization (${effectiveSpeaker})`
+        : 'No speaker attributed';
+
+    const chip = interactive ? (
+        <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+                <button
+                    type="button"
+                    className={`${speakerLabel ? chipClassName : noSpeakerChipClassName} cursor-pointer hover:bg-indigo-100`}
+                    title={`${chipTitle} — click to change`}
+                >
+                    {speakerLabel ?? 'No speaker'}
+                </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+                {meetingSpeakers?.map(item => {
+                    const selected = item.label === effectiveSpeaker;
+                    return (
+                        <DropdownMenuItem
+                            key={item.label}
+                            onSelect={() => { void handleSelect(item.label); }}
+                            className="flex items-center justify-between gap-2"
+                        >
+                            <span>{formatMeetingSpeakerLabel(item)}</span>
+                            {selected && <Check className="h-4 w-4 text-green-600" />}
+                        </DropdownMenuItem>
+                    );
+                })}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                    onSelect={() => { void handleSelect(null); }}
+                    className="flex items-center justify-between gap-2"
+                >
+                    <span>No speaker</span>
+                    {!effectiveSpeaker && <Check className="h-4 w-4 text-green-600" />}
+                </DropdownMenuItem>
+            </DropdownMenuContent>
+        </DropdownMenu>
+    ) : speakerLabel ? (
+        <span className={chipClassName} title={chipTitle}>
+            {speakerLabel}
+        </span>
+    ) : null;
 
     return (
         <div id={`segment-${id}`} className="mb-3">
@@ -113,14 +223,9 @@ const TranscriptSegment = memo(function TranscriptSegment({
                     </TooltipContent>
                 </Tooltip>
                 <div className="flex-1">
-                    {speakerLabel && (
+                    {chip && (
                         <div className="mb-1">
-                            <span
-                                className="inline-flex items-center rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700"
-                                title={`Speaker attributed by diarization (${speaker})`}
-                            >
-                                {speakerLabel}
-                            </span>
+                            {chip}
                         </div>
                     )}
                     {isStreaming ? (
@@ -150,6 +255,8 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
     totalCount = 0,
     loadedCount = 0,
     onLoadMore,
+    meetingSpeakers,
+    onSpeakerChange,
 }) => {
     // Create scroll ref first - shared between virtualizer and auto-scroll hook
     const scrollRef = useRef<HTMLDivElement>(null);
@@ -321,8 +428,12 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                                         text={getDisplayText(segment)}
                                         confidence={segment.confidence}
                                         speaker={segment.speaker}
+                                        speakerName={segment.speaker_name}
                                         isStreaming={isStreaming}
                                         showConfidence={showConfidence}
+                                        meetingSpeakers={meetingSpeakers}
+                                        onSpeakerChange={onSpeakerChange}
+                                        allowSpeakerEdit={!isRecording}
                                     />
                                 </div>
                             );
@@ -378,8 +489,12 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                                         text={getDisplayText(segment)}
                                         confidence={segment.confidence}
                                         speaker={segment.speaker}
+                                        speakerName={segment.speaker_name}
                                         isStreaming={isStreaming}
                                         showConfidence={showConfidence}
+                                        meetingSpeakers={meetingSpeakers}
+                                        onSpeakerChange={onSpeakerChange}
+                                        allowSpeakerEdit={!isRecording}
                                     />
                                 </motion.div>
                             );
