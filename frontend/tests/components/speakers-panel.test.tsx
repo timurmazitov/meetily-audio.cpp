@@ -277,6 +277,62 @@ test('picking an existing directory name then Done sends the assignment', async 
   expect(onRefetchTranscripts).toHaveBeenCalled();
 });
 
+test('Done only sends the rows whose draft changed', async () => {
+  speakers = [
+    {
+      label: 'speaker_0',
+      speaker_name: 'Alex',
+      segment_count: 3,
+      first_start_time: 0,
+      top_speaker_names: ['Alex'],
+    },
+    {
+      label: 'speaker_1',
+      speaker_name: null,
+      segment_count: 2,
+      first_start_time: 40,
+      top_speaker_names: ['Maria'],
+    },
+  ];
+
+  const instance = await render();
+  await openPanel(instance);
+  await clickButton(speakerRow(instance, 'speaker_1'), 'Maria');
+  await clickButton(instance, 'Done');
+
+  expect(assignCalls()).toEqual([
+    [
+      'api_assign_meeting_speakers',
+      { meetingId: 'meeting-a', assignments: [{ label: 'speaker_1', name: 'Maria' }] },
+    ],
+  ]);
+});
+
+test('a successful Done signals other speaker consumers', async () => {
+  speakers = [
+    {
+      label: 'speaker_0',
+      speaker_name: null,
+      segment_count: 3,
+      first_start_time: 0,
+      top_speaker_names: ['Alex'],
+    },
+  ];
+
+  const dispatched: string[] = [];
+  (globalThis as any).window.dispatchEvent = (event: { type: string }) => {
+    dispatched.push(event.type);
+    return true;
+  };
+
+  const instance = await render();
+  await openPanel(instance);
+  await clickButton(speakerRow(instance, 'speaker_0'), 'Alex');
+  await clickButton(instance, 'Done');
+
+  expect(dispatched).toContain('speakers-updated');
+});
+
 test('typing a new name offers Create and sends that name', async () => {
   speakers = [
     {
