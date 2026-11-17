@@ -47,6 +47,7 @@ The supported application communicates through Tauri commands and events; there 
 - Frontend code calls Rust commands with `invoke` from `@tauri-apps/api/core`. Command registration lives in [lib.rs](../frontend/src-tauri/src/lib.rs); implementations delegate to the relevant Rust service.
 - Rust emits events through Tauri, and frontend listeners update React state. Check the current command arguments and event payloads before changing either side of the interface.
 - [SidebarProvider.tsx](../frontend/src/components/Sidebar/SidebarProvider.tsx) manages meeting navigation and summary polling, and uses the recording-state context. Preserve the existing state ownership rather than introducing a second source of truth.
+- Speaker names have their own interface: the directory and per-meeting assignment tables, four commands, and the `speaker-names-reset` event are documented in [speaker-names.md](speaker-names.md).
 
 ## Audio Pipeline
 
