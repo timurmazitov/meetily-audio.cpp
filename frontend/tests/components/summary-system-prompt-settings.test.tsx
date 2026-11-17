@@ -1,15 +1,13 @@
 import React from 'react';
-import { afterAll, afterEach, expect, mock, test } from 'bun:test';
+import { afterAll, afterEach, beforeEach, expect, mock, test } from 'bun:test';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 
 // The component talks to the Tauri backend through `invoke`; tests replace it
 // with a scripted fake and restore every mocked module afterwards because Bun
 // shares module mocks between test files.
 const originalToast = { ...(await import('sonner')) };
-const originalCore = { ...(await import('@tauri-apps/api/core')) };
 afterAll(() => {
   mock.module('sonner', () => originalToast);
-  mock.module('@tauri-apps/api/core', () => originalCore);
 });
 
 const DEFAULT_PROMPT = 'Default prompt with {section_instructions} and {template}';
@@ -30,6 +28,17 @@ const invoke = mock(async (command: string, args?: Record<string, unknown>): Pro
   throw new Error(`Unexpected command: ${command}`);
 });
 mock.module('@tauri-apps/api/core', () => ({ invoke }));
+
+// Bun shares module mocks between test files: another suite may have restored the
+// real module while this file was loaded. Re-apply the mock before each test so
+// this suite always talks to its fake backend. The `window` shim additionally
+// covers the case where the real module is already bound: its `invoke` delegates
+// to `window.__TAURI_INTERNALS__.invoke`.
+beforeEach(() => {
+  mock.module('@tauri-apps/api/core', () => ({ invoke }));
+  (globalThis as any).window = { __TAURI_INTERNALS__: { invoke } };
+  invoke.mockClear();
+});
 
 const { SummarySystemPromptSettings } = await import(
   '../../src/components/SummarySystemPromptSettings'
@@ -78,7 +87,9 @@ test('loads the current base system prompt', async () => {
   stored = 'My custom base prompt {template}';
   const view = await render();
 
-  expect(invoke).toHaveBeenCalledWith('api_get_summary_system_prompt');
+  // The real Tauri module calls invoke with positional defaults, so only the
+  // command name is asserted.
+  expect(invoke.mock.calls.some(([command]) => command === 'api_get_summary_system_prompt')).toBe(true);
   const textarea = view.root.find((node) => node.type === 'textarea');
   expect(textarea.props.value).toBe('My custom base prompt {template}');
 });
