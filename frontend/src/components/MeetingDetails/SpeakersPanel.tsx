@@ -263,8 +263,9 @@ export function SpeakersPanel({
    * Within one meeting a person holds only one label, so the conflict is a pair
    * of rows whose names are equal ignoring case and surrounding whitespace —
    * including a draft that just copies another row's saved name, which the
-   * backend's message names by that row's old speaker number. Rows whose draft
-   * changed in this batch win, because they are what the user is looking at.
+   * backend's message names by that row's old speaker number. Only rows whose
+   * draft changed in this batch are reported, because they are what the user is
+   * looking at; an empty result means the caller falls back to the message.
    */
   const conflictLabels = (): string[] => {
     const names = speakers.map((row) => ({
@@ -272,13 +273,14 @@ export function SpeakersPanel({
       name: foldName(draft[row.label] ?? null),
       changed: (draft[row.label] ?? null) !== (row.speaker_name ?? null),
     }));
-    const conflicting = names.filter(
-      (row) =>
-        row.name !== null &&
-        names.some((other) => other.label !== row.label && other.name === row.name),
-    );
-    const edited = conflicting.filter((row) => row.changed);
-    return (edited.length > 0 ? edited : conflicting).map((row) => row.label);
+    return names
+      .filter(
+        (row) =>
+          row.changed &&
+          row.name !== null &&
+          names.some((other) => other.label !== row.label && other.name === row.name),
+      )
+      .map((row) => row.label);
   };
 
   const handleDone = async () => {
