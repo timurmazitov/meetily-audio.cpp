@@ -1,7 +1,7 @@
 # 05: Проводка базового промпта из настроек в пайплайн саммари
 
 Type: task
-Status: ready-for-agent
+Status: resolved
 Blocked by: 02, 03
 
 ## Что сделать
@@ -22,3 +22,6 @@ Blocked by: 02, 03
 ## Готовность
 
 `cargo test` в `frontend/src-tauri` зелёный.
+## Comments
+
+Реализовано в ветке feature/summary-system-prompt (коммиты 6e9e6c9..2298d28).

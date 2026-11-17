@@ -1,7 +1,7 @@
 # 01: Поле системного промпта в модели шаблона
 
 Type: task
-Status: ready-for-agent
+Status: resolved
 Blocked by: —
 
 ## Что сделать
@@ -28,3 +28,6 @@ Blocked by: —
 ## Готовность
 
 `cargo test` в `frontend/src-tauri` зелёный для модулей templates.
+## Comments
+
+Реализовано в ветке feature/summary-system-prompt (коммиты 6e9e6c9..2298d28).

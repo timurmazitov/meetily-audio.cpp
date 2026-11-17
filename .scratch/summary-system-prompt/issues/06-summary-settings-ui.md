@@ -1,7 +1,7 @@
 # 06: UI базового системного промпта на вкладке Summary
 
 Type: task
-Status: ready-for-agent
+Status: resolved
 Blocked by: 02
 
 ## Что сделать
@@ -31,3 +31,6 @@ Blocked by: 02
 ## Готовность
 
 `bun test` для затронутых тестов зелёный; `bun run build` (или tsc/lint по аналогии с соседними компонентами) без ошибок.
+## Comments
+
+Реализовано в ветке feature/summary-system-prompt (коммиты 6e9e6c9..2298d28).
