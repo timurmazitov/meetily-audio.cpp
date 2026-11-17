@@ -67,7 +67,11 @@ export function useSpeakerNamesResetListener(
       unlisten = stop;
     };
 
-    void setup();
+    void setup().catch((error) => {
+      // The listener is a hint: without a Tauri bridge (unit tests, a plain
+      // browser preview) the page must keep working.
+      console.warn('Failed to listen for speaker name resets:', error);
+    });
 
     return () => {
       cleanedUp = true;
