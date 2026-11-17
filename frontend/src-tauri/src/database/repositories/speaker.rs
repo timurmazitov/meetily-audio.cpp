@@ -308,7 +308,13 @@ impl SpeakersRepository {
 
     /// Searches the global directory for the panel's autocomplete. The query
     /// is a case-insensitive substring match after trimming (an empty query
-    /// lists everything); results are ordered by usage, then by name.
+    /// lists everything).
+    ///
+    /// An exact (trimmed, case-insensitive) match is always listed first, even
+    /// when other names contain the query and are used more often: the panel
+    /// decides "this person already exists" from the first page, so the exact
+    /// hit must not fall outside it. Everything else keeps the documented
+    /// usage-then-name order.
     ///
     /// Filtering happens in Rust so that non-ASCII names (Cyrillic, accented
     /// letters) match case-insensitively, which SQLite's ASCII-only `LIKE`
@@ -335,7 +341,7 @@ impl SpeakersRepository {
         .fetch_all(pool)
         .await?;
 
-        Ok(rows
+        let mut entries: Vec<SpeakerNameEntry> = rows
             .into_iter()
             .map(|(id, name, meeting_count)| SpeakerNameEntry {
                 id,
@@ -343,8 +349,17 @@ impl SpeakersRepository {
                 meeting_count,
             })
             .filter(|row| needle.is_empty() || row.name.to_lowercase().contains(&needle))
-            .take(limit as usize)
-            .collect())
+            .collect();
+
+        // The SQL order above already is usage-then-name; a stable sort on the
+        // exact-hit flag only lifts the exact match (case folded in Rust, like
+        // the filter) to the front.
+        entries.sort_by_key(|entry| {
+            !(!needle.is_empty() && entry.name.trim().to_lowercase() == needle)
+        });
+
+        entries.truncate(limit as usize);
+        Ok(entries)
     }
 
     /// Applies a batch of panel assignments atomically: either every assignment
@@ -1536,6 +1551,53 @@ mod tests {
             .map(|(id, _)| id.clone())
             .expect("Alex is in the directory");
         assert_eq!(rows[0].id, alex_id, "the row carries the directory id");
+    }
+
+    #[tokio::test]
+    async fn an_exact_match_is_listed_first_even_with_no_meetings() {
+        let pool = migrated_pool().await;
+        insert_meeting(&pool, "meeting-1").await;
+        insert_transcript(&pool, "t-0", "meeting-1", Some("speaker_0"), Some(0.0)).await;
+        insert_transcript(&pool, "t-1", "meeting-1", Some("speaker_1"), Some(1.0)).await;
+        SpeakersRepository::assign(
+            &pool,
+            "meeting-1",
+            &[
+                assignment("speaker_0", Some("Alexandra")),
+                assignment("speaker_1", Some("Alexander")),
+            ],
+        )
+        .await
+        .unwrap();
+        // A directory row nobody uses yet, e.g. created by a discarded panel draft.
+        sqlx::query("INSERT INTO speakers (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)")
+            .bind("person-unused")
+            .bind("Alex")
+            .bind("2024-01-01T00:00:00Z")
+            .bind("2024-01-01T00:00:00Z")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let rows = SpeakersRepository::search_names(&pool, "alex", 20)
+            .await
+            .unwrap();
+
+        let summary: Vec<(&str, i64)> = rows
+            .iter()
+            .map(|row| (row.name.as_str(), row.meeting_count))
+            .collect();
+        assert_eq!(
+            summary,
+            [("Alex", 0), ("Alexander", 1), ("Alexandra", 1)],
+            "the exact match comes first even though it is unused; \
+             the rest keep usage-then-name order"
+        );
+
+        let rows = SpeakersRepository::search_names(&pool, "  ALEX ", 20)
+            .await
+            .unwrap();
+        assert_eq!(rows[0].name, "Alex", "trimmed, case-insensitive exact match");
     }
 
     #[tokio::test]
