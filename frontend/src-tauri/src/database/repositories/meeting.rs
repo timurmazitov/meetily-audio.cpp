@@ -1,10 +1,18 @@
 use crate::api::{MeetingDetails, MeetingTranscript};
 use crate::database::models::{MeetingModel, Transcript};
+use crate::database::repositories::speaker::SpeakersRepository;
 use chrono::Utc;
 use sqlx::{Connection, Error as SqlxError, SqliteConnection, SqlitePool};
 use log::{error, info};
+use std::collections::HashMap;
 
 pub struct MeetingsRepository;
+
+/// Resolves the real name for a segment from the meeting's label→name map.
+/// The segment keeps its diarization label; the name is a separate entity.
+fn resolve_speaker_name(label: &Option<String>, names: &HashMap<String, String>) -> Option<String> {
+    label.as_ref().and_then(|label| names.get(label)).cloned()
+}
 
 impl MeetingsRepository {
     pub async fn get_meetings(pool: &SqlitePool) -> Result<Vec<MeetingModel>, sqlx::Error> {
@@ -80,12 +88,17 @@ impl MeetingsRepository {
                     .fetch_all(&mut *transaction)
                     .await?;
 
+            // Names come from the same transaction, so the snapshot matches.
+            let speaker_names =
+                SpeakersRepository::speaker_name_map(&mut *transaction, meeting_id).await?;
+
             transaction.commit().await?;
 
             // Convert Transcript to MeetingTranscript
             let meeting_transcripts = transcripts
                 .into_iter()
                 .map(|t| MeetingTranscript {
+                    speaker_name: resolve_speaker_name(&t.speaker, &speaker_names),
                     id: t.id,
                     text: t.transcript,
                     timestamp: t.timestamp,
@@ -152,7 +165,7 @@ impl MeetingsRepository {
         .await?;
 
         // Get paginated transcripts ordered by audio_start_time
-        let transcripts = sqlx::query_as::<_, Transcript>(
+        let mut transcripts = sqlx::query_as::<_, Transcript>(
             "SELECT * FROM transcripts
              WHERE meeting_id = ?
              ORDER BY audio_start_time ASC
@@ -163,6 +176,12 @@ impl MeetingsRepository {
         .bind(offset)
         .fetch_all(pool)
         .await?;
+
+        // One extra query per page; names belong to the meeting, not to the page.
+        let speaker_names = SpeakersRepository::speaker_name_map(pool, meeting_id).await?;
+        for transcript in &mut transcripts {
+            transcript.speaker_name = resolve_speaker_name(&transcript.speaker, &speaker_names);
+        }
 
         Ok((transcripts, total.0))
     }
@@ -273,4 +292,139 @@ async fn delete_meeting_with_transaction(
         .await?;
 
     Ok(result.rows_affected() > 0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::MeetingsRepository;
+    use sqlx::sqlite::SqlitePoolOptions;
+    use sqlx::SqlitePool;
+
+    async fn migrated_pool() -> SqlitePool {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("in-memory sqlite");
+        sqlx::migrate!("./migrations")
+            .run(&pool)
+            .await
+            .expect("migrations apply");
+        pool
+    }
+
+    async fn seed_meeting_with_two_speakers(pool: &SqlitePool, meeting_id: &str) {
+        sqlx::query("INSERT INTO meetings (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)")
+            .bind(meeting_id)
+            .bind("Meeting")
+            .bind("2024-01-01T00:00:00Z")
+            .bind("2024-01-01T00:00:00Z")
+            .execute(pool)
+            .await
+            .unwrap();
+
+        for (id, speaker, start) in [
+            ("t-0", Some("speaker_0"), 0.0_f64),
+            ("t-1", Some("speaker_1"), 1.0),
+            ("t-2", None, 2.0),
+        ] {
+            sqlx::query(
+                "INSERT INTO transcripts (id, meeting_id, transcript, timestamp, speaker, audio_start_time)
+                 VALUES (?, ?, ?, ?, ?, ?)",
+            )
+            .bind(id)
+            .bind(meeting_id)
+            .bind(format!("Text from {id}"))
+            .bind("2024-01-01T00:00:00Z")
+            .bind(speaker)
+            .bind(start)
+            .execute(pool)
+            .await
+            .unwrap();
+        }
+    }
+
+    async fn assign_name(pool: &SqlitePool, meeting_id: &str, label: &str, name: &str) {
+        let person_id = format!("person-{}", name.to_lowercase());
+        sqlx::query(
+            "INSERT OR IGNORE INTO speakers (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)",
+        )
+        .bind(&person_id)
+        .bind(name)
+        .bind("2024-01-01T00:00:00Z")
+        .bind("2024-01-01T00:00:00Z")
+        .execute(pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO meeting_speakers (id, meeting_id, label, speaker_id, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?)",
+        )
+        .bind(format!("assignment-{}-{}", meeting_id, label))
+        .bind(meeting_id)
+        .bind(label)
+        .bind(&person_id)
+        .bind("2024-01-01T00:00:00Z")
+        .bind("2024-01-01T00:00:00Z")
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn reading_a_meeting_resolves_speaker_names_per_segment() {
+        let pool = migrated_pool().await;
+        seed_meeting_with_two_speakers(&pool, "meeting-1").await;
+        assign_name(&pool, "meeting-1", "speaker_0", "Alex").await;
+
+        let meeting = MeetingsRepository::get_meeting(&pool, "meeting-1")
+            .await
+            .unwrap()
+            .expect("meeting exists");
+
+        let by_id = |id: &str| {
+            meeting
+                .transcripts
+                .iter()
+                .find(|t| t.id == id)
+                .unwrap_or_else(|| panic!("segment {id} present"))
+        };
+
+        assert_eq!(by_id("t-0").speaker_name.as_deref(), Some("Alex"));
+        assert_eq!(by_id("t-0").speaker.as_deref(), Some("speaker_0"));
+        assert_eq!(
+            by_id("t-1").speaker_name,
+            None,
+            "an unnamed label keeps none"
+        );
+        assert_eq!(
+            by_id("t-2").speaker_name,
+            None,
+            "an unlabelled segment keeps none"
+        );
+    }
+
+    #[tokio::test]
+    async fn paginated_transcripts_carry_the_speaker_names_of_the_meeting() {
+        let pool = migrated_pool().await;
+        seed_meeting_with_two_speakers(&pool, "meeting-1").await;
+        assign_name(&pool, "meeting-1", "speaker_0", "Alex").await;
+
+        let (transcripts, total) =
+            MeetingsRepository::get_meeting_transcripts_paginated(&pool, "meeting-1", 10, 0)
+                .await
+                .unwrap();
+
+        assert_eq!(total, 3);
+        let named: Vec<Option<&str>> = transcripts
+            .iter()
+            .map(|t| t.speaker_name.as_deref())
+            .collect();
+        assert_eq!(named, [Some("Alex"), None, None]);
+        assert_eq!(
+            transcripts[0].speaker.as_deref(),
+            Some("speaker_0"),
+            "the label itself is unchanged"
+        );
+    }
 }
