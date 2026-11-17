@@ -4,13 +4,17 @@
 Two modes, chosen by the caller: the script owns no knowledge of the bundler
 config it is validating.
 
-* No public key given (current state; the updater is disabled, see ADR 0002):
+* No public key given:
   every expected package type must be present exactly once. Signatures are not
   checked, ``latest.json`` is not created, and the skipped manifest is stated
   explicitly.
-* Public key given (future state, updater enabled): signatures are additionally
+* Public key given (updater enabled): signatures are additionally
   required for every signed package type, verified with ``minisign``, and
   ``latest.json`` is written in the format the Tauri updater expects.
+
+macOS packages are intentionally absent: the release pipeline does not build
+macOS (no Apple Developer certificate in CI). Re-add the dmg/app-tarball
+entries to both ``PACKAGES`` and ``PLATFORM_ORDER`` when macOS builds return.
 
 Usage:
 
@@ -59,8 +63,6 @@ class Package:
 # (adding a target, turning updater artifacts on or off) is a one-line edit
 # here.
 PACKAGES: tuple = (
-    Package("dmg", "*aarch64.dmg", signed=False),
-    Package("app tarball", "*aarch64.app.tar.gz", signed=True, updater_artifact=True),
     Package("msi", "*64_en-US.msi", signed=True),
     Package("nsis installer", "*-setup.exe", signed=True),
     Package("deb", "*.deb", signed=True),
@@ -70,10 +72,9 @@ PACKAGES: tuple = (
 MANIFEST_NAME = "latest.json"
 
 # Manifest key order, kept identical to the format the inline workflow heredoc
-# produced. Each target names the package type that feeds it.
+# produced. Each target names the package type that feeds it. macOS targets are
+# omitted: the release pipeline does not build macOS (see the module docstring).
 PLATFORM_ORDER = (
-    ("darwin-aarch64", "app tarball"),
-    ("darwin-aarch64-app", "app tarball"),
     ("windows-x86_64-nsis", "nsis installer"),
     ("windows-x86_64-msi", "msi"),
     ("windows-x86_64", "nsis installer"),
@@ -208,7 +209,7 @@ def main(argv: Sequence[str], run_minisign: Callable = None) -> int:
         print(f"ok: wrote {manifest.name} for version {args.version}")
     else:
         print(
-            "updater disabled (see ADR 0002): signatures not checked, "
+            "no public key given: signatures not checked, "
             f"{MANIFEST_NAME} not created"
         )
     return 0

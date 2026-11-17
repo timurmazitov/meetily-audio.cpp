@@ -67,9 +67,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: "macos-latest" # for Apple Silicon only (M1 and above)
-            args: "--target aarch64-apple-darwin"
-            target: "aarch64-apple-darwin"
+          # macOS is intentionally not built: there is no Apple Developer
+          # certificate in CI, so code signing fails (see run annotations).
+          # Re-add `- platform: "macos-latest"` with aarch64 args to restore.
           - platform: "ubuntu-22.04"
             args: "--bundles deb,appimage"
             target: "x86_64-unknown-linux-gnu"
@@ -123,8 +123,7 @@ jobs:
           # The presence of plugins.updater.pubkey is the only mode switch of
           # scripts/check-release-assets.py: with a key, signatures are verified
           # and latest.json is written; without one, packages are validated and
-          # the manifest is skipped. The updater is disabled today (ADR 0002),
-          # so the key path turns itself on once the section is restored.
+          # the manifest is skipped.
           python3 - <<'PYCODE'
           import base64, json, os
           from pathlib import Path
@@ -195,8 +194,8 @@ jobs:
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
-          # The updater manifest only exists when the updater is enabled (ADR 0002);
-          # its absence is expected and must not fail the summary.
+          # The updater manifest exists when plugins.updater.pubkey is present
+          # in tauri.conf.json; its absence means the updater is not configured.
           echo "### latest.json content" >> $GITHUB_STEP_SUMMARY
           LATEST_JSON_ID=$(gh api --paginate "repos/${{ github.repository }}/releases/$RELEASE_ID/assets" --jq '.[] | select(.name == "latest.json") | .id')
           if [ -n "$LATEST_JSON_ID" ]; then
@@ -215,7 +214,7 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Download all as ZIP:** https://github.com/${{ github.repository }}/archive/refs/tags/v${VERSION}.zip" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Future work (automatic updates are disabled, see ADR 0002):** once the Tauri updater is re-enabled, upload the generated latest.json to \`s3://samobranka-updates/latest.json\`." >> $GITHUB_STEP_SUMMARY
+          echo "**Future work:** mirror the generated latest.json to a CDN (e.g. \`s3://samobranka-updates/latest.json\`) and add the URL to \`plugins.updater.endpoints\` as a fallback." >> $GITHUB_STEP_SUMMARY
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -228,12 +227,11 @@ jobs:
           echo "Release URL: https://github.com/${{ github.repository }}/releases/tag/v${{ needs.create-release.outputs.version }}"
           echo ""
           echo "Uploaded assets (via tauri-action):"
-          echo "  - macOS: DMG installer"
           echo "  - Windows: MSI + NSIS installers (SIGNED via signCommand)"
           echo "  - Linux: DEB and AppImage packages, signed explicitly (+ .sig)"
           echo ""
-          echo "Automatic updates are disabled (ADR 0002): no app.tar.gz, no macOS or"
-          echo "Windows .sig files and no latest.json are produced or uploaded."
+          echo "Updater artifacts: macOS is not built, so latest.json covers"
+          echo "Windows (msi, nsis) and Linux (deb, appimage) only."
           echo ""
           echo "Next steps:"
           echo "  1. Review the draft release"
@@ -252,11 +250,10 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Platform | Assets |" >> $GITHUB_STEP_SUMMARY
           echo "|----------|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| **macOS** | DMG installer |" >> $GITHUB_STEP_SUMMARY
           echo "| **Windows** | MSI installer (SIGNED), NSIS installer (SIGNED) |" >> $GITHUB_STEP_SUMMARY
           echo "| **Linux** | DEB and AppImage packages, signed explicitly (+ .sig) |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Automatic updates are disabled (ADR 0002): no app.tar.gz, no macOS or Windows .sig files and no latest.json are produced or uploaded." >> $GITHUB_STEP_SUMMARY
+          echo "macOS is not built (no Apple Developer certificate in CI); \`latest.json\` therefore covers Windows and Linux only." >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY

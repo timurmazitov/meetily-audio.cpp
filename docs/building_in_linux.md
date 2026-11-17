@@ -222,21 +222,18 @@ src-tauri/target/release/bundle/appimage/Samobranka_<version>_amd64.AppImage
 ## 📦 Release packages and updates
 
 Release builds are produced by `.github/workflows/release.yml`, which builds `deb` and
-`appimage` packages for Linux alongside the macOS and Windows installers in one draft release.
+`appimage` packages for Linux alongside the Windows installers in one draft release.
+macOS is not built: CI has no Apple Developer certificate.
 
 Linux packages are signed with minisign: `tauri signer sign` writes a `.deb.sig` or
-`.AppImage.sig` file next to each package. These are ordinary package signatures, not updater
-artifacts. A local `tauri build` does not sign anything.
+`.AppImage.sig` file next to each package. The AppImage signature doubles as the updater
+signature. A local `tauri build` does not sign anything.
 
-**Automatic updates are disabled.** The in-app updater was removed during the rebrand
-([ADR 0002](adr/0002-rebrand-to-samobranka.md)), so `frontend/src-tauri/tauri.conf.json` has
-`bundle.createUpdaterArtifacts: false` and no `plugins.updater` section. No `latest.json`
-manifest is published and the app never downloads updates.
-
-`scripts/check-release-assets.py` validates a release directory and selects its mode from the
-bundle config: without an updater public key it only checks that every expected package is
-present exactly once. Signatures are checked and `latest.json` is written only when
-`plugins.updater.pubkey` exists, which is part of the future work described in the ADR.
+**Automatic updates are enabled.** The app fetches `latest.json` from this repository's
+GitHub Releases; the release pipeline verifies the package signatures with the minisign
+public key committed in `frontend/src-tauri/tauri.conf.json` and uploads the manifest to
+the release. Only the AppImage auto-updates on Linux (the `.deb` never will), and the
+manifest covers Windows and Linux only — macOS is not built.
 
 ---
 

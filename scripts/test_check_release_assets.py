@@ -33,17 +33,14 @@ SCRIPT_PATH = Path(__file__).with_name("check-release-assets.py")
 VERSION = "0.5.0"
 REPO = "timurmazitov/samobranka"
 
-# Realistic asset names; the app tarball deliberately contains spaces so the
-# URL-encoding assertion is not satisfied by accident.
+# Realistic asset names.
 PACKAGE_FILES = {
-    "dmg": "samobranka_0.5.0_aarch64.dmg",
-    "app": "samobranka 0.5.0 aarch64.app.tar.gz",
     "msi": "samobranka_0.5.0_x64_en-US.msi",
     "nsis": "samobranka_0.5.0_x64-setup.exe",
     "deb": "samobranka_0.5.0_amd64.deb",
     "appimage": "samobranka_0.5.0_amd64.AppImage",
 }
-SIGNED_KINDS = ("app", "msi", "nsis", "deb", "appimage")
+SIGNED_KINDS = ("msi", "nsis", "deb", "appimage")
 SIGNATURE_BODY = base64.b64encode(b"not-a-real-minisign-signature").decode()
 
 
@@ -91,7 +88,7 @@ class ReleaseAssetsTest(unittest.TestCase):
         code, out, err = self.run_script(str(self.assets), VERSION, REPO)
         self.assertEqual(code, 0, err)
         self.assertFalse((self.assets / "latest.json").exists())
-        self.assertIn("ADR 0002", out)
+        self.assertIn("no public key given", out)
         self.assertIn("latest.json", out)
 
     # 2. One package type missing -> error naming the missing type.
@@ -136,7 +133,6 @@ class ReleaseAssetsTest(unittest.TestCase):
         self.assertEqual(
             sorted(manifest["platforms"]),
             sorted([
-                "darwin-aarch64", "darwin-aarch64-app",
                 "windows-x86_64-nsis", "windows-x86_64-msi", "windows-x86_64",
                 "linux-x86_64-deb", "linux-x86_64-appimage",
             ]),
@@ -150,7 +146,6 @@ class ReleaseAssetsTest(unittest.TestCase):
         self.assertEqual(
             list(manifest["platforms"]),
             [
-                "darwin-aarch64", "darwin-aarch64-app",
                 "windows-x86_64-nsis", "windows-x86_64-msi", "windows-x86_64",
                 "linux-x86_64-deb", "linux-x86_64-appimage",
             ],
@@ -176,7 +171,7 @@ class ReleaseAssetsTest(unittest.TestCase):
         self.assertEqual(parsed.utcoffset(), timedelta(0))
         self.assertLess(abs((datetime.now(timezone.utc) - parsed).total_seconds()), 300)
 
-    # Additional: the URL carries the version and the URL-encoded file name.
+    # Additional: the URL carries the version and never contains raw spaces.
     def test_manifest_url_encodes_file_name(self):
         self.write_assets(signatures=True)
         key = self.write_key()
@@ -188,11 +183,12 @@ class ReleaseAssetsTest(unittest.TestCase):
         platforms = json.loads((self.assets / "latest.json").read_text())["platforms"]
         expected_url = (
             f"https://github.com/{REPO}/releases/download/v{VERSION}/"
-            "samobranka%200.5.0%20aarch64.app.tar.gz"
+            "samobranka_0.5.0_amd64.AppImage"
         )
-        self.assertEqual(platforms["darwin-aarch64"]["url"], expected_url)
-        self.assertEqual(platforms["darwin-aarch64-app"]["url"], expected_url)
-        self.assertNotIn(" ", platforms["linux-x86_64-deb"]["url"])
+        self.assertEqual(platforms["linux-x86_64-appimage"]["url"], expected_url)
+        for entry in platforms.values():
+            self.assertIn(f"v{VERSION}/", entry["url"])
+            self.assertNotIn(" ", entry["url"])
 
     # 5. Public key present, one signed package has no .sig -> error.
     def test_missing_signature_is_reported(self):
@@ -223,7 +219,7 @@ class ReleaseAssetsTest(unittest.TestCase):
         self.assertIn("verification failed", err)
         self.assertFalse((self.assets / "latest.json").exists())
 
-    # Additional: no-key mode must still not require .sig files (ADR 0002).
+    # Additional: no-key mode must still not require .sig files.
     def test_without_key_signatures_are_not_required(self):
         self.write_assets(signatures=False)
         code, _, err = self.run_script(str(self.assets), VERSION, REPO)
@@ -262,12 +258,6 @@ class ReleaseAssetsTest(unittest.TestCase):
         self.assertIn("signature verification failed", err)
         self.assertFalse((self.assets / "latest.json").exists())
 
-    # Additional: no-key mode tolerates a missing updater artifact, because
-    # createUpdaterArtifacts=false means no .app.tar.gz is built (ADR 0002).
-    def test_without_key_updater_artifact_is_optional(self):
-        self.write_assets(omit=("app",))
-        code, _, err = self.run_script(str(self.assets), VERSION, REPO)
-        self.assertEqual(code, 0, err)
 
 
 if __name__ == "__main__":

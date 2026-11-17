@@ -9,7 +9,7 @@
 </a>
  <a href="https://github.com/timurmazitov/samobranka/releases"> <img alt="GitHub Downloads (all assets, all releases)" src="https://img.shields.io/github/downloads/timurmazitov/samobranka/total?style=plastic"> </a>
     <a href="https://github.com/timurmazitov/samobranka/releases"><img src="https://img.shields.io/badge/License-MIT-blue" alt="License"></a>
-    <a href="https://github.com/timurmazitov/samobranka/releases"><img src="https://img.shields.io/badge/Supported_OS-macOS,_Windows-white" alt="Supported OS"></a>
+    <a href="https://github.com/timurmazitov/samobranka/releases"><img src="https://img.shields.io/badge/Supported_OS-Windows,_Linux-white" alt="Supported OS"></a>
     <a href="https://github.com/timurmazitov/samobranka/releases"><img alt="GitHub Tag" src="https://img.shields.io/github/v/tag/timurmazitov/samobranka?include_prereleases&color=yellow">
 </a>
     <br>
@@ -81,18 +81,17 @@ Whether you're a defense consultant, enterprise executive, legal professional, o
 - **Local First:** All processing is done on your machine. No data ever leaves your computer.
 - **Real-time Transcription:** Get a live transcript of your meeting as it happens.
 - **AI-Powered Summaries:** Generate summaries of your meetings using powerful language models.
-- **Multi-Platform:** Native apps for Windows and macOS (Apple Silicon). On Linux, build from source.
+- **Multi-Platform:** Native packages for Windows and Linux.
 - **Open Source:** Samobranka is open source and free to use.
 - **Flexible AI Provider Support:** Choose from Ollama (local), Claude, Groq, OpenRouter, or use your own OpenAI-compatible endpoint.
 
 ## Installation
 
-### Windows and macOS
+### Windows
 
 | Platform | Download Link | Instructions |
 |----------|---------------|-------------|
 | **Windows (x64)** | [.exe installer](https://github.com/timurmazitov/samobranka/releases/latest) | Download and run the installer |
-| **macOS (Apple Silicon)** | [.dmg installer](https://github.com/timurmazitov/samobranka/releases/latest) | Open the installer, drag **Samobranka** to Applications, then open it from Applications |
 
 > **Windows compatibility:** The packaged installer uses a Vulkan-enabled Whisper build. It requires an AVX2-capable x64 CPU; AVX-512 is not required. CUDA acceleration requires a source build configured with a compatible NVIDIA CUDA toolchain.
 
@@ -139,7 +138,6 @@ Capture microphone and system audio simultaneously with intelligent ducking and 
 
 Acceleration depends on the platform and build you use:
 
-- **macOS packages:** Metal and CoreML are enabled automatically.
 - **Windows packages:** Whisper is built with Vulkan support.
 - **Linux:** Build from source with the acceleration configuration appropriate for your system.
 

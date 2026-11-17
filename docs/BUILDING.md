@@ -20,13 +20,13 @@ Frozen installation keeps the lockfile and installed dependency set aligned. Whe
 
 ## Release Artifacts and Updates
 
-Releases are produced by `.github/workflows/release.yml`, which builds macOS, Linux (`deb`, `appimage`) and Windows packages into one draft release.
+Releases are produced by `.github/workflows/release.yml`, which builds Linux (`deb`, `appimage`) and Windows packages into one draft release. macOS is intentionally excluded: CI has no Apple Developer certificate, so signed macOS builds cannot be produced (re-add the `macos-latest` matrix entry in `release.yml` to restore).
 
-Linux packages are signed with minisign: `tauri signer sign` writes `<package>.deb.sig` or `<package>.AppImage.sig` next to each file. These are ordinary package signatures, not updater artifacts. Windows installers are Authenticode-signed by `signCommand`; macOS builds are notarized when the Apple secrets are set.
+Linux packages are signed with minisign: `tauri signer sign` writes `<package>.deb.sig` or `<package>.AppImage.sig` next to each file. These double as the updater signatures for the AppImage. Windows installers are Authenticode-signed by `signCommand`.
 
 **Automatic updates are enabled.** The in-app updater serves updates from this repository's GitHub Releases: `frontend/src-tauri/tauri.conf.json` has `bundle.createUpdaterArtifacts: true`, a `plugins.updater` section (endpoint `…/timurmazitov/samobranka/releases/latest/download/latest.json` plus the minisign public key) and the `updater:default` permission. The release pipeline signs updater artifacts and publishes a `latest.json` manifest (see `scripts/check-release-assets.py`); the app checks it automatically on startup and via **Check for Updates** in the About dialog or tray.
 
-Prerequisites for a release to be updatable: the `TAURI_SIGNING_PRIVATE_KEY` repository secret must contain the minisign private key (the matching public key is committed in `tauri.conf.json`), and the release must be **published** — GitHub's `releases/latest` URL ignores drafts and prereleases. Platform caveats: only the Linux AppImage auto-updates (the `.deb` never will), and macOS ad-hoc-signed builds require users to allow the app in Privacy & Security.
+Prerequisites for a release to be updatable: the `TAURI_SIGNING_PRIVATE_KEY` repository secret must contain the minisign private key (the matching public key is committed in `tauri.conf.json`), and the release must be **published** — GitHub's `releases/latest` URL ignores drafts and prereleases. Platform caveats: only the Linux AppImage auto-updates (the `.deb` never will), and `latest.json` covers Windows and Linux only until macOS builds are restored.
 
 ## Development Commands and Debugging
 

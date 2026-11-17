@@ -25,30 +25,7 @@ This document provides a quick overview of all available CI/CD workflows in this
 
 ---
 
-### 2. **build-macos.yml** - macOS Standalone Builds
-**Purpose:** Build and test specifically for Apple Silicon (M1/M2/M3)
-
-**Key Features:**
-- Apple Developer Certificate signing (optional)
-- Notarization with Apple ID
-- Signature verification
-- macOS-focused optimizations
-
-**Triggers:**
-- Manual dispatch only
-
-**Use When:**
-- macOS-specific development
-- Testing Metal GPU acceleration
-- Verifying macOS-specific features
-
-**Outputs:**
-- `.dmg` installer
-- `.app` bundle
-
----
-
-### 3. **build-windows.yml** - Windows Standalone Builds
+### 2. **build-windows.yml** - Windows Standalone Builds
 **Purpose:** Build and test specifically for Windows x64
 
 **Key Features:**
@@ -71,7 +48,7 @@ This document provides a quick overview of all available CI/CD workflows in this
 
 ---
 
-### 4. **build-linux.yml** - Linux Standalone Builds
+### 3. **build-linux.yml** - Linux Standalone Builds
 **Purpose:** Build and test for Linux distributions
 
 **Key Features:**
@@ -96,7 +73,7 @@ This document provides a quick overview of all available CI/CD workflows in this
 
 ---
 
-### 5. **build-test.yml** - Multi-Platform Test Builds
+### 4. **build-test.yml** - Multi-Platform Test Builds
 **Purpose:** Test builds across all platforms with signing
 
 **Key Features:**
@@ -116,7 +93,7 @@ This document provides a quick overview of all available CI/CD workflows in this
 
 ---
 
-### 6. **build.yml** - Reusable Build Workflow
+### 5. **build.yml** - Reusable Build Workflow
 **Purpose:** Shared workflow used by other workflows
 
 **Key Features:**
@@ -128,7 +105,7 @@ This document provides a quick overview of all available CI/CD workflows in this
 
 ---
 
-### 7. **release.yml** - Production Release
+### 6. **release.yml** - Production Release
 **Purpose:** Create official releases with signed binaries
 
 **Key Features:**
@@ -136,10 +113,11 @@ This document provides a quick overview of all available CI/CD workflows in this
 - Creates GitHub Release (draft)
 - Version tags from `tauri.conf.json`
 - Uploads release assets
-- Builds macOS (Apple Silicon), Linux (`deb`, `appimage`) and Windows
+- Builds Linux (`deb`, `appimage`) and Windows; macOS is not built (no Apple
+  Developer certificate in CI)
 - Fails if tag `v<version>` already exists — bump the version in `tauri.conf.json` instead
-- No updater artifacts: automatic updates are disabled (see
-  `docs/adr/0002-rebrand-to-samobranka.md`), so no `latest.json` is generated
+- Generates the updater manifest: signatures are verified and `latest.json` is
+  uploaded to the release
 
 **Triggers:**
 - Manual dispatch only
@@ -150,9 +128,9 @@ This document provides a quick overview of all available CI/CD workflows in this
 
 **Outputs:**
 - GitHub Release (draft)
-- macOS: DMG installer (signed and notarized when the Apple secrets are set)
 - Windows: MSI installer (signed via `signCommand`), NSIS installer
 - Linux: DEB and AppImage packages, each with a minisign `.sig`
+- `latest.json` updater manifest (Windows + Linux targets)
 - Release notes auto-generated
 
 **Version Behavior:**
@@ -161,7 +139,7 @@ This document provides a quick overview of all available CI/CD workflows in this
 
 ---
 
-### 8. **pr-main-check.yml** - Validation Check
+### 7. **pr-main-check.yml** - Validation Check
 **Purpose:** Quick validation of version and configuration
 
 **Key Features:**
@@ -198,11 +176,6 @@ This document provides a quick overview of all available CI/CD workflows in this
 - Fast builds, no signing by default
 - Enable signing checkbox if needed
 
-### "I need to test macOS-specific code..."
-- **Use `build-macos.yml`** (manual dispatch)
-- Focus on macOS
-- Optional signing
-
 ### "I need to test Windows-specific code..."
 - **Use `build-windows.yml`** (manual dispatch)
 - Focus on Windows
@@ -235,7 +208,6 @@ build.yml (reusable)
     |-- release.yml (calls build.yml)
 
 Standalone (don't use build.yml):
-    |-- build-macos.yml
     |-- build-windows.yml
     |-- build-linux.yml
     |-- build-devtest.yml
@@ -249,11 +221,10 @@ Standalone (don't use build.yml):
 | Workflow | Platforms | Default Signing | Speed | Retention | Use Case |
 |----------|-----------|----------------|-------|-----------|----------|
 | `build-devtest.yml` | All | OFF | Fast | 14 days | Development |
-| `build-macos.yml` | macOS | Optional | Medium | 30 days | macOS dev |
 | `build-windows.yml` | Windows | Optional | Medium | 30 days | Windows dev |
 | `build-linux.yml` | Linux | Optional | Medium | 30 days | Linux dev |
 | `build-test.yml` | All | ON | Slow | 30 days | Pre-release |
-| `release.yml` | macOS + Windows | REQUIRED | Slow | Permanent | Release |
+| `release.yml` | Windows + Linux | REQUIRED | Slow | Permanent | Release |
 
 ---
 
@@ -274,14 +245,6 @@ samobranka-{workflow}-{platform}-{target}-{version}
 
 All workflows require these secrets to be configured:
 
-### macOS Signing
-- `APPLE_CERTIFICATE` - Developer ID certificate (base64)
-- `APPLE_CERTIFICATE_PASSWORD` - Certificate password
-- `APPLE_ID` - Apple ID email
-- `APPLE_PASSWORD` - App-specific password
-- `APPLE_TEAM_ID` - Team ID
-- `KEYCHAIN_PASSWORD` - Temporary keychain password
-
 ### Windows Signing (DigiCert)
 - `SM_HOST` - DigiCert host URL
 - `SM_API_KEY` - API key
@@ -289,14 +252,12 @@ All workflows require these secrets to be configured:
 - `SM_CLIENT_CERT_PASSWORD` - Client cert password
 - `SM_CODE_SIGNING_CERT_SHA1_HASH` - Certificate hash
 
-### Tauri Updater (All Platforms)
+### Tauri Updater (Windows + Linux)
 
-> **NOTE: The Tauri updater is currently DISABLED.** It was removed from
-> `tauri.conf.json` during the Samobranka rebrand (see
-> `docs/adr/0002-rebrand-to-samobranka.md`). All updater-related sections in
-> this document (e.g. updater signing, `latest.json` manifests, updater
-> artifacts) apply only once the updater is re-enabled against the owner's own
-> release contour.
+> **NOTE:** The updater is enabled (endpoint: this repository's GitHub
+> Releases). The generated `latest.json` covers Windows and Linux only —
+> macOS is not built by the release pipeline (no Apple Developer certificate
+> in CI).
 
 - `TAURI_SIGNING_PRIVATE_KEY` - Ed25519 private key
 - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` - Key password

@@ -173,7 +173,6 @@ Key configuration:
 
 ## Related Workflows
 
-- `build-macos.yml` - macOS-specific builds with signing
 - `build-windows.yml` - Windows-specific builds with signing
 - `build-linux.yml` - Linux-specific builds with signing
 - `build-test.yml` - All platforms with signing (pre-release)
