@@ -18,11 +18,12 @@ const notify = mock(() => {});
 mock.module('sonner', () => ({ toast: { info: notify, error: notify, success: notify, warning: notify } }));
 let startProcess: () => Promise<{ process_id: string }>;
 let getSummary: (meetingId: string) => Promise<SummaryProcessResponse>;
+let transcriptsPage: { transcripts: unknown[]; total_count: number };
 const invoke = mock(async (command: string, args?: Record<string, unknown>): Promise<unknown> => {
   if (command === 'api_get_meetings') return [];
   if (command === 'doodle_sync') return null;
   if (command === 'api_get_summary') return getSummary(args!.meetingId as string);
-  if (command === 'api_get_meeting_transcripts') return { transcripts: [{ text: 'Meeting transcript', timestamp: '00:00' }], total_count: 1 };
+  if (command === 'api_get_meeting_transcripts') return transcriptsPage;
   if (command === 'get_ollama_models') return [{ name: 'test' }];
   if (command === 'api_process_transcript') return startProcess();
   if (command === 'api_cancel_summary') return { cancelled: true };
@@ -72,6 +73,7 @@ beforeEach(() => {
   timers.clear(); notify.mockClear(); invoke.mockClear();
   getSummary = async () => response();
   startProcess = async () => ({ process_id: 'attempt-a' });
+  transcriptsPage = { transcripts: [{ text: 'Meeting transcript', timestamp: '00:00' }], total_count: 1 };
   globalThis.setInterval = ((callback: () => Promise<void>) => {
     const id = ++nextTimer; timers.set(id, callback); return id;
   }) as typeof setInterval;
@@ -243,6 +245,23 @@ describe('summary state restored when returning to a meeting', () => {
     getSummary = async () => response({ status: 'completed', data: { markdown: 'Finished summary' } });
     await tick();
     expect(state.summaryStatus).toBe('completed');
+  });
+
+  test('generation sends speaker-named transcript text to the summarizer', async () => {
+    transcriptsPage = {
+      transcripts: [
+        { id: '1', text: 'Всем привет.', timestamp: '14:30:05', audio_start_time: 0, speaker: 'speaker_0', speaker_name: 'Alex' },
+        { id: '2', text: 'Добрый день.', timestamp: '14:30:29', audio_start_time: 24, speaker: 'speaker_1' },
+        { id: '3', text: 'Неразборчиво.', timestamp: '14:30:41', audio_start_time: 40 },
+      ],
+      total_count: 3,
+    };
+    await show(response({ status: 'idle', start: null }));
+    await act(async () => { await state.handleGenerateSummary(); });
+    const call = invoke.mock.calls.find(([command]) => command === 'api_process_transcript');
+    expect(call?.[1]).toMatchObject({
+      text: '[00:00] Alex: Всем привет.\n[00:24] Speaker 2: Добрый день.\n[00:40] Неразборчиво.',
+    });
   });
 
   test('old in-flight poll cannot stop a resumed poll for the same process', async () => {

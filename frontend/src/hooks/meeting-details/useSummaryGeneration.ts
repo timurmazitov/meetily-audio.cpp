@@ -17,6 +17,7 @@ import {
   readCachedDetectedSummaryLanguage,
 } from '@/lib/summary-language-preferences';
 import { parseSummaryContent, readSummaryMetadata } from '@/lib/summary-content';
+import { buildSummaryTranscriptPayload } from '@/lib/summary-transcript-payload';
 
 async function resolveSummaryLanguage(
   meetingId: string,
@@ -373,23 +374,6 @@ export function useSummaryGeneration({
     }
   }, []);
 
-  const buildSummaryTranscriptPayload = useCallback((allTranscripts: Transcript[]) => {
-    const formatTime = (seconds: number | undefined, fallbackTimestamp: string): string => {
-      if (seconds === undefined) {
-        return fallbackTimestamp;
-      }
-      const totalSecs = Math.floor(seconds);
-      return `[${Math.floor(totalSecs / 60).toString().padStart(2, '0')}:${(totalSecs % 60).toString().padStart(2, '0')}]`;
-    };
-
-    return {
-      transcriptText: allTranscripts
-        .map((transcript) => `${formatTime(transcript.audio_start_time, transcript.timestamp)} ${transcript.text}`)
-        .join('\n'),
-      transcriptTexts: allTranscripts.map((transcript) => transcript.text),
-    };
-  }, []);
-
   const showPreflightError = useCallback((message: string) => {
     setSummaryError(message);
     setSummaryStatus('error');
@@ -444,7 +428,6 @@ export function useSummaryGeneration({
       customPrompt,
     });
   }, [
-    buildSummaryTranscriptPayload,
     fetchAllTranscripts,
     isModelConfigLoading,
     meeting.id,
@@ -468,7 +451,7 @@ export function useSummaryGeneration({
       ...buildSummaryTranscriptPayload(allTranscripts),
       isRegeneration: true
     });
-  }, [meeting.id, fetchAllTranscripts, buildSummaryTranscriptPayload, processSummary]);
+  }, [meeting.id, fetchAllTranscripts, processSummary]);
 
   // Public API: Stop ongoing summary generation
   const handleStopGeneration = useCallback(async () => {
