@@ -448,6 +448,85 @@ test('empty panel shows the diarization hint', async () => {
   expect(text(instance)).toContain(DIARIZATION_UNAVAILABLE_HINT);
 });
 
+test('a conflict names both rows the draft just bound to one person', async () => {
+  // The backend says "already assigned to Speaker 1", but the row the user
+  // edited in this batch is the second one. The message must land there.
+  speakers = [
+    {
+      label: 'speaker_0',
+      speaker_name: 'Alex',
+      segment_count: 2,
+      first_start_time: 0,
+      top_speaker_names: ['Alex', 'Zoe'],
+    },
+    {
+      label: 'speaker_1',
+      speaker_name: null,
+      segment_count: 1,
+      first_start_time: 20,
+      top_speaker_names: ['Alex', 'Zoe'],
+    },
+  ];
+  directory = [
+    { id: 'speaker-alex', name: 'Alex', meeting_count: 4 },
+    { id: 'speaker-zoe', name: 'Zoe', meeting_count: 1 },
+  ];
+  assignError = 'this person is already assigned to Speaker 1';
+
+  const instance = await render();
+  await openPanel(instance);
+
+  // Only the second row is edited, typed in a different case than the saved name.
+  await typeName(instance, 'speaker_1', '  aLeX ');
+  await waitForDirectory();
+  await clickButton(speakerRow(instance, 'speaker_1'), 'Alex');
+  await clickButton(instance, 'Done');
+
+  const edited = instanceText(speakerRow(instance, 'speaker_1'));
+  expect(edited).toContain('this person is already assigned to Speaker 1');
+  expect(instanceText(speakerRow(instance, 'speaker_0'))).not.toContain(
+    'already assigned',
+  );
+});
+
+test('a conflict between two newly typed names lands on the edited row', async () => {
+  speakers = [
+    {
+      label: 'speaker_0',
+      speaker_name: null,
+      segment_count: 2,
+      first_start_time: 0,
+      top_speaker_names: [],
+    },
+    {
+      label: 'speaker_1',
+      speaker_name: null,
+      segment_count: 1,
+      first_start_time: 20,
+      top_speaker_names: [],
+    },
+  ];
+  directory = [];
+  assignError = 'this person is already assigned to Speaker 1';
+
+  const instance = await render();
+  await openPanel(instance);
+
+  for (const [label, name] of [
+    ['speaker_0', 'Maria'],
+    ['speaker_1', ' maria '],
+  ] as const) {
+    await typeName(instance, label, name);
+    await waitForDirectory();
+    await clickButton(speakerRow(instance, label), `Create „${name.trim()}“`);
+  }
+  await clickButton(instance, 'Done');
+
+  const rendered = text(instance);
+  expect(rendered).toContain('this person is already assigned to Speaker 1');
+  expect(instanceText(speakerRow(instance, 'speaker_1'))).toContain('already assigned');
+});
+
 test('a backend conflict keeps the panel open and shows the message on the row', async () => {
   speakers = [
     {

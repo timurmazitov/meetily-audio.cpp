@@ -35,6 +35,12 @@ function displayLabel(label: string): string {
   return formatSpeakerDisplayLabel(label, undefined) ?? label;
 }
 
+/** Names are compared the way the backend compares them: trimmed, case-folded. */
+function foldName(name: string | null | undefined): string | null {
+  const folded = name?.trim().toLowerCase();
+  return folded ? folded : null;
+}
+
 function segmentCountLabel(count: number): string {
   return `${count} ${count === 1 ? 'segment' : 'segments'}`;
 }
@@ -251,6 +257,30 @@ export function SpeakersPanel({
     });
   };
 
+  /**
+   * Finds the rows a "this person is already assigned to…" error is about.
+   *
+   * Within one meeting a person holds only one label, so the conflict is a pair
+   * of rows whose names are equal ignoring case and surrounding whitespace —
+   * including a draft that just copies another row's saved name, which the
+   * backend's message names by that row's old speaker number. Rows whose draft
+   * changed in this batch win, because they are what the user is looking at.
+   */
+  const conflictLabels = (): string[] => {
+    const names = speakers.map((row) => ({
+      label: row.label,
+      name: foldName(draft[row.label] ?? null),
+      changed: (draft[row.label] ?? null) !== (row.speaker_name ?? null),
+    }));
+    const conflicting = names.filter(
+      (row) =>
+        row.name !== null &&
+        names.some((other) => other.label !== row.label && other.name === row.name),
+    );
+    const edited = conflicting.filter((row) => row.changed);
+    return (edited.length > 0 ? edited : conflicting).map((row) => row.label);
+  };
+
   const handleDone = async () => {
     if (!meetingId) return;
 
@@ -276,15 +306,18 @@ export function SpeakersPanel({
       resetDraft();
       onOpenChange(false);
       // Re-read the paginated transcripts so speaker chips show the new names
-      // without a page reload (ticket 01 puts `speaker_name` on them).
+      // without a page reload.
       await onRefetchTranscripts?.();
     } catch (error) {
       const message = String(error);
-      setPanelError(null);
+      // The panel stays open so the user can fix the pair the backend rejected.
+      const conflicting = conflictLabels();
+      if (conflicting.length > 0) {
+        setRowErrors(Object.fromEntries(conflicting.map((label) => [label, message])));
+        return;
+      }
       const conflict = /Speaker (\d+)/.exec(message);
-      const label = conflict
-        ? `speaker_${Number(conflict[1]) - 1}`
-        : null;
+      const label = conflict ? `speaker_${Number(conflict[1]) - 1}` : null;
       if (label && speakers.some((row) => row.label === label)) {
         setRowErrors({ [label]: message });
       } else {
