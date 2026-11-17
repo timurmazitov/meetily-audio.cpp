@@ -40,8 +40,8 @@ pub struct Transcript {
     /// audioCpp diarization model). See GLOSSARY: «спикер».
     pub speaker: Option<String>,
     /// Real person's name resolved through `meeting_speakers` for this label,
-    /// `None` while no name is assigned. Not a column: readers fill it with
-    /// `SpeakersRepository::resolve_speaker_name` after the rows are loaded.
+    /// `None` while no name is assigned. Not a column: readers fill it from the
+    /// meeting's label→name map after the rows are loaded.
     /// See GLOSSARY: «имя спикера».
     #[sqlx(skip)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
