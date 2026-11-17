@@ -138,6 +138,20 @@ export interface PaginatedTranscriptsResponse {
   has_more: boolean;
 }
 
+/** One speaker label of a meeting, together with the name assigned to it. */
+export interface MeetingSpeaker {
+  /** Diarization label (`speaker_0`, `speaker_1`, …). */
+  label: string;
+  /** Assigned person's name; `null`/absent while unnamed. */
+  speaker_name?: string | null;
+  /** Number of segments carrying this label. */
+  segment_count: number;
+  /** Start time of the first segment; `null` when unknown. */
+  first_start_time?: number | null;
+  /** Bounded list of existing directory names for the panel's hints. */
+  top_speaker_names?: string[];
+}
+
 // Transcript segment data for virtualized display
 export interface TranscriptSegmentData {
   id: string;
