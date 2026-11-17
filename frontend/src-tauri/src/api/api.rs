@@ -9,7 +9,7 @@ use crate::{
     database::{
         models::MeetingModel,
         repositories::{
-            meeting::MeetingsRepository, setting::SettingsRepository,
+            meeting::MeetingsRepository, setting::SettingsRepository, speaker::SpeakersRepository,
             transcript::TranscriptsRepository,
         },
     },
@@ -144,6 +144,11 @@ pub struct MeetingTranscript {
     /// Diarization speaker label; absent when the segment was not diarized.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub speaker: Option<String>,
+    /// Real person's name for this segment's label, resolved per meeting from
+    /// the global directory. Absent while no name is assigned; the label above
+    /// stays untouched. See GLOSSARY: «имя спикера».
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speaker_name: Option<String>,
 }
 
 /// Meeting metadata without transcripts (for pagination)
@@ -169,6 +174,38 @@ pub struct PaginatedTranscriptsResponse {
 pub struct SaveMeetingTitleRequest {
     pub meeting_id: String,
     pub title: String,
+}
+
+/// One row of the meeting's speaker panel: a diarization label, its assigned
+/// person (if any) and the directory names suggested while typing.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MeetingSpeaker {
+    pub label: String,
+    /// `null` while no name is assigned; the label still renders as `Speaker N`.
+    pub speaker_name: Option<String>,
+    pub segment_count: i64,
+    /// `null` when every segment of the label lacks a start time.
+    pub first_start_time: Option<f64>,
+    /// Bounded list of existing directory names, most-used first.
+    pub top_speaker_names: Vec<String>,
+}
+
+/// One directory row for the name suggestions of the speaker panel.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SpeakerNameEntry {
+    pub id: String,
+    pub name: String,
+    /// Number of distinct meetings currently referencing this person.
+    pub meeting_count: i64,
+}
+
+/// One item of the batch assignment sent by the panel's Done button.
+/// `name: None` removes the assignment (the "No name" action).
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SpeakerAssignment {
+    pub label: String,
+    #[serde(default)]
+    pub name: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -952,6 +989,7 @@ pub async fn api_get_meeting_transcripts<R: Runtime>(
                     audio_start_time: t.audio_start_time,
                     audio_end_time: t.audio_end_time,
                     duration: t.duration,
+                    speaker_name: t.speaker_name,
                     speaker: t.speaker,
                 })
                 .collect::<Vec<_>>();
@@ -967,6 +1005,118 @@ pub async fn api_get_meeting_transcripts<R: Runtime>(
         Err(e) => {
             log_error!("Error retrieving transcripts for meeting {}: {}", meeting_id, e);
             Err(format!("Failed to retrieve transcripts: {}", e))
+        }
+    }
+}
+
+/// Read the speaker panel of a meeting: one row per diarization label with its
+/// assigned person, plus the directory names offered as suggestions.
+#[tauri::command]
+pub async fn api_get_meeting_speakers<R: Runtime>(
+    _app: AppHandle<R>,
+    state: tauri::State<'_, AppState>,
+    meeting_id: String,
+) -> Result<Vec<MeetingSpeaker>, String> {
+    log_info!("api_get_meeting_speakers called for meeting_id: {}", meeting_id);
+    let pool = state.db_manager.pool();
+    match SpeakersRepository::meeting_speakers(pool, &meeting_id).await {
+        Ok(speakers) => {
+            log_info!(
+                "Successfully retrieved {} speakers for meeting {}",
+                speakers.len(),
+                meeting_id
+            );
+            Ok(speakers)
+        }
+        Err(e) => {
+            log_error!("Error retrieving speakers for meeting {}: {}", meeting_id, e);
+            Err(format!("Failed to retrieve speakers: {}", e))
+        }
+    }
+}
+
+/// Save the speaker panel in one transaction: either every assignment applies
+/// or none does. `name: null` removes the assignment; an empty name is a
+/// validation error. Returns the refreshed speaker panel.
+#[tauri::command]
+pub async fn api_assign_meeting_speakers<R: Runtime>(
+    _app: AppHandle<R>,
+    state: tauri::State<'_, AppState>,
+    meeting_id: String,
+    assignments: Vec<SpeakerAssignment>,
+) -> Result<Vec<MeetingSpeaker>, String> {
+    log_info!(
+        "api_assign_meeting_speakers called for meeting_id: {}, {} assignments",
+        meeting_id,
+        assignments.len()
+    );
+    let pool = state.db_manager.pool();
+    match SpeakersRepository::assign(pool, &meeting_id, &assignments).await {
+        Ok(speakers) => {
+            log_info!("Successfully assigned speakers for meeting {}", meeting_id);
+            Ok(speakers)
+        }
+        Err(e) => {
+            log_error!("Failed to assign speakers for meeting {}: {}", meeting_id, e);
+            Err(e.to_string())
+        }
+    }
+}
+
+/// Set or clear the speaker label of a single transcript segment. `label: null`
+/// means "No speaker". The meeting's speaker assignments are untouched.
+#[tauri::command]
+pub async fn api_set_transcript_speaker<R: Runtime>(
+    _app: AppHandle<R>,
+    state: tauri::State<'_, AppState>,
+    transcript_id: String,
+    label: Option<String>,
+) -> Result<serde_json::Value, String> {
+    log_info!(
+        "api_set_transcript_speaker called for transcript_id: {}, label: {:?}",
+        transcript_id,
+        label
+    );
+    let pool = state.db_manager.pool();
+    match SpeakersRepository::set_transcript_speaker(pool, &transcript_id, label.as_deref()).await {
+        Ok(()) => {
+            log_info!("Successfully updated speaker of {}", transcript_id);
+            Ok(serde_json::json!({"message": "Transcript speaker saved successfully"}))
+        }
+        Err(e) => {
+            log_error!(
+                "Failed to set the speaker of transcript {}: {}",
+                transcript_id,
+                e
+            );
+            Err(e.to_string())
+        }
+    }
+}
+
+/// Search the global speaker directory for the panel's name suggestions.
+/// `query` is a case-insensitive substring; an empty query lists the directory.
+#[tauri::command]
+pub async fn api_get_speaker_names<R: Runtime>(
+    _app: AppHandle<R>,
+    state: tauri::State<'_, AppState>,
+    query: String,
+    limit: i64,
+) -> Result<Vec<SpeakerNameEntry>, String> {
+    log_info!(
+        "api_get_speaker_names called with query: {:?}, limit: {}",
+        query,
+        limit
+    );
+    let pool = state.db_manager.pool();
+    match SpeakersRepository::search_names(pool, &query, limit).await {
+        Ok(names) => {
+            log_info!("Successfully retrieved {} speaker names", names.len());
+            Ok(names)
+        }
+        Err(e) => {
+            log_error!("Failed to search speaker names: {}", e);
+            Err(format!("Failed to search speaker names: {}", e))
         }
     }
 }
@@ -1453,6 +1603,130 @@ pub async fn api_test_custom_openai_connection<R: Runtime>(
                 Err(format!("Connection failed: {}", error))
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod speaker_panel_contract_tests {
+    use super::{MeetingSpeaker, SpeakerAssignment, SpeakerNameEntry};
+
+    #[test]
+    fn a_panel_row_carries_a_null_name_and_its_suggestions() {
+        let row = MeetingSpeaker {
+            label: "speaker_0".into(),
+            speaker_name: None,
+            segment_count: 3,
+            first_start_time: Some(12.5),
+            top_speaker_names: vec!["Alex".into(), "Zoe".into()],
+        };
+
+        let json = serde_json::to_value(row).unwrap();
+
+        assert_eq!(json["label"], "speaker_0");
+        assert_eq!(json["segment_count"], 3);
+        assert_eq!(json["first_start_time"], 12.5);
+        assert_eq!(
+            json["top_speaker_names"],
+            serde_json::json!(["Alex", "Zoe"])
+        );
+        assert!(
+            json["speaker_name"].is_null(),
+            "an unnamed speaker is a null field, not a missing one"
+        );
+    }
+
+    #[test]
+    fn a_missing_start_time_serializes_as_null() {
+        let row = MeetingSpeaker {
+            label: "speaker_1".into(),
+            speaker_name: Some("Alex".into()),
+            segment_count: 1,
+            first_start_time: None,
+            top_speaker_names: Vec::new(),
+        };
+
+        let json = serde_json::to_value(row).unwrap();
+
+        assert_eq!(json["speaker_name"], "Alex");
+        assert!(json["first_start_time"].is_null());
+        assert_eq!(json["top_speaker_names"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn a_directory_row_reports_its_meeting_count() {
+        let json = serde_json::to_value(SpeakerNameEntry {
+            id: "person-1".into(),
+            name: "Alex".into(),
+            meeting_count: 4,
+        })
+        .unwrap();
+
+        assert_eq!(
+            json,
+            serde_json::json!({"id": "person-1", "name": "Alex", "meeting_count": 4})
+        );
+    }
+
+    #[test]
+    fn an_assignment_accepts_a_null_name_as_removal() {
+        let removal: SpeakerAssignment =
+            serde_json::from_value(serde_json::json!({"label": "speaker_0", "name": null}))
+                .unwrap();
+        assert_eq!(removal.label, "speaker_0");
+        assert_eq!(removal.name, None);
+
+        let omission: SpeakerAssignment =
+            serde_json::from_value(serde_json::json!({"label": "speaker_0"})).unwrap();
+        assert_eq!(omission.name, None, "an omitted name also removes");
+
+        let name: SpeakerAssignment =
+            serde_json::from_value(serde_json::json!({"label": "speaker_0", "name": "Alex"}))
+                .unwrap();
+        assert_eq!(name.name.as_deref(), Some("Alex"));
+    }
+}
+
+#[cfg(test)]
+mod meeting_transcript_contract_tests {
+    use super::MeetingTranscript;
+    fn segment(speaker: Option<&str>, speaker_name: Option<&str>) -> MeetingTranscript {
+        MeetingTranscript {
+            id: "t-0".into(),
+            text: "Hello".into(),
+            timestamp: "2024-01-01T00:00:00Z".into(),
+            audio_start_time: Some(0.0),
+            audio_end_time: Some(1.0),
+            duration: Some(1.0),
+            speaker: speaker.map(str::to_owned),
+            speaker_name: speaker_name.map(str::to_owned),
+        }
+    }
+
+    #[test]
+    fn an_assigned_name_is_serialized_next_to_its_label() {
+        let json = serde_json::to_value(segment(Some("speaker_0"), Some("Alex"))).unwrap();
+        assert_eq!(json["speaker"], "speaker_0");
+        assert_eq!(json["speaker_name"], "Alex");
+    }
+
+    #[test]
+    fn an_absent_name_is_not_serialized_and_older_payloads_still_parse() {
+        let json = serde_json::to_value(segment(Some("speaker_0"), None)).unwrap();
+        assert!(
+            json.get("speaker_name").is_none(),
+            "the field stays absent, as other optional fields do"
+        );
+
+        // A payload from before names existed deserializes without the field.
+        let legacy: MeetingTranscript = serde_json::from_value(serde_json::json!({
+            "id": "t-0",
+            "text": "Hello",
+            "timestamp": "2024-01-01T00:00:00Z",
+            "speaker": "speaker_0",
+        }))
+        .unwrap();
+        assert_eq!(legacy.speaker.as_deref(), Some("speaker_0"));
+        assert_eq!(legacy.speaker_name, None);
     }
 }
 

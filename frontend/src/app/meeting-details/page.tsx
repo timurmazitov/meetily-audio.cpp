@@ -1,13 +1,14 @@
 "use client"
 import { useSidebar } from "@/components/Sidebar/SidebarProvider";
 import { useState, useEffect, useCallback, Suspense } from "react";
-import { MeetingSummary, SummaryProcessResponse, Transcript } from "@/types";
+import { MeetingSpeaker, MeetingSummary, SummaryProcessResponse, Transcript } from "@/types";
 import PageContent from "./page-content";
 import { useRouter, useSearchParams } from "next/navigation";
 import { invoke } from "@tauri-apps/api/core";
 import { LoaderIcon } from "lucide-react";
 import { useConfig } from "@/contexts/ConfigContext";
 import { usePaginatedTranscripts } from "@/hooks/usePaginatedTranscripts";
+import { useSpeakerNamesResetListener } from "@/hooks/useSpeakerNamesResetListener";
 import { parseSummaryContent } from "@/lib/summary-content";
 
 interface MeetingDetailsResponse {
@@ -33,6 +34,7 @@ function MeetingDetailsContent() {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [shouldAutoGenerate, setShouldAutoGenerate] = useState<boolean>(false);
   const [hasCheckedAutoGen, setHasCheckedAutoGen] = useState<boolean>(false);
+  const [meetingSpeakers, setMeetingSpeakers] = useState<MeetingSpeaker[]>([]);
 
   // Use pagination hook for efficient transcript loading
   const {
@@ -46,10 +48,47 @@ function MeetingDetailsContent() {
     loadedCount,
     loadMore,
     refetch,
+    setTranscriptSpeaker,
     error: transcriptError,
   } = usePaginatedTranscripts({ meetingId: meetingId || '' });
 
-  // Check if gemma3:1b model is available in Ollama
+  // Speakers of this meeting, fetched once per meeting and refreshed after any
+  // transcript/speaker change so counts stay correct. Paginated transcripts
+  // only hold one page, so the list cannot be derived from loaded segments.
+  const loadMeetingSpeakers = useCallback(async () => {
+    if (!meetingId) {
+      setMeetingSpeakers([]);
+      return;
+    }
+    try {
+      const speakers = await invoke<MeetingSpeaker[]>('api_get_meeting_speakers', { meetingId });
+      setMeetingSpeakers(speakers);
+    } catch (err) {
+      console.error('Failed to load meeting speakers:', err);
+      setMeetingSpeakers([]);
+    }
+  }, [meetingId]);
+
+  useEffect(() => {
+    void loadMeetingSpeakers();
+  }, [loadMeetingSpeakers]);
+
+  // Refetch transcripts and the speaker list together: labels and their counts
+  // change in the same backend operation.
+  const refetchTranscriptsAndSpeakers = useCallback(async () => {
+    await Promise.all([refetch(), loadMeetingSpeakers()]);
+  }, [refetch, loadMeetingSpeakers]);
+
+  // A single row edit only affects that row (and the per-label counts), so the
+  // segment is updated in place instead of reloading the first transcript page.
+  const handleSpeakerChanged = useCallback(async (transcriptId: string, label: string | null) => {
+    const speakerName = label
+      ? meetingSpeakers.find(s => s.label === label)?.speaker_name ?? null
+      : null;
+    setTranscriptSpeaker(transcriptId, label, speakerName);
+    await loadMeetingSpeakers();
+  }, [meetingSpeakers, setTranscriptSpeaker, loadMeetingSpeakers]);
+
   const checkForGemmaModel = useCallback(async (): Promise<boolean> => {
     try {
       const models = await invoke('get_ollama_models', { endpoint: null }) as any[];
@@ -159,12 +198,17 @@ function MeetingDetailsContent() {
     const onTranscriptsUpdated = (event: Event) => {
       const updatedMeetingId = (event as CustomEvent<{ meetingId?: string }>).detail?.meetingId;
       if (updatedMeetingId && updatedMeetingId !== meetingId) return;
-      void refetch();
+      void refetchTranscriptsAndSpeakers();
     };
 
     window.addEventListener('transcripts-updated', onTranscriptsUpdated);
     return () => window.removeEventListener('transcripts-updated', onTranscriptsUpdated);
-  }, [meetingId, refetch]);
+  }, [meetingId, refetchTranscriptsAndSpeakers]);
+
+  // A recount of the labels (retranscription, post-recording diarization) can
+  // wipe every name; the backend says why and we reload so the names vanish.
+  // The speaker list is reloaded together with the transcripts it belongs to.
+  useSpeakerNamesResetListener(meetingId, refetchTranscriptsAndSpeakers);
 
   // Extract fetchMeetingDetails for use in child components (now refetches via hook)
   const fetchMeetingDetails = useCallback(async () => {
@@ -297,7 +341,9 @@ function MeetingDetailsContent() {
       // Refetch meetings list to update sidebar
       await refetchMeetings();
     }}
-    onRefetchTranscripts={refetch}
+    onRefetchTranscripts={refetchTranscriptsAndSpeakers}
+    meetingSpeakers={meetingSpeakers}
+    onSpeakerChanged={handleSpeakerChanged}
     // Pagination props for efficient transcript loading
     segments={segments}
     hasMore={hasMore}

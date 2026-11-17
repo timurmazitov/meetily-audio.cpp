@@ -27,6 +27,16 @@ use crate::audio_cpp_engine::transcription::load_native_engine;
 pub const DIARIZATION_UNAVAILABLE_MESSAGE: &str =
     "Speaker labels were skipped. Download the Nemotron-3-Diarization model in Settings to see who said what.";
 
+/// Event emitted (and shown to the user) when a recount of the speaker labels
+/// removed every name the meeting had, so the names look lost on purpose.
+/// One constant so the import, retranscription and saved-recording paths
+/// cannot drift apart.
+pub const SPEAKER_NAMES_RESET_EVENT: &str = "speaker-names-reset";
+
+/// Text of the [`SPEAKER_NAMES_RESET_EVENT`] hint.
+pub const SPEAKER_NAMES_RESET_MESSAGE: &str =
+    "Speaker names were reset because the voices were recomputed.";
+
 /// Outcome of an optional diarization pass over a finished transcript.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DiarizationOutcome {
