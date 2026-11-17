@@ -35,7 +35,7 @@ export function UpdateDialog({ open, onOpenChange, updateInfo }: UpdateDialogPro
 
       // Get the update object when dialog opens
       check().then((updateResult) => {
-        if (updateResult?.available) {
+        if (updateResult) {
           setUpdate(updateResult);
         } else {
           setError('Update no longer available');
@@ -45,6 +45,8 @@ export function UpdateDialog({ open, onOpenChange, updateInfo }: UpdateDialogPro
         setError('Failed to prepare update: ' + (err.message || 'Unknown error'));
       });
     } else {
+      // Release the Rust-side update resource when the dialog closes without installing
+      update?.close();
       // Reset state when dialog closes
       setIsDownloading(false);
       setProgress(null);
@@ -59,7 +61,7 @@ export function UpdateDialog({ open, onOpenChange, updateInfo }: UpdateDialogPro
     if (!updateToUse) {
       try {
         const updateResult = await check();
-        if (updateResult?.available) {
+        if (updateResult) {
           updateToUse = updateResult;
           setUpdate(updateResult);
         } else {

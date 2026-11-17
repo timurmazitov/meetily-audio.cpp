@@ -5,3 +5,7 @@
 
 Cargo.lock
 Cargo.toml.orig
+
+# Tauri updater signing keys — never commit (public key lives in tauri.conf.json)
+samobranka-updater.key
+samobranka-updater.key.pub

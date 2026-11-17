@@ -63,7 +63,9 @@ export class UpdateService {
       const currentVersion = await getVersion();
       const update = await check();
 
-      if (update?.available) {
+      // `check()` resolves to the Update when one is available, null otherwise
+      // (`Update.available` is deprecated in the Tauri v2 updater plugin).
+      if (update) {
         return {
           available: true,
           currentVersion,

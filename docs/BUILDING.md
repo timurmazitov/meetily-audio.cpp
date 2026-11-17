@@ -24,9 +24,9 @@ Releases are produced by `.github/workflows/release.yml`, which builds macOS, Li
 
 Linux packages are signed with minisign: `tauri signer sign` writes `<package>.deb.sig` or `<package>.AppImage.sig` next to each file. These are ordinary package signatures, not updater artifacts. Windows installers are Authenticode-signed by `signCommand`; macOS builds are notarized when the Apple secrets are set.
 
-**Automatic updates are disabled.** The in-app updater was removed during the rebrand ([ADR 0002](adr/0002-rebrand-to-samobranka.md)), so `frontend/src-tauri/tauri.conf.json` has `bundle.createUpdaterArtifacts: false` and no `plugins.updater` section. As a result the pipeline publishes no `latest.json` manifest and the app never downloads updates; there is also no `*.app.tar.gz` and no macOS or Windows `.sig`.
+**Automatic updates are enabled.** The in-app updater serves updates from this repository's GitHub Releases: `frontend/src-tauri/tauri.conf.json` has `bundle.createUpdaterArtifacts: true`, a `plugins.updater` section (endpoint `…/timurmazitov/samobranka/releases/latest/download/latest.json` plus the minisign public key) and the `updater:default` permission. The release pipeline signs updater artifacts and publishes a `latest.json` manifest (see `scripts/check-release-assets.py`); the app checks it automatically on startup and via **Check for Updates** in the About dialog or tray.
 
-`scripts/check-release-assets.py` validates a release directory and selects its mode from the bundle config: without an updater public key it only checks that every expected package is present exactly once. Signatures are checked and `latest.json` is written only when `plugins.updater.pubkey` exists, which is part of the future work described in the ADR.
+Prerequisites for a release to be updatable: the `TAURI_SIGNING_PRIVATE_KEY` repository secret must contain the minisign private key (the matching public key is committed in `tauri.conf.json`), and the release must be **published** — GitHub's `releases/latest` URL ignores drafts and prereleases. Platform caveats: only the Linux AppImage auto-updates (the `.deb` never will), and macOS ad-hoc-signed builds require users to allow the app in Privacy & Security.
 
 ## Development Commands and Debugging
 
