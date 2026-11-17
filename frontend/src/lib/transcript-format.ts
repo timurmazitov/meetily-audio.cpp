@@ -34,11 +34,12 @@ export function formatSpeakerDisplayLabel(
   speaker: string | undefined,
   speakerName: string | undefined,
 ): string | null {
-  if (!isDiarizationSpeakerLabel(speaker)) return null;
+  if (!speaker) return null;
+  const match = DIARIZATION_LABEL.exec(speaker);
+  if (!match) return null;
   const name = speakerName?.trim();
   if (name) return name;
-  const match = DIARIZATION_LABEL.exec(speaker as string);
-  return `Speaker ${Number(match![1]) + 1}`;
+  return `Speaker ${Number(match[1]) + 1}`;
 }
 
 /**
