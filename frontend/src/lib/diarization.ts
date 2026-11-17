@@ -69,6 +69,20 @@ export function providerSupportsDiarization(provider: string | undefined): boole
 export const DIARIZATION_UNAVAILABLE_HINT =
   'Download the Nemotron-3-Diarization model in Settings to see who said what.';
 
+/** Hint shown when a recount of the labels removed every speaker name. */
+export const SPEAKER_NAMES_RESET_HINT =
+  'Speaker names were reset because the voices were recomputed.';
+
+/** The native event that announces a full reset of the meeting's names. */
+export const SPEAKER_NAMES_RESET_EVENT = 'speaker-names-reset';
+
+/** Payload of the `speaker-names-reset` event. */
+export interface SpeakerNamesResetPayload {
+  /** Absent when the event comes from an import, which has no saved meeting yet. */
+  meeting_id?: string;
+  message?: string;
+}
+
 /**
  * Diarize a just-saved live recording when (and only when) the configured
  * provider is audioCpp.

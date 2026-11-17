@@ -8,6 +8,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { LoaderIcon } from "lucide-react";
 import { useConfig } from "@/contexts/ConfigContext";
 import { usePaginatedTranscripts } from "@/hooks/usePaginatedTranscripts";
+import { useSpeakerNamesResetListener } from "@/hooks/useSpeakerNamesResetListener";
 import { parseSummaryContent } from "@/lib/summary-content";
 
 interface MeetingDetailsResponse {
@@ -203,6 +204,25 @@ function MeetingDetailsContent() {
     window.addEventListener('transcripts-updated', onTranscriptsUpdated);
     return () => window.removeEventListener('transcripts-updated', onTranscriptsUpdated);
   }, [meetingId, refetchTranscriptsAndSpeakers]);
+
+  // The Speakers panel rewrites names for the whole meeting behind our back
+  // (its own command), so reload the list the row dropdown offers.
+  useEffect(() => {
+    if (!meetingId) return;
+
+    const onSpeakersUpdated = (event: Event) => {
+      const updatedMeetingId = (event as CustomEvent<{ meetingId?: string }>).detail?.meetingId;
+      if (updatedMeetingId && updatedMeetingId !== meetingId) return;
+      void loadMeetingSpeakers();
+    };
+
+    window.addEventListener('speakers-updated', onSpeakersUpdated);
+    return () => window.removeEventListener('speakers-updated', onSpeakersUpdated);
+  }, [meetingId, loadMeetingSpeakers]);
+
+  // A recount of the labels (retranscription, post-recording diarization) can
+  // wipe every name; the backend says why and we reload so the names vanish.
+  useSpeakerNamesResetListener(meetingId, refetch);
 
   // Extract fetchMeetingDetails for use in child components (now refetches via hook)
   const fetchMeetingDetails = useCallback(async () => {

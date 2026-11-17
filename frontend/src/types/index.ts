@@ -138,18 +138,35 @@ export interface PaginatedTranscriptsResponse {
   has_more: boolean;
 }
 
-/** One speaker label of a meeting, together with the name assigned to it. */
+/**
+ * One row of the meeting's speaker panel (`api_get_meeting_speakers`).
+ * Also used by the per-row speaker dropdown on the transcript lines.
+ */
 export interface MeetingSpeaker {
-  /** Diarization label (`speaker_0`, `speaker_1`, …). */
+  /** Diarization label, e.g. `speaker_0`. */
   label: string;
-  /** Assigned person's name; `null`/absent while unnamed. */
-  speaker_name?: string | null;
+  /** Assigned person's name; `null` while the label is unnamed. */
+  speaker_name: string | null;
   /** Number of segments carrying this label. */
   segment_count: number;
   /** Start time of the first segment; `null` when unknown. */
-  first_start_time?: number | null;
-  /** Bounded list of existing directory names for the panel's hints. */
-  top_speaker_names?: string[];
+  first_start_time: number | null;
+  /** Directory names suggested while picking, most-used first. */
+  top_speaker_names: string[];
+}
+
+/** One entry of the global speaker-name directory (`api_get_speaker_names`). */
+export interface SpeakerNameEntry {
+  id: string;
+  name: string;
+  meeting_count: number;
+}
+
+/** One item of the batch assignment sent by the panel's Done button. */
+export interface SpeakerAssignment {
+  label: string;
+  /** `null` removes the assignment ("No name"). */
+  name: string | null;
 }
 
 // Transcript segment data for virtualized display
