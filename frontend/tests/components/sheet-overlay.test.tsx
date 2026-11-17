@@ -61,6 +61,7 @@ test('an overlay class is passed through to the overlay', async () => {
 
   const className = overlayClass(renderer) ?? '';
   expect(className).toContain('bg-transparent');
+  expect(className).not.toContain('bg-black/80');
   // The overlay stays mounted: an outside click still closes the sheet.
   expect(renderer.root.findAllByProps({ 'data-testid': 'overlay' })).toHaveLength(1);
   await React.act(async () => renderer.unmount());
