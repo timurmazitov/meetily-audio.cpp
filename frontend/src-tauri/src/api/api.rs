@@ -181,10 +181,10 @@ pub struct SaveMeetingTitleRequest {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MeetingSpeaker {
     pub label: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// `null` while no name is assigned; the label still renders as `Speaker N`.
     pub speaker_name: Option<String>,
     pub segment_count: i64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// `null` when every segment of the label lacks a start time.
     pub first_start_time: Option<f64>,
     /// Bounded list of existing directory names, most-used first.
     pub top_speaker_names: Vec<String>,
@@ -1607,9 +1607,88 @@ pub async fn api_test_custom_openai_connection<R: Runtime>(
 }
 
 #[cfg(test)]
+mod speaker_panel_contract_tests {
+    use super::{MeetingSpeaker, SpeakerAssignment, SpeakerNameEntry};
+
+    #[test]
+    fn a_panel_row_carries_a_null_name_and_its_suggestions() {
+        let row = MeetingSpeaker {
+            label: "speaker_0".into(),
+            speaker_name: None,
+            segment_count: 3,
+            first_start_time: Some(12.5),
+            top_speaker_names: vec!["Alex".into(), "Zoe".into()],
+        };
+
+        let json = serde_json::to_value(row).unwrap();
+
+        assert_eq!(json["label"], "speaker_0");
+        assert_eq!(json["segment_count"], 3);
+        assert_eq!(json["first_start_time"], 12.5);
+        assert_eq!(
+            json["top_speaker_names"],
+            serde_json::json!(["Alex", "Zoe"])
+        );
+        assert!(
+            json["speaker_name"].is_null(),
+            "an unnamed speaker is a null field, not a missing one"
+        );
+    }
+
+    #[test]
+    fn a_missing_start_time_serializes_as_null() {
+        let row = MeetingSpeaker {
+            label: "speaker_1".into(),
+            speaker_name: Some("Alex".into()),
+            segment_count: 1,
+            first_start_time: None,
+            top_speaker_names: Vec::new(),
+        };
+
+        let json = serde_json::to_value(row).unwrap();
+
+        assert_eq!(json["speaker_name"], "Alex");
+        assert!(json["first_start_time"].is_null());
+        assert_eq!(json["top_speaker_names"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn a_directory_row_reports_its_meeting_count() {
+        let json = serde_json::to_value(SpeakerNameEntry {
+            id: "person-1".into(),
+            name: "Alex".into(),
+            meeting_count: 4,
+        })
+        .unwrap();
+
+        assert_eq!(
+            json,
+            serde_json::json!({"id": "person-1", "name": "Alex", "meeting_count": 4})
+        );
+    }
+
+    #[test]
+    fn an_assignment_accepts_a_null_name_as_removal() {
+        let removal: SpeakerAssignment =
+            serde_json::from_value(serde_json::json!({"label": "speaker_0", "name": null}))
+                .unwrap();
+        assert_eq!(removal.label, "speaker_0");
+        assert_eq!(removal.name, None);
+
+        let omission: SpeakerAssignment =
+            serde_json::from_value(serde_json::json!({"label": "speaker_0"})).unwrap();
+        assert_eq!(omission.name, None, "an omitted name also removes");
+
+        let name: SpeakerAssignment =
+            serde_json::from_value(serde_json::json!({"label": "speaker_0", "name": "Alex"}))
+                .unwrap();
+        assert_eq!(name.name.as_deref(), Some("Alex"));
+    }
+}
+
+#[cfg(test)]
 mod meeting_transcript_contract_tests {
     use super::MeetingTranscript;
-
     fn segment(speaker: Option<&str>, speaker_name: Option<&str>) -> MeetingTranscript {
         MeetingTranscript {
             id: "t-0".into(),

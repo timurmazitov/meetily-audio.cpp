@@ -430,19 +430,25 @@ impl SpeakersRepository {
         Self::meeting_speakers(pool, meeting_id).await
     }
 
-    /// Returns the directory id for `name` (case-insensitive match, the first
-    /// spelling wins), creating the person if the directory does not have it.
+    /// Returns the directory id for `name`, creating the person if the
+    /// directory does not have it. Matching is case-insensitive and the first
+    /// spelling wins (`Alex` then `alex` → one person shown as `Alex`).
+    ///
+    /// Comparison happens in Rust because SQLite's `NOCASE` only folds ASCII,
+    /// which would let `Мария` and `мария` become two people.
     async fn find_or_create_person(
         transaction: &mut SqliteConnection,
         name: &str,
         now: chrono::NaiveDateTime,
     ) -> Result<String, SpeakerError> {
-        let existing: Option<(String,)> =
-            sqlx::query_as("SELECT id FROM speakers WHERE name = ? COLLATE NOCASE")
-                .bind(name)
-                .fetch_optional(&mut *transaction)
-                .await?;
-        if let Some((id,)) = existing {
+        let existing: Vec<(String, String)> = sqlx::query_as("SELECT id, name FROM speakers")
+            .fetch_all(&mut *transaction)
+            .await?;
+        let folded = name.to_lowercase();
+        if let Some((id, _)) = existing
+            .into_iter()
+            .find(|(_, stored)| stored.to_lowercase() == folded)
+        {
             return Ok(id);
         }
 
@@ -505,15 +511,20 @@ impl SpeakersRepository {
         let mut conn = pool.acquire().await?;
         let mut transaction = conn.begin().await?;
 
-        let meeting: Option<(String,)> =
-            sqlx::query_as("SELECT meeting_id FROM transcripts WHERE id = ?")
+        let row: Option<(String, Option<String>)> =
+            sqlx::query_as("SELECT meeting_id, speaker FROM transcripts WHERE id = ?")
                 .bind(transcript_id)
                 .fetch_optional(&mut *transaction)
                 .await?;
-        let Some((meeting_id,)) = meeting else {
+        let Some((meeting_id, current_label)) = row else {
             transaction.rollback().await?;
             return Err(SpeakerError::TranscriptNotFound(transcript_id.to_string()));
         };
+
+        if current_label.as_deref() == label {
+            transaction.rollback().await?;
+            return Ok(());
+        }
 
         sqlx::query("UPDATE transcripts SET speaker = ? WHERE id = ?")
             .bind(label)
@@ -536,7 +547,7 @@ impl SpeakersRepository {
 
 #[cfg(test)]
 mod tests {
-    use super::{MeetingSpeakerSummary, SpeakerError, SpeakersRepository};
+    use super::{SpeakerError, SpeakersRepository};
     use crate::api::SpeakerAssignment;
     use sqlx::sqlite::SqlitePoolOptions;
     use sqlx::{Row, SqlitePool};
@@ -804,6 +815,77 @@ mod tests {
             [("speaker_0".to_string(), "Alex".to_string())],
             "the second spelling rebinds the same person to the same label"
         );
+    }
+
+    #[tokio::test]
+    async fn non_ascii_names_fold_case_too() {
+        let pool = migrated_pool().await;
+        insert_meeting(&pool, "meeting-1").await;
+        insert_meeting(&pool, "meeting-2").await;
+        insert_transcript(&pool, "t-0", "meeting-1", Some("speaker_0"), Some(0.0)).await;
+        insert_transcript(&pool, "t-1", "meeting-2", Some("speaker_0"), Some(0.0)).await;
+
+        SpeakersRepository::assign(
+            &pool,
+            "meeting-1",
+            &[assignment("speaker_0", Some("Мария"))],
+        )
+        .await
+        .unwrap();
+        SpeakersRepository::assign(
+            &pool,
+            "meeting-2",
+            &[assignment("speaker_0", Some("мария"))],
+        )
+        .await
+        .unwrap();
+
+        let rows = speaker_rows(&pool).await;
+        assert_eq!(rows.len(), 1, "one person, not two spellings of one name");
+        assert_eq!(rows[0].1, "Мария");
+    }
+
+    #[tokio::test]
+    async fn names_are_trimmed_before_matching_and_storing() {
+        let pool = migrated_pool().await;
+        insert_meeting(&pool, "meeting-1").await;
+        insert_meeting(&pool, "meeting-2").await;
+        insert_transcript(&pool, "t-0", "meeting-1", Some("speaker_0"), Some(0.0)).await;
+        insert_transcript(&pool, "t-1", "meeting-2", Some("speaker_0"), Some(0.0)).await;
+
+        SpeakersRepository::assign(
+            &pool,
+            "meeting-1",
+            &[assignment("speaker_0", Some(" Alex "))],
+        )
+        .await
+        .unwrap();
+        SpeakersRepository::assign(&pool, "meeting-2", &[assignment("speaker_0", Some("Alex"))])
+            .await
+            .unwrap();
+
+        assert_eq!(
+            speaker_rows(&pool).await,
+            [(speaker_rows(&pool).await[0].0.clone(), "Alex".to_string())],
+            "the outer spaces are trimmed and the row is reused"
+        );
+    }
+
+    #[tokio::test]
+    async fn inner_spaces_of_a_name_are_kept() {
+        let pool = migrated_pool().await;
+        insert_meeting(&pool, "meeting-1").await;
+        insert_transcript(&pool, "t-0", "meeting-1", Some("speaker_0"), Some(0.0)).await;
+
+        SpeakersRepository::assign(
+            &pool,
+            "meeting-1",
+            &[assignment("speaker_0", Some("  Mary  Jane "))],
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(speaker_rows(&pool).await[0].1, "Mary  Jane");
     }
 
     #[tokio::test]
@@ -1249,6 +1331,20 @@ mod tests {
             .unwrap();
 
         assert_ne!(updated_at(&pool, "meeting-1").await, before);
+    }
+
+    #[tokio::test]
+    async fn resaving_the_same_segment_speaker_does_not_bump_the_timestamp() {
+        let pool = migrated_pool().await;
+        insert_meeting(&pool, "meeting-1").await;
+        insert_transcript(&pool, "t-0", "meeting-1", Some("speaker_0"), Some(0.0)).await;
+        let before = updated_at(&pool, "meeting-1").await;
+
+        SpeakersRepository::set_transcript_speaker(&pool, "t-0", Some("speaker_0"))
+            .await
+            .unwrap();
+
+        assert_eq!(updated_at(&pool, "meeting-1").await, before);
     }
 
     #[tokio::test]
