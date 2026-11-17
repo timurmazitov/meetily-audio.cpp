@@ -297,7 +297,14 @@ export function SpeakersPanel({
 
   return (
     <Sheet open={open} onOpenChange={handleOpenChange}>
-      <SheetContent side="right" className="flex flex-col gap-4 sm:max-w-md">
+      <SheetContent
+        side="right"
+        className="flex flex-col gap-4 sm:max-w-md"
+        // Keep the transcript readable behind the sheet: the user matches names
+        // against the lines. The overlay stays mounted, so an outside click
+        // still dismisses the panel and drops the draft.
+        overlayClassName="bg-transparent"
+      >
         <SheetHeader>
           <SheetTitle className="flex items-center gap-2">
             <Users className="h-5 w-5" />
