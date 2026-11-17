@@ -275,8 +275,9 @@ impl SettingsRepository {
     /// Gets the stored base system prompt for summary generation.
     ///
     /// # Returns
-    /// * `Ok(Some(prompt))` - A prompt is stored
-    /// * `Ok(None)` - Nothing stored; the caller falls back to the default
+    /// * `Ok(Some(prompt))` - The stored text (possibly empty)
+    /// * `Ok(None)` - No settings row exists
+    /// * `Ok(Some(""))` - The column is NULL; callers treat blank as "use the default"
     pub async fn get_summary_system_prompt(
         pool: &SqlitePool,
     ) -> std::result::Result<Option<String>, sqlx::Error> {

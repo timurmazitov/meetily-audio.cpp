@@ -172,4 +172,41 @@ mod tests {
 
         assert_eq!(prompt, "Plain instructions");
     }
+
+    fn template_with_prompt(system_prompt: Option<&str>) -> crate::summary::templates::Template {
+        crate::summary::templates::Template {
+            name: "Test".to_string(),
+            description: "Test template".to_string(),
+            system_prompt: system_prompt.map(str::to_string),
+            sections: vec![crate::summary::templates::TemplateSection {
+                title: "Action Items".to_string(),
+                instruction: "List the assigned tasks".to_string(),
+                format: "list".to_string(),
+                item_format: None,
+                example_item_format: None,
+            }],
+        }
+    }
+
+    #[test]
+    fn rendered_system_message_contains_template_content_instead_of_placeholders() {
+        let rendered = render_system_prompt(&template_with_prompt(None), None);
+
+        assert!(rendered.contains("- **For the 'Action Items' section:**"));
+        assert!(rendered.contains("**Action Items**"));
+        assert!(!rendered.contains("{section_instructions}"));
+        assert!(!rendered.contains("{template}"));
+    }
+
+    #[test]
+    fn rendered_system_message_uses_the_template_prompt_not_the_base_prompt() {
+        let rendered = render_system_prompt(
+            &template_with_prompt(Some("Template rules for {template}")),
+            Some("Base prompt that must not leak"),
+        );
+
+        assert!(rendered.starts_with("Template rules for "));
+        assert!(rendered.contains("**Action Items**"));
+        assert!(!rendered.contains("Base prompt that must not leak"));
+    }
 }

@@ -744,6 +744,40 @@ mod tests {
         assert_eq!(load_base_system_prompt(&pool).await, "Stored base prompt");
     }
 
+    #[tokio::test]
+    async fn stored_base_prompt_reaches_the_final_system_message() {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::query(
+            r#"CREATE TABLE settings (
+                id TEXT PRIMARY KEY,
+                provider TEXT NOT NULL,
+                model TEXT NOT NULL,
+                whisperModel TEXT NOT NULL,
+                summarySystemPrompt TEXT
+            )"#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        SettingsRepository::save_summary_system_prompt(
+            &pool,
+            "Stored base rules: {section_instructions} / {template}",
+        )
+        .await
+        .unwrap();
+
+        let base_system_prompt = load_base_system_prompt(&pool).await;
+        let rendered = crate::summary::system_prompt::render_system_prompt(
+            &test_template("Action Items"),
+            Some(&base_system_prompt),
+        );
+
+        assert!(rendered.starts_with("Stored base rules: "));
+        assert!(rendered.contains("- **For the 'Action Items' section:**"));
+        assert!(!rendered.contains("{section_instructions}"));
+    }
+
     #[test]
     fn stale_cleanup_keeps_the_replacement_cancellation_token() {
         let meeting_id = format!("summary-test-{}", uuid::Uuid::new_v4());
