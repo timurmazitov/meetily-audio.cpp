@@ -37,6 +37,7 @@ pub(crate) mod metadata;
 pub mod processor;
 pub mod service;
 pub mod summary_engine;
+pub mod system_prompt;
 pub mod template_commands;
 pub mod templates;
 

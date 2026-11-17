@@ -270,8 +270,42 @@ impl SettingsRepository {
         Ok(())
     }
 
-    // ===== CUSTOM OPENAI CONFIG METHODS =====
+    // ===== SUMMARY SYSTEM PROMPT =====
 
+    /// Gets the stored base system prompt for summary generation.
+    ///
+    /// # Returns
+    /// * `Ok(Some(prompt))` - A prompt is stored
+    /// * `Ok(None)` - Nothing stored; the caller falls back to the default
+    pub async fn get_summary_system_prompt(
+        pool: &SqlitePool,
+    ) -> std::result::Result<Option<String>, sqlx::Error> {
+        sqlx::query_scalar("SELECT summarySystemPrompt FROM settings WHERE id = '1' LIMIT 1")
+            .fetch_optional(pool)
+            .await
+    }
+
+    /// Saves the base system prompt for summary generation.
+    pub async fn save_summary_system_prompt(
+        pool: &SqlitePool,
+        prompt: &str,
+    ) -> std::result::Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"
+            INSERT INTO settings (id, provider, model, whisperModel, summarySystemPrompt)
+            VALUES ('1', 'openai', 'gpt-4o-2024-11-20', 'large-v3', $1)
+            ON CONFLICT(id) DO UPDATE SET
+                summarySystemPrompt = excluded.summarySystemPrompt
+            "#,
+        )
+        .bind(prompt)
+        .execute(pool)
+        .await?;
+
+        Ok(())
+    }
+
+    // ===== CUSTOM OPENAI CONFIG METHODS =====
     /// Gets the custom OpenAI configuration from JSON
     ///
     /// # Returns
