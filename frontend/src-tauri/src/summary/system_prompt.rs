@@ -27,10 +27,7 @@ pub const DEFAULT_SUMMARY_SYSTEM_PROMPT: &str =
 
 /// Returns the stored base system prompt, falling back to the default when unset or blank.
 pub fn stored_or_default(stored: Option<String>) -> String {
-    match stored {
-        Some(prompt) if !prompt.trim().is_empty() => prompt,
-        _ => DEFAULT_SUMMARY_SYSTEM_PROMPT.to_string(),
-    }
+    resolve_effective_prompt(None, stored.as_deref()).to_string()
 }
 
 fn is_present(prompt: Option<&str>) -> Option<&str> {
@@ -63,6 +60,25 @@ pub fn substitute_placeholders(
     prompt
         .replace("{section_instructions}", section_instructions)
         .replace("{template}", template_markdown)
+}
+
+/// Builds the system prompt for the final report: picks the effective prompt for
+/// the template and substitutes the template content into its placeholders.
+///
+/// This is the single place where the final-report system prompt is rendered;
+/// request building and the cache fingerprint both go through it so they can
+/// never disagree about what the model receives.
+pub fn render_system_prompt(
+    template: &crate::summary::templates::Template,
+    base_prompt: Option<&str>,
+) -> String {
+    let effective_prompt =
+        resolve_effective_prompt(template.system_prompt.as_deref(), base_prompt);
+    substitute_placeholders(
+        effective_prompt,
+        &template.to_section_instructions(),
+        &template.to_markdown_structure(),
+    )
 }
 
 #[cfg(test)]

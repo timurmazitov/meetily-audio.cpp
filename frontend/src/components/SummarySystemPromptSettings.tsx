@@ -18,7 +18,7 @@ export function SummarySystemPromptSettings() {
   const loadPrompt = useCallback(async () => {
     try {
       const stored = await invoke<string>('api_get_summary_system_prompt');
-      setPrompt(stored ?? '');
+      setPrompt(stored);
     } catch (error) {
       console.error('Failed to load summary system prompt:', error);
       toast.error('Failed to load system prompt');
@@ -31,32 +31,28 @@ export function SummarySystemPromptSettings() {
     loadPrompt();
   }, [loadPrompt]);
 
-  const handleSave = async () => {
+  const savePrompt = async (value: string, successMessage: string, failureMessage: string) => {
     setIsSaving(true);
     try {
-      await invoke('api_save_summary_system_prompt', { prompt });
-      toast.success('System prompt saved successfully');
+      await invoke('api_save_summary_system_prompt', { prompt: value });
+      toast.success(successMessage);
     } catch (error) {
       console.error('Error saving summary system prompt:', error);
-      toast.error('Failed to save system prompt');
+      toast.error(failureMessage);
     } finally {
       setIsSaving(false);
     }
   };
 
+  const handleSave = () => savePrompt(prompt, 'System prompt saved successfully', 'Failed to save system prompt');
+
   const handleReset = async () => {
-    setIsSaving(true);
+    // Clearing the stored value makes the backend return the built-in default.
+    await savePrompt('', 'System prompt reset to default', 'Failed to reset system prompt');
     try {
-      // Clearing the stored value makes the backend return the built-in default.
-      await invoke('api_save_summary_system_prompt', { prompt: '' });
-      const defaultPrompt = await invoke<string>('api_get_summary_system_prompt');
-      setPrompt(defaultPrompt ?? '');
-      toast.success('System prompt reset to default');
+      setPrompt(await invoke<string>('api_get_summary_system_prompt'));
     } catch (error) {
-      console.error('Error resetting summary system prompt:', error);
-      toast.error('Failed to reset system prompt');
-    } finally {
-      setIsSaving(false);
+      console.error('Failed to load default summary system prompt:', error);
     }
   };
 

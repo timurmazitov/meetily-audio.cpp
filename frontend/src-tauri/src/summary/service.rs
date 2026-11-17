@@ -144,20 +144,11 @@ fn build_summary_cache_source(
 }
 
 fn template_cache_fingerprint(template: &Template, base_system_prompt: Option<&str>) -> String {
-    let section_instructions = template.to_section_instructions();
-    let template_markdown = template.to_markdown_structure();
-    let effective_prompt = crate::summary::system_prompt::resolve_effective_prompt(
-        template.system_prompt.as_deref(),
-        base_system_prompt,
-    );
-    let system_prompt = crate::summary::system_prompt::substitute_placeholders(
-        effective_prompt,
-        &section_instructions,
-        &template_markdown,
-    );
     let rendered_template = format!(
         "{}\n---SECTION-INSTRUCTIONS---\n{}\n---SYSTEM-PROMPT---\n{}",
-        template_markdown, section_instructions, system_prompt
+        template.to_markdown_structure(),
+        template.to_section_instructions(),
+        crate::summary::system_prompt::render_system_prompt(template, base_system_prompt)
     );
     stable_text_fingerprint(&rendered_template)
 }

@@ -225,16 +225,8 @@ fn build_combine_summary_user_prompt(combined_text: &str) -> String {
         "{ENGLISH_BASE_SUMMARY_INSTRUCTION}\n\nThe following are consecutive summaries of a meeting. Combine them into a single, coherent, and detailed narrative summary that retains all important details, organized logically. Do not include reasoning, self-correction, or meta-commentary — output only the summary content.\n\n<summaries>\n{combined_text}\n</summaries>"
     )
 }
-fn build_final_report_system_prompt(
-    effective_prompt: &str,
-    section_instructions: &str,
-    clean_template_markdown: &str,
-) -> String {
-    crate::summary::system_prompt::substitute_placeholders(
-        effective_prompt,
-        section_instructions,
-        clean_template_markdown,
-    )
+fn build_final_report_system_prompt(template: &Template, base_system_prompt: Option<&str>) -> String {
+    crate::summary::system_prompt::render_system_prompt(template, base_system_prompt)
 }
 
 /// Rough token count estimation using character count
@@ -475,15 +467,8 @@ pub(crate) async fn generate_meeting_summary(
             }
 
             info!("Generating final markdown report with template: {}", template_id);
-            let effective_prompt = crate::summary::system_prompt::resolve_effective_prompt(
-                template.system_prompt.as_deref(),
-                base_system_prompt,
-            );
-            let final_system_prompt = build_final_report_system_prompt(
-                effective_prompt,
-                &template.to_section_instructions(),
-                &template.to_markdown_structure(),
-            );
+            let final_system_prompt =
+                build_final_report_system_prompt(template, base_system_prompt);
             let mut final_user_prompt =
                 format!("<transcript_chunks>\n{content_to_summarize}\n</transcript_chunks>\n");
             if !custom_prompt.is_empty() {
@@ -675,11 +660,7 @@ mod tests {
 
     #[test]
     fn final_report_prompt_forces_english_base_output() {
-        let prompt = build_final_report_system_prompt(
-            crate::summary::system_prompt::DEFAULT_SUMMARY_SYSTEM_PROMPT,
-            "Fill the section",
-            "# <Add Title here>",
-        );
+        let prompt = build_final_report_system_prompt(&report_template("Summary"), None);
 
         assert!(prompt.contains(ENGLISH_BASE_SUMMARY_INSTRUCTION));
         assert!(prompt.contains("SECTION-SPECIFIC INSTRUCTIONS"));
@@ -687,14 +668,25 @@ mod tests {
 
     #[test]
     fn final_report_prompt_forbids_reasoning_output() {
-        let prompt = build_final_report_system_prompt(
-            crate::summary::system_prompt::DEFAULT_SUMMARY_SYSTEM_PROMPT,
-            "Fill",
-            "# Title",
-        );
+        let prompt = build_final_report_system_prompt(&report_template("Summary"), None);
         assert!(prompt.to_lowercase().contains("no reasoning")
             || prompt.contains("meta-commentary")
             || prompt.contains("self-correction"));
+    }
+
+    fn report_template(section_title: &str) -> Template {
+        Template {
+            name: "Test".to_string(),
+            description: "Test template".to_string(),
+            system_prompt: None,
+            sections: vec![crate::summary::templates::TemplateSection {
+                title: section_title.to_string(),
+                instruction: "Summarize this section".to_string(),
+                format: "paragraph".to_string(),
+                item_format: None,
+                example_item_format: None,
+            }],
+        }
     }
 
     #[test]
