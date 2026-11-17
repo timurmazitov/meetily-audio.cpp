@@ -278,17 +278,6 @@ export function SpeakersPanel({
       // Re-read the paginated transcripts so speaker chips show the new names
       // without a page reload (ticket 01 puts `speaker_name` on them).
       await onRefetchTranscripts?.();
-      // Ticket 06's per-row dropdown receives the meeting's speaker list through
-      // page props, which `onRefetchTranscripts` does not touch. This small DOM
-      // signal lets that list refresh without cross-ticket prop threading; it is
-      // optional, so environments without `CustomEvent` (or a listener) are fine.
-      if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
-        const event =
-          typeof CustomEvent === 'function'
-            ? new CustomEvent('speakers-updated', { detail: { meetingId } })
-            : new Event('speakers-updated');
-        window.dispatchEvent(event);
-      }
     } catch (error) {
       const message = String(error);
       setPanelError(null);

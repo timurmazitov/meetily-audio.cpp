@@ -205,21 +205,6 @@ function MeetingDetailsContent() {
     return () => window.removeEventListener('transcripts-updated', onTranscriptsUpdated);
   }, [meetingId, refetchTranscriptsAndSpeakers]);
 
-  // The Speakers panel rewrites names for the whole meeting behind our back
-  // (its own command), so reload the list the row dropdown offers.
-  useEffect(() => {
-    if (!meetingId) return;
-
-    const onSpeakersUpdated = (event: Event) => {
-      const updatedMeetingId = (event as CustomEvent<{ meetingId?: string }>).detail?.meetingId;
-      if (updatedMeetingId && updatedMeetingId !== meetingId) return;
-      void loadMeetingSpeakers();
-    };
-
-    window.addEventListener('speakers-updated', onSpeakersUpdated);
-    return () => window.removeEventListener('speakers-updated', onSpeakersUpdated);
-  }, [meetingId, loadMeetingSpeakers]);
-
   // A recount of the labels (retranscription, post-recording diarization) can
   // wipe every name; the backend says why and we reload so the names vanish.
   // The speaker list is reloaded together with the transcripts it belongs to.
