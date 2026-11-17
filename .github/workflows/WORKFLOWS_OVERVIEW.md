@@ -29,10 +29,9 @@ This document provides a quick overview of all available CI/CD workflows in this
 **Purpose:** Build and test specifically for Windows x64
 
 **Key Features:**
-- DigiCert KeyLocker signing (cloud HSM)
-- Signs both MSI and NSIS installers
-- Signature verification with PowerShell
+- Windows x64 builds (MSI + NSIS installers)
 - MSI installer validation
+- Signature verification with PowerShell
 
 **Triggers:**
 - Manual dispatch only
@@ -128,7 +127,7 @@ This document provides a quick overview of all available CI/CD workflows in this
 
 **Outputs:**
 - GitHub Release (draft)
-- Windows: MSI installer (signed via `signCommand`), NSIS installer
+- Windows: MSI installer, NSIS installer (unsigned; DigiCert signing removed)
 - Linux: DEB and AppImage packages, each with a minisign `.sig`
 - `latest.json` updater manifest (Windows + Linux targets)
 - Release notes auto-generated
@@ -245,12 +244,10 @@ samobranka-{workflow}-{platform}-{target}-{version}
 
 All workflows require these secrets to be configured:
 
-### Windows Signing (DigiCert)
-- `SM_HOST` - DigiCert host URL
-- `SM_API_KEY` - API key
-- `SM_CLIENT_CERT_FILE_B64` - Client cert (base64)
-- `SM_CLIENT_CERT_PASSWORD` - Client cert password
-- `SM_CODE_SIGNING_CERT_SHA1_HASH` - Certificate hash
+> **NOTE:** Windows binaries are **not code-signed** (DigiCert KeyLocker
+> signing was removed from the workflows). The `signCommand` hook in
+> `tauri.conf.json` stays in place but skips signing unless
+> `DIGICERT_KEYPAIR_ALIAS` is set manually.
 
 ### Tauri Updater (Windows + Linux)
 

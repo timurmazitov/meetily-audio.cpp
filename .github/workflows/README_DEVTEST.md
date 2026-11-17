@@ -55,9 +55,9 @@ When signing is enabled:
 - Verifies signatures with `codesign` and `spctl`
 
 ### Windows
-- Uses **DigiCert KeyLocker** (cloud HSM)
-- Signs both MSI and NSIS installers
-- Verifies signatures with PowerShell
+- Binaries are **not code-signed** (DigiCert KeyLocker signing was removed);
+  the `signCommand` hook skips signing unless `DIGICERT_KEYPAIR_ALIAS` is set manually
+- Signature presence is still reported with PowerShell (`Get-AuthenticodeSignature`)
 
 ### Linux
 - Artifacts are unsigned by default; no signing is configured for Linux devtest builds
@@ -129,7 +129,6 @@ Each platform uses optimal hardware acceleration:
 **Solutions:**
 1. Check that all required secrets are configured:
    - `APPLE_CERTIFICATE`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`
-   - `SM_HOST`, `SM_API_KEY`, `SM_CODE_SIGNING_CERT_SHA1_HASH`
    - `TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
 2. Review workflow logs for specific error messages
 3. Try running without signing first to isolate the issue

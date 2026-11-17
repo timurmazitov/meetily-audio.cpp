@@ -227,7 +227,7 @@ jobs:
           echo "Release URL: https://github.com/${{ github.repository }}/releases/tag/v${{ needs.create-release.outputs.version }}"
           echo ""
           echo "Uploaded assets (via tauri-action):"
-          echo "  - Windows: MSI + NSIS installers (SIGNED via signCommand)"
+          echo "  - Windows: MSI + NSIS installers (unsigned, no code signing)"
           echo "  - Linux: DEB and AppImage packages, signed explicitly (+ .sig)"
           echo ""
           echo "Updater artifacts: macOS is not built, so latest.json covers"
