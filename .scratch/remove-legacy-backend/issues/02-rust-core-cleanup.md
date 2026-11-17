@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: resolved
 
 # 02: Почистить Rust-ядро: мёртвые fallback-пути и тест-фикстуры
 
@@ -23,3 +23,7 @@ Status: ready-for-agent
 ## Out of scope
 
 Удаление самой папки `backend/` (тикет 01), brand-lint (03), документация (04).
+
+## Resolution
+
+Закрыто в рамках ветки `chore/remove-legacy-backend` (2026-11-17). См. git log main..HEAD и спеку `.scratch/remove-legacy-backend/spec.md`.

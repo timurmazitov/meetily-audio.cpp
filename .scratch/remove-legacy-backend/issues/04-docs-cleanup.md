@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: resolved
 Blocked by: 01
 
 # 04: Убрать упоминания backend/ из документации
@@ -28,3 +28,7 @@ Blocked by: 01
 
 - Спека: `.scratch/remove-legacy-backend/spec.md`
 - Исследование: `docs/research/backend-legacy-deletion.md`
+
+## Resolution
+
+Закрыто в рамках ветки `chore/remove-legacy-backend` (2026-11-17). См. git log main..HEAD и спеку `.scratch/remove-legacy-backend/spec.md`.

@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: resolved
 
 # 01: Удалить папку backend/ и сабмодуль whisper.cpp
 
@@ -30,3 +30,7 @@ Status: ready-for-agent
 ## Out of scope
 
 Любые правки кода вне удаления каталога/сабмодуля/`.gitmodules` — это тикеты 02–04.
+
+## Resolution
+
+Закрыто в рамках ветки `chore/remove-legacy-backend` (2026-11-17). См. git log main..HEAD и спеку `.scratch/remove-legacy-backend/spec.md`.

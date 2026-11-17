@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: resolved
 Blocked by: 01
 
 # 03: Убрать исключение backend/ из brand-lint
@@ -21,3 +21,7 @@ Blocked by: 01
 ## Out of scope
 
 Любые другие правки lint-скрипта (allowlist-паттерны, `EXCLUDED_FILES`, `ALLOWED_FILES`).
+
+## Resolution
+
+Закрыто в рамках ветки `chore/remove-legacy-backend` (2026-11-17). См. git log main..HEAD и спеку `.scratch/remove-legacy-backend/spec.md`.
