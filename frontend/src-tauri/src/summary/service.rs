@@ -126,11 +126,21 @@ fn build_summary_cache_source(
     }
 }
 
-fn template_cache_fingerprint(template: &Template) -> String {
+fn template_cache_fingerprint(template: &Template, base_system_prompt: Option<&str>) -> String {
+    let section_instructions = template.to_section_instructions();
+    let template_markdown = template.to_markdown_structure();
+    let effective_prompt = crate::summary::system_prompt::resolve_effective_prompt(
+        template.system_prompt.as_deref(),
+        base_system_prompt,
+    );
+    let system_prompt = crate::summary::system_prompt::substitute_placeholders(
+        effective_prompt,
+        &section_instructions,
+        &template_markdown,
+    );
     let rendered_template = format!(
-        "{}\n---SECTION-INSTRUCTIONS---\n{}",
-        template.to_markdown_structure(),
-        template.to_section_instructions()
+        "{}\n---SECTION-INSTRUCTIONS---\n{}\n---SYSTEM-PROMPT---\n{}",
+        template_markdown, section_instructions, system_prompt
     );
     stable_text_fingerprint(&rendered_template)
 }
@@ -503,7 +513,7 @@ impl SummaryService {
                 return;
             }
         };
-        let template_fingerprint = template_cache_fingerprint(&template);
+        let template_fingerprint = template_cache_fingerprint(&template, None);
 
         let cache_source = build_summary_cache_source(
             &text,
@@ -827,8 +837,39 @@ mod tests {
     #[test]
     fn test_template_cache_fingerprint_changes_with_rendered_template() {
         assert_ne!(
-            template_cache_fingerprint(&test_template("Summary")),
-            template_cache_fingerprint(&test_template("Decisions"))
+            template_cache_fingerprint(&test_template("Summary"), None),
+            template_cache_fingerprint(&test_template("Decisions"), None)
+        );
+    }
+
+    #[test]
+    fn test_template_cache_fingerprint_changes_with_base_system_prompt() {
+        assert_ne!(
+            template_cache_fingerprint(&test_template("Summary"), None),
+            template_cache_fingerprint(&test_template("Summary"), Some("Base prompt A"))
+        );
+        assert_ne!(
+            template_cache_fingerprint(&test_template("Summary"), Some("Base prompt A")),
+            template_cache_fingerprint(&test_template("Summary"), Some("Base prompt B"))
+        );
+    }
+
+    #[test]
+    fn test_template_cache_fingerprint_changes_with_template_system_prompt() {
+        let mut with_prompt = test_template("Summary");
+        with_prompt.system_prompt = Some("Template prompt".to_string());
+
+        assert_ne!(
+            template_cache_fingerprint(&test_template("Summary"), None),
+            template_cache_fingerprint(&with_prompt, None)
+        );
+    }
+
+    #[test]
+    fn test_template_cache_fingerprint_is_deterministic() {
+        assert_eq!(
+            template_cache_fingerprint(&test_template("Summary"), Some("Base prompt")),
+            template_cache_fingerprint(&test_template("Summary"), Some("Base prompt"))
         );
     }
 
