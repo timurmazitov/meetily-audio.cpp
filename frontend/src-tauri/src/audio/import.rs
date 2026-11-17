@@ -1130,47 +1130,85 @@ mod tests {
         IMPORT_CANCELLED.store(false, Ordering::SeqCst);
     }
 
+    /// Write a tiny valid PCM WAV file (silence) so metadata tests are
+    /// self-sufficient and do not depend on external sample files.
+    fn write_test_wav(path: &Path, sample_rate: u32, num_frames: u32) -> std::io::Result<()> {
+        let data_len = num_frames * 2; // 16-bit mono samples
+        let mut bytes = Vec::with_capacity(44 + data_len as usize);
+        bytes.extend_from_slice(b"RIFF");
+        bytes.extend_from_slice(&(36u32 + data_len).to_le_bytes());
+        bytes.extend_from_slice(b"WAVE");
+        bytes.extend_from_slice(b"fmt ");
+        bytes.extend_from_slice(&16u32.to_le_bytes()); // fmt chunk size
+        bytes.extend_from_slice(&1u16.to_le_bytes()); // audio format: PCM
+        bytes.extend_from_slice(&1u16.to_le_bytes()); // channels: mono
+        bytes.extend_from_slice(&sample_rate.to_le_bytes());
+        bytes.extend_from_slice(&(sample_rate * 2).to_le_bytes()); // byte rate
+        bytes.extend_from_slice(&2u16.to_le_bytes()); // block align
+        bytes.extend_from_slice(&16u16.to_le_bytes()); // bits per sample
+        bytes.extend_from_slice(b"data");
+        bytes.extend_from_slice(&data_len.to_le_bytes());
+        bytes.resize(bytes.len() + data_len as usize, 0);
+        std::fs::write(path, bytes)
+    }
+
+    /// Unique path in the system temp dir, so parallel tests do not clash.
+    fn test_data_path(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "samobranka-import-test-{}-{}",
+            std::process::id(),
+            name
+        ))
+    }
+
     #[test]
     fn test_extract_duration_from_metadata_wav() {
-        // Test with sample WAV file if available
-        let test_path = Path::new("../../backend/whisper.cpp/samples/jfk.wav");
-        if test_path.exists() {
-            let result = extract_duration_from_metadata(test_path);
-            // Should succeed and return a reasonable duration
-            assert!(result.is_ok());
-            let duration = result.unwrap();
-            assert!(
-                duration > 0.0 && duration < 60.0,
-                "Duration {} seems unreasonable",
-                duration
-            );
-        }
+        // Generate a tiny valid WAV (1s of silence, 8kHz mono) on the fly
+        // instead of relying on external sample files from uninitialized submodules.
+        let test_path = test_data_path("duration.wav");
+        write_test_wav(&test_path, 8000, 8000).expect("failed to write test WAV");
+
+        let result = extract_duration_from_metadata(&test_path);
+        let _ = std::fs::remove_file(&test_path);
+
+        // Should succeed and return a reasonable duration
+        assert!(result.is_ok());
+        let duration = result.unwrap();
+        assert!(
+            duration > 0.0 && duration < 60.0,
+            "Duration {} seems unreasonable",
+            duration
+        );
     }
 
     #[test]
     fn test_extract_duration_from_metadata_mp3() {
-        // Test with sample MP3 file if available
-        let test_path = Path::new("../../backend/whisper.cpp/samples/jfk.mp3");
-        if test_path.exists() {
-            let result = extract_duration_from_metadata(test_path);
-            // MP3 files may not have n_frames metadata, so fallback is expected
-            // We just verify it doesn't panic
-            let _ = result;
-        }
+        // No MP3 encoder is available in dev-dependencies, so use a file with
+        // an .mp3 extension but invalid content: metadata extraction must fail
+        // gracefully (no panic) instead of returning a made-up duration.
+        let test_path = test_data_path("invalid.mp3");
+        std::fs::write(&test_path, b"not a real mp3 file").expect("failed to write test file");
+
+        let result = extract_duration_from_metadata(&test_path);
+        let _ = std::fs::remove_file(&test_path);
+
+        assert!(result.is_err());
     }
 
     #[test]
     fn test_validate_audio_file_with_metadata() {
-        // Test validation with actual audio file
-        let test_path = Path::new("../../backend/whisper.cpp/samples/jfk.wav");
-        if test_path.exists() {
-            let result = validate_audio_file(test_path);
-            assert!(result.is_ok());
-            let info = result.unwrap();
-            assert_eq!(info.format, "WAV");
-            assert!(info.duration_seconds > 0.0);
-            assert!(info.size_bytes > 0);
-        }
+        // Generate a tiny valid WAV (1s of silence, 8kHz mono) on the fly.
+        let test_path = test_data_path("validate.wav");
+        write_test_wav(&test_path, 8000, 8000).expect("failed to write test WAV");
+
+        let result = validate_audio_file(&test_path);
+        let _ = std::fs::remove_file(&test_path);
+
+        assert!(result.is_ok());
+        let info = result.unwrap();
+        assert_eq!(info.format, "WAV");
+        assert!(info.duration_seconds > 0.0);
+        assert!(info.size_bytes > 0);
     }
 
     #[test]
