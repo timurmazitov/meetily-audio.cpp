@@ -32,6 +32,7 @@ Each template JSON file follows this schema:
 {
   "name": "Template Name",
   "description": "Brief description of the template's purpose",
+  "system_prompt": "Optional: replaces the base system prompt. Supports {section_instructions} and {template}.",
   "sections": [
     {
       "title": "Section Title",
@@ -59,6 +60,7 @@ Custom templates override built-in templates with the same filename.
 - `name` (required): Display name for the template
 - `description` (required): Brief explanation of the template's use case
 - `sections` (required): Array of section definitions
+- `system_prompt` (optional): Custom system prompt for this template. When set, it replaces the base system prompt configured in Settings → Summary. Both `{section_instructions}` and `{template}` placeholders are supported (same as the base prompt).
 
 ### Section Object
 - `title` (required): Section heading text

@@ -92,6 +92,47 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn summary_system_prompt_round_trips_through_the_settings_repository() {
+        use crate::database::repositories::setting::SettingsRepository;
+
+        let pool = migrated_pool().await;
+
+        // A fresh database has no stored prompt — the repository reports None
+        // and the read path (command) falls back to the default constant.
+        assert_eq!(
+            SettingsRepository::get_summary_system_prompt(&pool)
+                .await
+                .unwrap(),
+            None
+        );
+
+        SettingsRepository::save_summary_system_prompt(&pool, "Custom prompt {template}")
+            .await
+            .unwrap();
+
+        assert_eq!(
+            SettingsRepository::get_summary_system_prompt(&pool)
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("Custom prompt {template}")
+        );
+
+        // Saving again overwrites the previous value (single settings row).
+        SettingsRepository::save_summary_system_prompt(&pool, "Updated prompt")
+            .await
+            .unwrap();
+
+        assert_eq!(
+            SettingsRepository::get_summary_system_prompt(&pool)
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("Updated prompt")
+        );
+    }
+
+    #[tokio::test]
     async fn speaker_labels_round_trip_through_the_transcript_repository() {
         use crate::api::TranscriptSegment;
         use crate::database::repositories::transcript::TranscriptsRepository;
