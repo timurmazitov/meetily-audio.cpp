@@ -9,7 +9,7 @@ use crate::{
     database::{
         models::MeetingModel,
         repositories::{
-            meeting::MeetingsRepository, setting::SettingsRepository,
+            meeting::MeetingsRepository, setting::SettingsRepository, speaker::SpeakersRepository,
             transcript::TranscriptsRepository,
         },
     },
@@ -174,6 +174,38 @@ pub struct PaginatedTranscriptsResponse {
 pub struct SaveMeetingTitleRequest {
     pub meeting_id: String,
     pub title: String,
+}
+
+/// One row of the meeting's speaker panel: a diarization label, its assigned
+/// person (if any) and the directory names suggested while typing.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MeetingSpeaker {
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speaker_name: Option<String>,
+    pub segment_count: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_start_time: Option<f64>,
+    /// Bounded list of existing directory names, most-used first.
+    pub top_speaker_names: Vec<String>,
+}
+
+/// One directory row for the name suggestions of the speaker panel.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SpeakerNameEntry {
+    pub id: String,
+    pub name: String,
+    /// Number of distinct meetings currently referencing this person.
+    pub meeting_count: i64,
+}
+
+/// One item of the batch assignment sent by the panel's Done button.
+/// `name: None` removes the assignment (the "No name" action).
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SpeakerAssignment {
+    pub label: String,
+    #[serde(default)]
+    pub name: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -973,6 +1005,118 @@ pub async fn api_get_meeting_transcripts<R: Runtime>(
         Err(e) => {
             log_error!("Error retrieving transcripts for meeting {}: {}", meeting_id, e);
             Err(format!("Failed to retrieve transcripts: {}", e))
+        }
+    }
+}
+
+/// Read the speaker panel of a meeting: one row per diarization label with its
+/// assigned person, plus the directory names offered as suggestions.
+#[tauri::command]
+pub async fn api_get_meeting_speakers<R: Runtime>(
+    _app: AppHandle<R>,
+    state: tauri::State<'_, AppState>,
+    meeting_id: String,
+) -> Result<Vec<MeetingSpeaker>, String> {
+    log_info!("api_get_meeting_speakers called for meeting_id: {}", meeting_id);
+    let pool = state.db_manager.pool();
+    match SpeakersRepository::meeting_speakers(pool, &meeting_id).await {
+        Ok(speakers) => {
+            log_info!(
+                "Successfully retrieved {} speakers for meeting {}",
+                speakers.len(),
+                meeting_id
+            );
+            Ok(speakers)
+        }
+        Err(e) => {
+            log_error!("Error retrieving speakers for meeting {}: {}", meeting_id, e);
+            Err(format!("Failed to retrieve speakers: {}", e))
+        }
+    }
+}
+
+/// Save the speaker panel in one transaction: either every assignment applies
+/// or none does. `name: null` removes the assignment; an empty name is a
+/// validation error. Returns the refreshed speaker panel.
+#[tauri::command]
+pub async fn api_assign_meeting_speakers<R: Runtime>(
+    _app: AppHandle<R>,
+    state: tauri::State<'_, AppState>,
+    meeting_id: String,
+    assignments: Vec<SpeakerAssignment>,
+) -> Result<Vec<MeetingSpeaker>, String> {
+    log_info!(
+        "api_assign_meeting_speakers called for meeting_id: {}, {} assignments",
+        meeting_id,
+        assignments.len()
+    );
+    let pool = state.db_manager.pool();
+    match SpeakersRepository::assign(pool, &meeting_id, &assignments).await {
+        Ok(speakers) => {
+            log_info!("Successfully assigned speakers for meeting {}", meeting_id);
+            Ok(speakers)
+        }
+        Err(e) => {
+            log_error!("Failed to assign speakers for meeting {}: {}", meeting_id, e);
+            Err(e.to_string())
+        }
+    }
+}
+
+/// Set or clear the speaker label of a single transcript segment. `label: null`
+/// means "No speaker". The meeting's speaker assignments are untouched.
+#[tauri::command]
+pub async fn api_set_transcript_speaker<R: Runtime>(
+    _app: AppHandle<R>,
+    state: tauri::State<'_, AppState>,
+    transcript_id: String,
+    label: Option<String>,
+) -> Result<serde_json::Value, String> {
+    log_info!(
+        "api_set_transcript_speaker called for transcript_id: {}, label: {:?}",
+        transcript_id,
+        label
+    );
+    let pool = state.db_manager.pool();
+    match SpeakersRepository::set_transcript_speaker(pool, &transcript_id, label.as_deref()).await {
+        Ok(()) => {
+            log_info!("Successfully updated speaker of {}", transcript_id);
+            Ok(serde_json::json!({"message": "Transcript speaker saved successfully"}))
+        }
+        Err(e) => {
+            log_error!(
+                "Failed to set the speaker of transcript {}: {}",
+                transcript_id,
+                e
+            );
+            Err(e.to_string())
+        }
+    }
+}
+
+/// Search the global speaker directory for the panel's name suggestions.
+/// `query` is a case-insensitive substring; an empty query lists the directory.
+#[tauri::command]
+pub async fn api_get_speaker_names<R: Runtime>(
+    _app: AppHandle<R>,
+    state: tauri::State<'_, AppState>,
+    query: String,
+    limit: i64,
+) -> Result<Vec<SpeakerNameEntry>, String> {
+    log_info!(
+        "api_get_speaker_names called with query: {:?}, limit: {}",
+        query,
+        limit
+    );
+    let pool = state.db_manager.pool();
+    match SpeakersRepository::search_names(pool, &query, limit).await {
+        Ok(names) => {
+            log_info!("Successfully retrieved {} speaker names", names.len());
+            Ok(names)
+        }
+        Err(e) => {
+            log_error!("Failed to search speaker names: {}", e);
+            Err(format!("Failed to search speaker names: {}", e))
         }
     }
 }
