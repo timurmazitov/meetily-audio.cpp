@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { getVersion } from '@tauri-apps/api/app';
 import Image from 'next/image';
-import AnalyticsConsentSwitch from "./AnalyticsConsentSwitch";
 import { UpdateDialog } from "./UpdateDialog";
 import { updateService, UpdateInfo } from '@/services/updateService';
 import { Button } from './ui/button';
@@ -106,8 +105,6 @@ export function About() {
                     </div>
                 </div>
             </div>
-
-            <AnalyticsConsentSwitch />
 
             {/* Update Dialog */}
             <UpdateDialog

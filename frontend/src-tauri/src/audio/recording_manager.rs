@@ -532,11 +532,6 @@ impl RecordingManager {
         self.state.set_error_callback(callback);
     }
 
-    /// Check if there's a fatal error
-    pub fn has_fatal_error(&self) -> bool {
-        self.state.has_fatal_error()
-    }
-
     /// Set the meeting name for this recording session
     pub fn set_meeting_name(&mut self, name: Option<String>) {
         self.recording_saver.set_meeting_name(name);

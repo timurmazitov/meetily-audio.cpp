@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { Globe } from 'lucide-react';
-import Analytics from '@/lib/analytics';
 import { toast } from 'sonner';
 import { useConfig } from '@/contexts/ConfigContext';
 import { TRANSLATION_WHISPER_ONLY_MESSAGE, supportsTranslation } from '@/lib/transcription-provider';
@@ -161,17 +160,8 @@ export function LanguageSelection({
       onLanguageChange(languageCode);
       console.log('Language preference saved:', languageCode);
 
-      // Track language selection analytics
-      const selectedLang = LANGUAGES.find(lang => lang.code === languageCode);
-      await Analytics.track('language_selected', {
-        language_code: languageCode,
-        language_name: selectedLang?.name || 'Unknown',
-        is_auto_detect: (languageCode === 'auto').toString(),
-        is_auto_translate: (languageCode === AUTO_TRANSLATE_CODE).toString()
-      });
-
       // Show success toast
-      const languageName = selectedLang?.name || languageCode;
+      const languageName = LANGUAGES.find(lang => lang.code === languageCode)?.name || languageCode;
       toast.success("Language preference saved", {
         description: `Transcription language set to ${languageName}`
       });

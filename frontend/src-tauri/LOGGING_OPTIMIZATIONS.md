@@ -65,9 +65,6 @@ macro_rules! perf_debug {
 
 **Impact:** Reduces recording operation logging spam
 
-### 5. Raw Output Follow-up
-`analytics/analytics.rs` still uses `eprintln!` for analytics failures. These calls are not covered by the bounded local logger and require a separate safety review.
-
 ## Performance Gains Achieved
 
 ### **Immediate Benefits:**

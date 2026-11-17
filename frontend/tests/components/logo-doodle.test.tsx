@@ -10,7 +10,6 @@ const originals = await Promise.all([
   'next/image',
   'next/navigation',
   '../../src/contexts/RecordingStateContext',
-  '../../src/lib/analytics',
 ].map(async path => [path, { ...await import(path) }] as const));
 afterAll(() => { for (const [path, exports] of originals) mock.module(path, () => exports); });
 
@@ -36,7 +35,6 @@ mock.module('next/navigation', () => ({ usePathname: () => '/', useRouter: () =>
 mock.module('../../src/contexts/RecordingStateContext', () => ({
   useRecordingState: () => ({ isRecording: false }),
 }));
-mock.module('../../src/lib/analytics', () => ({ default: { trackBackendConnection() {} } }));
 const { default: Logo } = await import('../../src/components/Logo');
 const { SidebarProvider, useSidebar } = await import('../../src/components/Sidebar/SidebarProvider');
 

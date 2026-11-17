@@ -3,7 +3,7 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 
 // LanguageSelection reaches for the config context on mount; stub that single
 // edge so the component's own provider/language behaviour is what is tested.
-// Tauri and analytics are loaded for real, so no partial module mock leaks
+// Tauri is loaded for real, so no partial module mock leaks
 // into other test files in the same bun process.
 const originals = await Promise.all(
   ['../../src/contexts/ConfigContext'].map(
