@@ -42,7 +42,7 @@ graph TD
 
 ## Frontend and Native Communication
 
-The supported application uses Tauri commands and events, not a separate FastAPI service. The Python/FastAPI, Docker, and standalone whisper-server code under `backend/` is an unsupported legacy archive.
+The supported application communicates through Tauri commands and events; there is no separate service to run alongside the app.
 
 - Frontend code calls Rust commands with `invoke` from `@tauri-apps/api/core`. Command registration lives in [lib.rs](../frontend/src-tauri/src/lib.rs); implementations delegate to the relevant Rust service.
 - Rust emits events through Tauri, and frontend listeners update React state. Check the current command arguments and event payloads before changing either side of the interface.
