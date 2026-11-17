@@ -1792,6 +1792,25 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_reset_flag_needs_a_previous_binding_to_lose() {
+        let pool = migrated_pool().await;
+        insert_meeting(&pool, "meeting-1").await;
+        insert_transcript(&pool, "t-0", "meeting-1", Some("speaker_0"), Some(0.0)).await;
+
+        // No names were ever given, so a recount that changes everything is
+        // not a reset from the user's point of view.
+        let outcome = reconcile(&pool, "meeting-1").await;
+        assert!(!outcome.names_reset);
+
+        // A name on an unrelated meeting must not make this one look reset.
+        insert_meeting(&pool, "meeting-2").await;
+        insert_transcript(&pool, "t-1", "meeting-2", Some("speaker_0"), Some(0.0)).await;
+        assign_name(&pool, "meeting-2", "speaker_0", "Alex").await;
+        recount_labels(&pool, "meeting-1", &[Some("speaker_7")]).await;
+        assert!(!reconcile(&pool, "meeting-1").await.names_reset);
+    }
+
+    #[tokio::test]
     async fn a_transcript_without_labels_reconciles_to_nothing_without_error() {
         let pool = migrated_pool().await;
         insert_meeting(&pool, "meeting-1").await;
