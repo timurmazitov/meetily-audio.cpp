@@ -38,6 +38,11 @@ function Harness({ meetingId }: { meetingId: string }) {
   return <span>{meetingId}</span>;
 }
 
+function HarnessWithBridge({ meetingId, listenImpl }: { meetingId: string; listenImpl: any }) {
+  useSpeakerNamesResetListener(meetingId, () => { refetches += 1; }, listenImpl);
+  return <span>{meetingId}</span>;
+}
+
 async function show(meetingId = 'meeting-a') {
   await act(async () => { renderer = create(<Harness meetingId={meetingId} />); });
 }
@@ -96,6 +101,18 @@ test('an import event without a meeting id matches the open meeting', async () =
 
   expect(notify).toHaveBeenCalledTimes(1);
   expect(refetches).toBe(1);
+});
+
+test('a missing event bridge does not break the page', async () => {
+  const failure = async () => { throw new Error('no bridge'); };
+  await act(async () => {
+    renderer = create(
+      <HarnessWithBridge meetingId="meeting-a" listenImpl={failure as any} />,
+    );
+  });
+
+  expect(notify).not.toHaveBeenCalled();
+  expect(refetches).toBe(0);
 });
 
 test('the listener is removed on unmount', async () => {
