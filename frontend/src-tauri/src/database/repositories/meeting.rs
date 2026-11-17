@@ -291,6 +291,15 @@ async fn delete_meeting_with_transaction(
         .execute(&mut *transaction)
         .await?;
 
+    // 5. Directory rows the meeting's cascade left unreferenced are garbage:
+    // names are immutable, and an orphan would keep showing up in the picker.
+    sqlx::query(
+        "DELETE FROM speakers
+         WHERE id NOT IN (SELECT speaker_id FROM meeting_speakers)",
+    )
+    .execute(&mut *transaction)
+    .await?;
+
     Ok(result.rows_affected() > 0)
 }
 
@@ -401,6 +410,112 @@ mod tests {
             by_id("t-2").speaker_name,
             None,
             "an unlabelled segment keeps none"
+        );
+    }
+
+    /// Second meeting with its own transcript ids (the shared seeder above uses
+    /// fixed ids, so it can only run once per database).
+    async fn seed_second_meeting(pool: &SqlitePool, meeting_id: &str) {
+        sqlx::query("INSERT INTO meetings (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)")
+            .bind(meeting_id)
+            .bind("Second meeting")
+            .bind("2024-01-02T00:00:00Z")
+            .bind("2024-01-02T00:00:00Z")
+            .execute(pool)
+            .await
+            .unwrap();
+
+        for (index, speaker) in [Some("speaker_0"), Some("speaker_1")].into_iter().enumerate() {
+            sqlx::query(
+                "INSERT INTO transcripts (id, meeting_id, transcript, timestamp, speaker, audio_start_time)
+                 VALUES (?, ?, ?, ?, ?, ?)",
+            )
+            .bind(format!("{meeting_id}-t-{index}"))
+            .bind(meeting_id)
+            .bind("Text")
+            .bind("2024-01-02T00:00:00Z")
+            .bind(speaker)
+            .bind(index as f64)
+            .execute(pool)
+            .await
+            .unwrap();
+        }
+    }
+
+    async fn speaker_names(pool: &SqlitePool) -> Vec<String> {
+        sqlx::query_scalar("SELECT name FROM speakers ORDER BY name")
+            .fetch_all(pool)
+            .await
+            .unwrap()
+    }
+
+    async fn bindings(pool: &SqlitePool, meeting_id: &str) -> Vec<(String, String)> {
+        sqlx::query_as(
+            "SELECT ms.label, s.name FROM meeting_speakers ms
+             JOIN speakers s ON s.id = ms.speaker_id
+             WHERE ms.meeting_id = ? ORDER BY ms.label",
+        )
+        .bind(meeting_id)
+        .fetch_all(pool)
+        .await
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn deleting_a_meeting_removes_the_names_no_meeting_uses_any_more() {
+        let pool = migrated_pool().await;
+        seed_meeting_with_two_speakers(&pool, "meeting-1").await;
+        assign_name(&pool, "meeting-1", "speaker_0", "Alex").await;
+
+        let deleted = MeetingsRepository::delete_meeting(&pool, "meeting-1")
+            .await
+            .unwrap();
+
+        assert!(deleted);
+        assert!(
+            bindings(&pool, "meeting-1").await.is_empty(),
+            "the meeting's bindings go with it"
+        );
+        assert!(
+            speaker_names(&pool).await.is_empty(),
+            "the person nobody references any more is gone from the directory"
+        );
+
+        // The directory is read back through the command the picker uses, so an
+        // orphan would show up there.
+        let directory = crate::database::repositories::speaker::SpeakersRepository::search_names(
+            &pool, "", 20,
+        )
+        .await
+        .unwrap();
+        assert!(directory.is_empty(), "the orphan would be suggested again");
+    }
+
+    #[tokio::test]
+    async fn deleting_a_meeting_keeps_a_person_another_meeting_still_uses() {
+        let pool = migrated_pool().await;
+        seed_meeting_with_two_speakers(&pool, "meeting-1").await;
+        seed_second_meeting(&pool, "meeting-2").await;
+        assign_name(&pool, "meeting-1", "speaker_0", "Alex").await;
+        assign_name(&pool, "meeting-2", "speaker_0", "Alex").await;
+        assign_name(&pool, "meeting-2", "speaker_1", "Zoe").await;
+
+        MeetingsRepository::delete_meeting(&pool, "meeting-1")
+            .await
+            .unwrap();
+
+        assert_eq!(
+            speaker_names(&pool).await,
+            ["Alex", "Zoe"],
+            "a person another meeting still uses survives the deletion"
+        );
+        assert_eq!(
+            bindings(&pool, "meeting-2").await,
+            [
+                ("speaker_0".to_string(), "Alex".to_string()),
+                ("speaker_1".to_string(), "Zoe".to_string()),
+            ],
+            "the other meeting keeps its names"
         );
     }
 
