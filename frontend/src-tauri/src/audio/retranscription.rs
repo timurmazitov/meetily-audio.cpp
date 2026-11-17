@@ -6,12 +6,14 @@ use super::common::{
 };
 use super::transcription::diarization_service::{
     diarize_segments, unavailable_segments, DIARIZATION_UNAVAILABLE_MESSAGE,
+    SPEAKER_NAMES_RESET_EVENT, SPEAKER_NAMES_RESET_MESSAGE,
 };
 use super::transcription::engine::get_or_init_audio_cpp_provider_with_model;
 use super::transcription::provider::TranscriptionProvider;
 use crate::audio::decoder::decode_audio_file;
 use crate::audio::vad::get_speech_chunks_with_progress;
 use crate::config::{DEFAULT_PARAKEET_MODEL, DEFAULT_WHISPER_MODEL};
+use crate::database::repositories::speaker;
 use crate::parakeet_engine::ParakeetEngine;
 use crate::state::AppState;
 use crate::whisper_engine::WhisperEngine;
@@ -548,9 +550,25 @@ async fn run_retranscription<R: Runtime>(
         .map_err(|e| anyhow!("Failed to insert transcript: {}", e))?;
     }
 
+    // The labels were just rewritten from scratch, so names whose labels did
+    // not survive the recount must go with them, in the same transaction.
+    let reconcile = speaker::reconcile_meeting_speaker_assignments(&mut tx, &meeting_id)
+        .await
+        .map_err(|e| anyhow!("Failed to reconcile speaker names: {}", e))?;
+
     tx.commit()
         .await
         .map_err(|e| anyhow!("Failed to commit transaction: {}", e))?;
+
+    if reconcile.names_reset {
+        let _ = app.emit(
+            SPEAKER_NAMES_RESET_EVENT,
+            serde_json::json!({
+                "meeting_id": meeting_id,
+                "message": SPEAKER_NAMES_RESET_MESSAGE,
+            }),
+        );
+    }
 
     info!(
         "Updated {} transcripts for meeting {} in transaction",
