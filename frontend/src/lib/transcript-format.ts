@@ -29,6 +29,7 @@ export function isDiarizationSpeakerLabel(speaker: string | undefined): boolean 
  * Display label for a single segment's speaker: the assigned name, else
  * `Speaker N` (1-based, N taken from the `speaker_N` label suffix), else
  * `null` when the segment has no diarization label (no prefix at all).
+ * The name is used verbatim; an empty or whitespace-only name counts as absent.
  */
 export function formatSpeakerDisplayLabel(
   speaker: string | undefined,
@@ -37,8 +38,7 @@ export function formatSpeakerDisplayLabel(
   if (!speaker) return null;
   const match = DIARIZATION_LABEL.exec(speaker);
   if (!match) return null;
-  const name = speakerName?.trim();
-  if (name) return name;
+  if (speakerName && speakerName.trim()) return speakerName;
   return `Speaker ${Number(match[1]) + 1}`;
 }
 
