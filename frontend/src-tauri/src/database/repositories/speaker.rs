@@ -1,6 +1,6 @@
 // Speaker names: reading the speakers of a meeting and resolving the name for
 // a diarization label. `transcripts.speaker` stays the label (`speaker_N`);
-// a real name is a separate entity (see `.scratch/speaker-names/spec.md`).
+// a real name is a separate entity resolved through `meeting_speakers`.
 
 use chrono::Utc;
 use sqlx::{
