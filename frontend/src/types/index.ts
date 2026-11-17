@@ -18,6 +18,8 @@ export interface Transcript {
   duration?: number;          // Segment duration in seconds (e.g., 3.3)
   /** Diarization speaker label (`speaker_0`, `speaker_1`, …); absent when not diarized. */
   speaker?: string;
+  /** Assigned person's name for this segment's label; absent while unnamed. */
+  speaker_name?: string;
 }
 
 export interface TranscriptUpdate {
@@ -145,4 +147,6 @@ export interface TranscriptSegmentData {
   confidence?: number;
   /** Diarization speaker label (`speaker_0`, `speaker_1`, …); absent when not diarized. */
   speaker?: string;
+  /** Assigned person's name for this segment's label; absent while unnamed. */
+  speaker_name?: string;
 }
