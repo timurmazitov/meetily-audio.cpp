@@ -686,6 +686,16 @@ pub fn run() {
                 }
             });
 
+            // Preload the recordings base folder so the recording pipeline (which
+            // has no AppHandle) resolves the saved preference instead of the default.
+            let app_handle_for_recordings = _app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                match audio::recording_preferences::load_recording_preferences(&app_handle_for_recordings).await {
+                    Ok(prefs) => audio::recording_preferences::set_recordings_base_folder(prefs.save_folder),
+                    Err(e) => log::warn!("Failed to preload recording preferences, using default recordings folder: {}", e),
+                }
+            });
+
             // Initialize ModelManager for summary engine (async, non-blocking)
             let app_handle_for_model_manager = _app.handle().clone();
             tauri::async_runtime::spawn(async move {

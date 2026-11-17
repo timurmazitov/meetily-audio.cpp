@@ -91,6 +91,7 @@ interface ConfigContextType {
   storageLocations: StorageLocations | null;
   isLoadingPreferences: boolean;
   loadPreferences: () => Promise<void>;
+  refreshStorageLocations: () => Promise<void>;
   updateNotificationSettings: (settings: NotificationSettings) => Promise<void>;
 }
 
@@ -435,17 +436,18 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
         setNotificationSettings(null);
       }
 
-      // Load storage locations
-      const [dbDir, modelsDir, recordingsDir] = await Promise.all([
+      // Load storage locations (recordings folder comes from the saved preference,
+      // not from the platform default)
+      const [dbDir, modelsDir, recordingPrefs] = await Promise.all([
         invoke<string>('get_database_directory'),
         invoke<string>('whisper_get_models_directory'),
-        invoke<string>('get_default_recordings_folder_path')
+        invoke<{ save_folder: string }>('get_recording_preferences')
       ]);
 
       setStorageLocations({
         database: dbDir,
         models: modelsDir,
-        recordings: recordingsDir
+        recordings: recordingPrefs.save_folder
       });
 
       // Mark as loaded
@@ -455,6 +457,26 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     } finally {
       isLoadingRef.current = false;
       setIsLoadingPreferences(false);
+    }
+  }, []);
+
+  // Re-fetch storage locations only (e.g. after the recordings folder changed).
+  // Unlike loadPreferences, this bypasses the loaded-once cache.
+  const refreshStorageLocations = useCallback(async () => {
+    try {
+      const [dbDir, modelsDir, recordingPrefs] = await Promise.all([
+        invoke<string>('get_database_directory'),
+        invoke<string>('whisper_get_models_directory'),
+        invoke<{ save_folder: string }>('get_recording_preferences')
+      ]);
+
+      setStorageLocations({
+        database: dbDir,
+        models: modelsDir,
+        recordings: recordingPrefs.save_folder
+      });
+    } catch (error) {
+      console.error('[ConfigContext] Failed to refresh storage locations:', error);
     }
   }, []);
 
@@ -506,6 +528,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     storageLocations,
     isLoadingPreferences,
     loadPreferences,
+    refreshStorageLocations,
     updateNotificationSettings,
   }), [
     modelConfig,
@@ -529,6 +552,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     storageLocations,
     isLoadingPreferences,
     loadPreferences,
+    refreshStorageLocations,
     updateNotificationSettings,
   ]);
 

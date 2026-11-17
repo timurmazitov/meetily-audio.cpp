@@ -7,6 +7,7 @@ use tauri_plugin_store::StoreExt;
 use anyhow::Result;
 #[cfg(target_os = "macos")]
 use log::error;
+use std::sync::Mutex;
 
 #[cfg(target_os = "macos")]
 use crate::audio::capture::AudioCaptureBackend;
@@ -275,6 +276,47 @@ pub fn ensure_recordings_directory(path: &PathBuf) -> Result<()> {
     Ok(())
 }
 
+/// Effective base folder for new recordings, mirrored from the saved
+/// `RecordingPreferences.save_folder`. The recording pipeline has no `AppHandle`,
+/// so it resolves this synchronously; the cache is filled at startup and refreshed
+/// on every successful save (same pattern as the engines' `MODELS_DIR`).
+static RECORDINGS_BASE_FOLDER: Mutex<Option<PathBuf>> = Mutex::new(None);
+
+pub fn set_recordings_base_folder(path: PathBuf) {
+    *RECORDINGS_BASE_FOLDER.lock().unwrap() = Some(path);
+}
+
+/// Resolve the base folder for new recordings: the saved preference if loaded,
+/// otherwise the platform default.
+pub fn get_recordings_base_folder() -> PathBuf {
+    RECORDINGS_BASE_FOLDER
+        .lock()
+        .unwrap()
+        .clone()
+        .unwrap_or_else(get_default_recordings_folder)
+}
+
+/// Validate a user-picked recordings folder: create it if missing and verify
+/// that a file can actually be written into it.
+pub fn validate_recordings_folder(path: &PathBuf) -> Result<(), String> {
+    ensure_recordings_directory(path).map_err(|e| format!("Cannot create folder: {}", e))?;
+    let probe = path.join(".samobranka-write-test");
+    std::fs::write(&probe, b"test").map_err(|e| format!("Folder is not writable: {}", e))?;
+    let _ = std::fs::remove_file(&probe);
+    Ok(())
+}
+
+/// Available space on the disk holding `path`, if it can be determined.
+fn free_space_for(path: &PathBuf) -> Option<u64> {
+    let canonical = std::fs::canonicalize(path).ok()?;
+    let disks = sysinfo::Disks::new_with_refreshed_list();
+    disks
+        .iter()
+        .filter(|disk| canonical.starts_with(disk.mount_point()))
+        .max_by_key(|disk| disk.mount_point().components().count())
+        .map(|disk| disk.available_space())
+}
+
 /// Generate a unique filename for a recording
 pub fn generate_recording_filename(format: &str) -> String {
     let now = chrono::Utc::now();
@@ -393,6 +435,9 @@ pub async fn save_recording_preferences<R: Runtime>(
 
     info!("Successfully persisted recording preferences to disk");
 
+    // Keep the synchronous base-folder cache in sync for the recording pipeline.
+    set_recordings_base_folder(preferences.save_folder.clone());
+
     // Save backend preference to global config
     #[cfg(target_os = "macos")]
     if let Some(backend_str) = &preferences.system_audio_backend {
@@ -474,15 +519,38 @@ pub async fn open_recordings_folder<R: Runtime>(app: AppHandle<R>) -> Result<(),
     Ok(())
 }
 
+/// Folder picked by the user for new recordings, with the free space of its disk
+/// so the frontend can warn before committing to the change.
+#[derive(Serialize)]
+pub struct SelectedRecordingsFolder {
+    pub path: String,
+    pub free_bytes: u64,
+}
+
 #[tauri::command]
 pub async fn select_recording_folder<R: Runtime>(
-    _app: AppHandle<R>,
-) -> Result<Option<String>, String> {
-    // Use Tauri's dialog to select folder
-    // For now, return None - this would need to be implemented with tauri-plugin-dialog
-    // when it's available in the Cargo.toml
-    warn!("Folder selection not yet implemented - using dialog plugin");
-    Ok(None)
+    app: AppHandle<R>,
+) -> Result<Option<SelectedRecordingsFolder>, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let picked = app.dialog().file().blocking_pick_folder();
+    let Some(file_path) = picked else {
+        info!("User cancelled folder selection");
+        return Ok(None);
+    };
+
+    let path = PathBuf::from(file_path.to_string());
+    validate_recordings_folder(&path)?;
+    let free_bytes = free_space_for(&path).unwrap_or(0);
+    info!(
+        "Selected recordings folder: {} ({} bytes free)",
+        path.display(),
+        free_bytes
+    );
+    Ok(Some(SelectedRecordingsFolder {
+        path: path.to_string_lossy().to_string(),
+        free_bytes,
+    }))
 }
 
 // Backend selection commands
@@ -613,6 +681,51 @@ pub async fn get_audio_backend_info() -> Result<Vec<BackendInfo>, String> {
             name: "ScreenCaptureKit".to_string(),
             description: "Default system audio capture".to_string(),
         }])
+    }
+}
+
+#[cfg(test)]
+mod folder_validation_tests {
+    use super::*;
+
+    #[test]
+    fn validate_creates_missing_folder_and_cleans_up_probe() {
+        let root = std::env::temp_dir().join(format!(
+            "samobranka-validate-test-{}",
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ));
+        let nested = root.join("nested").join("recordings");
+        assert!(!nested.exists());
+
+        validate_recordings_folder(&nested).expect("validation should succeed");
+
+        assert!(nested.is_dir());
+        assert!(!nested.join(".samobranka-write-test").exists());
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn validate_rejects_unwritable_location() {
+        if cfg!(windows) {
+            // Permission bits are not enforced the same way on Windows; skip.
+            return;
+        }
+        let root = std::env::temp_dir().join(format!(
+            "samobranka-validate-ro-{}",
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ));
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::create_dir_all(&root).unwrap();
+        let mut perms = std::fs::metadata(&root).unwrap().permissions();
+        perms.set_readonly(true);
+        std::fs::set_permissions(&root, perms).unwrap();
+
+        assert!(validate_recordings_folder(&root).is_err());
+
+        let mut perms = std::fs::metadata(&root).unwrap().permissions();
+        perms.set_readonly(false);
+        std::fs::set_permissions(&root, perms).unwrap();
+        std::fs::remove_dir_all(&root).ok();
     }
 }
 

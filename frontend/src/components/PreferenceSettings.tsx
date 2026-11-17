@@ -2,9 +2,18 @@
 
 import { useEffect, useState } from "react"
 import { Switch } from "./ui/switch"
-import { FolderOpen } from "lucide-react"
+import { FolderOpen, FolderCog } from "lucide-react"
 import { invoke } from "@tauri-apps/api/core"
+import { toast } from "sonner"
 import { useConfig, NotificationSettings } from "@/contexts/ConfigContext"
+
+interface SelectedRecordingsFolder {
+  path: string;
+  free_bytes: number;
+}
+
+// Warn (not block) when the target disk has less than this much free space.
+const LOW_SPACE_THRESHOLD_BYTES = 1 * 1024 * 1024 * 1024; // 1 GB
 
 export function PreferenceSettings() {
   const {
@@ -12,12 +21,14 @@ export function PreferenceSettings() {
     storageLocations,
     isLoadingPreferences,
     loadPreferences,
+    refreshStorageLocations,
     updateNotificationSettings
   } = useConfig();
 
   const [notificationsEnabled, setNotificationsEnabled] = useState<boolean | null>(null);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [previousNotificationsEnabled, setPreviousNotificationsEnabled] = useState<boolean | null>(null);
+  const [isChoosingFolder, setIsChoosingFolder] = useState(false);
 
   // Lazy load preferences on mount (only loads if not already cached)
   useEffect(() => {
@@ -77,12 +88,9 @@ export function PreferenceSettings() {
     handleUpdateNotificationSettings();
   }, [notificationsEnabled, notificationSettings, isInitialLoad, previousNotificationsEnabled, updateNotificationSettings])
 
-  const handleOpenFolder = async (folderType: 'database' | 'models' | 'recordings') => {
+  const handleOpenFolder = async (folderType: 'models' | 'recordings') => {
     try {
       switch (folderType) {
-        case 'database':
-          await invoke('open_database_folder');
-          break;
         case 'models':
           await invoke('open_models_folder');
           break;
@@ -92,6 +100,38 @@ export function PreferenceSettings() {
       }
     } catch (error) {
       console.error(`Failed to open ${folderType} folder:`, error);
+    }
+  };
+
+  const handleChooseRecordingsFolder = async () => {
+    if (isChoosingFolder) return;
+    setIsChoosingFolder(true);
+    try {
+      const selected = await invoke<SelectedRecordingsFolder | null>('select_recording_folder');
+      if (!selected) return; // user cancelled
+
+      const prefs = await invoke<{ save_folder: string } & Record<string, unknown>>('get_recording_preferences');
+      await invoke('set_recording_preferences', {
+        preferences: { ...prefs, save_folder: selected.path }
+      });
+      await refreshStorageLocations();
+
+      if (selected.free_bytes > 0 && selected.free_bytes < LOW_SPACE_THRESHOLD_BYTES) {
+        toast.warning('Low disk space', {
+          description: `Less than 1 GB free on the selected drive. New recordings are saved there.`,
+        });
+      } else {
+        toast.success('Recordings folder updated', {
+          description: 'Applies to new recordings. Existing recordings stay in their current locations.',
+        });
+      }
+    } catch (error) {
+      console.error('Failed to choose recordings folder:', error);
+      toast.error('Failed to update recordings folder', {
+        description: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setIsChoosingFolder(false);
     }
   };
 
@@ -129,24 +169,9 @@ export function PreferenceSettings() {
         </p>
 
         <div className="space-y-4">
-          {/* Database Location */}
-          {/* <div className="p-4 border rounded-lg bg-gray-50">
-            <div className="font-medium mb-2">Database</div>
-            <div className="text-sm text-gray-600 mb-3 break-all font-mono text-xs">
-              {storageLocations?.database || 'Loading...'}
-            </div>
-            <button
-              onClick={() => handleOpenFolder('database')}
-              className="flex items-center gap-2 px-3 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-100 transition-colors"
-            >
-              <FolderOpen className="w-4 h-4" />
-              Open Folder
-            </button>
-          </div> */}
-
-          {/* Models Location */}
-          {/* <div className="p-4 border rounded-lg bg-gray-50">
-            <div className="font-medium mb-2">Whisper Models</div>
+          {/* Models Location (informational — derived from the app data directory) */}
+          <div className="p-4 border rounded-lg bg-gray-50">
+            <div className="font-medium mb-2">Models</div>
             <div className="text-sm text-gray-600 mb-3 break-all font-mono text-xs">
               {storageLocations?.models || 'Loading...'}
             </div>
@@ -157,7 +182,7 @@ export function PreferenceSettings() {
               <FolderOpen className="w-4 h-4" />
               Open Folder
             </button>
-          </div> */}
+          </div>
 
           {/* Recordings Location */}
           <div className="p-4 border rounded-lg bg-gray-50">
@@ -165,13 +190,26 @@ export function PreferenceSettings() {
             <div className="text-sm text-gray-600 mb-3 break-all font-mono text-xs">
               {storageLocations?.recordings || 'Loading...'}
             </div>
-            <button
-              onClick={() => handleOpenFolder('recordings')}
-              className="flex items-center gap-2 px-3 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-100 transition-colors"
-            >
-              <FolderOpen className="w-4 h-4" />
-              Open Folder
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleChooseRecordingsFolder}
+                disabled={isChoosingFolder}
+                className="flex items-center gap-2 px-3 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-100 transition-colors disabled:opacity-50"
+              >
+                <FolderCog className="w-4 h-4" />
+                {isChoosingFolder ? 'Choosing...' : 'Choose...'}
+              </button>
+              <button
+                onClick={() => handleOpenFolder('recordings')}
+                className="flex items-center gap-2 px-3 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-100 transition-colors"
+              >
+                <FolderOpen className="w-4 h-4" />
+                Open Folder
+              </button>
+            </div>
+            <p className="text-xs text-gray-500 mt-2">
+              Applies to new recordings. Existing recordings stay in their current locations.
+            </p>
           </div>
         </div>
 

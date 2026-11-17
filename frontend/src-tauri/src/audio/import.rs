@@ -22,7 +22,7 @@ use super::common::{
     create_transcript_segments, split_segment_at_silence, write_transcripts_json, BatchEngine,
 };
 use super::constants::AUDIO_EXTENSIONS;
-use super::recording_preferences::get_default_recordings_folder;
+use super::recording_preferences::{get_default_recordings_folder, load_recording_preferences};
 use super::transcription::diarization_service::{
     diarize_segments, unavailable_segments, DIARIZATION_UNAVAILABLE_MESSAGE,
 };
@@ -334,8 +334,15 @@ async fn run_import<R: Runtime>(
         return Err(anyhow!("Import cancelled"));
     }
 
-    // Create meeting folder
-    let base_folder = get_default_recordings_folder();
+    // Create meeting folder under the saved recordings folder preference
+    // (fallback to the platform default if preferences cannot be loaded)
+    let base_folder = load_recording_preferences(&app)
+        .await
+        .map(|prefs| prefs.save_folder)
+        .unwrap_or_else(|e| {
+            log::warn!("Failed to load recording preferences, using default folder: {}", e);
+            get_default_recordings_folder()
+        });
     let meeting_folder = create_meeting_folder(&base_folder, &title, false)?;
 
     // Copy audio file to meeting folder
