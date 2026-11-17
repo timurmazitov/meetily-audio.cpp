@@ -7,12 +7,15 @@ import { useRecordingState } from './RecordingStateContext';
 import { transcriptService } from '@/services/transcriptService';
 import { recordingService } from '@/services/recordingService';
 import { indexedDBService } from '@/services/indexedDBService';
+import { formatTranscriptText } from '@/lib/transcript-format';
+import { exportTranscriptToFile } from '@/lib/transcript-export';
 
 interface TranscriptContextType {
   transcripts: Transcript[];
   transcriptsRef: MutableRefObject<Transcript[]>
   addTranscript: (update: TranscriptUpdate) => void;
   copyTranscript: () => void;
+  exportTranscript: () => Promise<void>;
   flushBuffer: () => void;
   transcriptContainerRef: React.RefObject<HTMLDivElement>;
   meetingTitle: string;
@@ -455,22 +458,27 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
 
   // Copy transcript to clipboard with recording-relative timestamps
   const copyTranscript = useCallback(() => {
-    // Format timestamps as recording-relative [MM:SS] instead of wall-clock time
-    const formatTime = (seconds: number | undefined): string => {
-      if (seconds === undefined) return '[--:--]';
-      const totalSecs = Math.floor(seconds);
-      const mins = Math.floor(totalSecs / 60);
-      const secs = totalSecs % 60;
-      return `[${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}]`;
-    };
-
-    const fullTranscript = transcripts
-      .map(t => `${formatTime(t.audio_start_time)} ${t.text}`)
-      .join('\n');
+    const fullTranscript = formatTranscriptText(transcripts);
     navigator.clipboard.writeText(fullTranscript);
 
     toast.success("Transcript copied to clipboard");
   }, [transcripts]);
+
+  // Export transcript to a file via the native save dialog.
+  // The file content is identical to what Copy puts on the clipboard.
+  const exportTranscript = useCallback(async () => {
+    if (!transcripts.length) {
+      toast.error('No transcripts available to export');
+      return;
+    }
+
+    const fullTranscript = formatTranscriptText(transcripts);
+    const defaultName = meetingTitle?.trim() && meetingTitle !== '+ New Call'
+      ? meetingTitle.trim()
+      : 'transcript';
+
+    await exportTranscriptToFile(fullTranscript, `${defaultName}.txt`);
+  }, [transcripts, meetingTitle]);
 
   // Force flush buffer (for final transcript processing)
   const flushBuffer = useCallback(() => {
@@ -514,6 +522,7 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
     transcriptsRef,
     addTranscript,
     copyTranscript,
+    exportTranscript,
     flushBuffer,
     transcriptContainerRef,
     meetingTitle,

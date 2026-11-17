@@ -3,7 +3,7 @@
 import { useState, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { ButtonGroup } from '@/components/ui/button-group';
-import { Copy, FolderOpen, RefreshCw } from 'lucide-react';
+import { Copy, Download, FolderOpen, RefreshCw } from 'lucide-react';
 import { RetranscribeDialog } from './RetranscribeDialog';
 import { useConfig } from '@/contexts/ConfigContext';
 
@@ -11,6 +11,7 @@ import { useConfig } from '@/contexts/ConfigContext';
 interface TranscriptButtonGroupProps {
   transcriptCount: number;
   onCopyTranscript: () => void;
+  onExportTranscript: () => void;
   onOpenMeetingFolder: () => Promise<void>;
   meetingId?: string;
   meetingFolderPath?: string | null;
@@ -21,6 +22,7 @@ interface TranscriptButtonGroupProps {
 export function TranscriptButtonGroup({
   transcriptCount,
   onCopyTranscript,
+  onExportTranscript,
   onOpenMeetingFolder,
   meetingId,
   meetingFolderPath,
@@ -51,6 +53,20 @@ export function TranscriptButtonGroup({
         >
           <Copy />
           <span className="hidden @[22rem]:inline">Copy</span>
+        </Button>
+
+        <Button
+          variant="outline"
+          size="sm"
+          className="px-2 @[22rem]:px-3"
+          onClick={() => {
+            onExportTranscript();
+          }}
+          disabled={transcriptCount === 0}
+          title={transcriptCount === 0 ? 'No transcript available' : 'Export Transcript'}
+        >
+          <Download />
+          <span className="hidden @[22rem]:inline">Export</span>
         </Button>
 
         <Button

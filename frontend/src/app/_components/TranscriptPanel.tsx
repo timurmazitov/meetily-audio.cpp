@@ -2,7 +2,7 @@ import { VirtualizedTranscriptView } from '@/components/VirtualizedTranscriptVie
 import { PermissionWarning } from '@/components/PermissionWarning';
 import { Button } from '@/components/ui/button';
 import { ButtonGroup } from '@/components/ui/button-group';
-import { Copy, GlobeIcon } from 'lucide-react';
+import { Copy, Download, GlobeIcon } from 'lucide-react';
 import { useTranscripts } from '@/contexts/TranscriptContext';
 import { useConfig } from '@/contexts/ConfigContext';
 import { useRecordingState } from '@/contexts/RecordingStateContext';
@@ -31,7 +31,7 @@ export function TranscriptPanel({
   showModal
 }: TranscriptPanelProps) {
   // Contexts
-  const { transcripts, transcriptContainerRef, copyTranscript } = useTranscripts();
+  const { transcripts, transcriptContainerRef, copyTranscript, exportTranscript } = useTranscripts();
   const { transcriptModelConfig } = useConfig();
   const { isRecording, isPaused } = useRecordingState();
   const { checkPermissions, isChecking, hasSystemAudio, hasMicrophone } = usePermissionCheck();
@@ -68,6 +68,19 @@ export function TranscriptPanel({
                     <Copy />
                     <span className='hidden md:inline'>
                       Copy
+                    </span>
+                  </Button>
+                )}
+                {transcripts?.length > 0 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={exportTranscript}
+                    title="Export Transcript"
+                  >
+                    <Download />
+                    <span className='hidden md:inline'>
+                      Export
                     </span>
                   </Button>
                 )}

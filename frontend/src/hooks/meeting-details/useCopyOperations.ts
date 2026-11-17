@@ -4,6 +4,8 @@ import { BlockNoteSummaryViewRef } from '@/components/AISummary/BlockNoteSummary
 import { toast } from 'sonner';
 import { invoke as invokeTauri } from '@tauri-apps/api/core';
 import { hasVisibleSummaryContent } from '@/lib/summary-content';
+import { formatTranscriptText } from '@/lib/transcript-format';
+import { exportTranscriptToFile } from '@/lib/transcript-export';
 
 interface UseCopyOperationsProps {
   meeting: any;
@@ -56,9 +58,9 @@ export function useCopyOperations({
     }
   }, []);
 
-  // Copy transcript to clipboard
-  const handleCopyTranscript = useCallback(async () => {
-    // CHANGE: Fetch ALL transcripts from database, not from pagination state
+  // Build the full transcript text (header + segments) for copy/export.
+  // Shared so the Export button saves exactly what Copy puts on the clipboard.
+  const buildTranscriptText = useCallback(async (): Promise<string | null> => {
     console.log('📊 Fetching all transcripts for copying...');
     const allTranscripts = await fetchAllTranscripts(meeting.id);
 
@@ -66,33 +68,38 @@ export function useCopyOperations({
       const error_msg = 'No transcripts available to copy';
       console.log(error_msg);
       toast.error(error_msg);
-      return;
+      return null;
     }
 
-    console.log(`✅ Copying ${allTranscripts.length} transcripts to clipboard`);
-
-    // Format timestamps as recording-relative [MM:SS] instead of wall-clock time
-    const formatTime = (seconds: number | undefined, fallbackTimestamp: string): string => {
-      if (seconds === undefined) {
-        // For old transcripts without audio_start_time, use wall-clock time
-        return fallbackTimestamp;
-      }
-      const totalSecs = Math.floor(seconds);
-      const mins = Math.floor(totalSecs / 60);
-      const secs = totalSecs % 60;
-      return `[${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}]`;
-    };
+    console.log(`✅ Formatting ${allTranscripts.length} transcripts`);
 
     const header = `# Transcript of the Meeting: ${meeting.id} - ${meetingTitle ?? meeting.title}\n\n`;
     const date = `## Date: ${new Date(meeting.created_at).toLocaleDateString()}\n\n`;
-    const fullTranscript = allTranscripts
-      .map(t => `${formatTime(t.audio_start_time, t.timestamp)} ${t.text}  `)
-      .join('\n');
 
-    await navigator.clipboard.writeText(header + date + fullTranscript);
-    toast.success("Transcript copied to clipboard");
-
+    return formatTranscriptText(allTranscripts, {
+      header: header + date,
+      fallbackTimestamp: t => t.timestamp,
+      markdownLineBreaks: true,
+    });
   }, [meeting, meetingTitle, fetchAllTranscripts]);
+
+  // Copy transcript to clipboard
+  const handleCopyTranscript = useCallback(async () => {
+    const text = await buildTranscriptText();
+    if (!text) return;
+
+    await navigator.clipboard.writeText(text);
+    toast.success("Transcript copied to clipboard");
+  }, [buildTranscriptText]);
+
+  // Export transcript to a file via the native save dialog.
+  // The file content is identical to what Copy puts on the clipboard.
+  const handleExportTranscript = useCallback(async () => {
+    const text = await buildTranscriptText();
+    if (!text) return;
+
+    await exportTranscriptToFile(text, `${meetingTitle ?? meeting.title}.txt`);
+  }, [buildTranscriptText, meetingTitle]);
 
   // Copy summary to clipboard
   const handleCopySummary = useCallback(async () => {
@@ -179,6 +186,7 @@ export function useCopyOperations({
 
   return {
     handleCopyTranscript,
+    handleExportTranscript,
     handleCopySummary,
   };
 }
