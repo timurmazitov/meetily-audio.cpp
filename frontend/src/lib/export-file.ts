@@ -57,7 +57,10 @@ export const EXPORT_KINDS: Record<ExportKind, ExportKindDescriptor> = {
 const CLIPBOARD_FAILURE_MESSAGE = 'Saved, but could not copy the path';
 
 export interface ExportFileNameOptions {
-  /** Local meeting date: a created_at string, a Date, or nothing. */
+  /**
+   * Local meeting date (GLOSSARY: «дата встречи», `recorded_at`): an RFC3339
+   * string, a date-only `YYYY-MM-DD`, a `Date`, or nothing. Never `created_at`.
+   */
   date?: string | Date | null;
   /** Meeting title as shown to the user. */
   title?: string | null;

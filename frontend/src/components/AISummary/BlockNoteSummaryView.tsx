@@ -24,6 +24,8 @@ interface BlockNoteSummaryViewProps {
     id: string;
     title: string;
     created_at: string;
+    /** The meeting's own moment (RFC3339), preferred over `created_at`. */
+    recorded_at?: string | null;
   };
   onDirtyChange?: (isDirty: boolean) => void;
 }

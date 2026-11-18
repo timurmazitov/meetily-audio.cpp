@@ -28,17 +28,18 @@ mod tests {
     }
 
     const SPEAKER_NAMES_MIGRATION_VERSION: i64 = 20_261_118_000_000;
+    const MEETING_DATE_COLUMNS_MIGRATION_VERSION: i64 = 20_261_119_000_000;
 
-    /// Applies the chain up to (but excluding) the speaker-names migration, so
-    /// a test can seed rows that existed before names were introduced.
-    async fn migrated_pool_before_speaker_names() -> SqlitePool {
+    /// Applies the chain up to (but excluding) the given migration, so a test
+    /// can seed rows that existed before a later migration introduced columns.
+    async fn migrated_pool_before(version: i64) -> SqlitePool {
         let pool = empty_pool().await;
         let all = sqlx::migrate!("./migrations");
         let older = sqlx::migrate::Migrator {
             migrations: std::borrow::Cow::Owned(
                 all.migrations
                     .iter()
-                    .filter(|migration| migration.version < SPEAKER_NAMES_MIGRATION_VERSION)
+                    .filter(|migration| migration.version < version)
                     .cloned()
                     .collect(),
             ),
@@ -47,8 +48,14 @@ mod tests {
         older
             .run(&pool)
             .await
-            .expect("pre-speaker-names migrations apply");
+            .expect("the migrations older than the target version apply");
         pool
+    }
+
+    /// Applies the chain up to (but excluding) the speaker-names migration, so
+    /// a test can seed rows that existed before names were introduced.
+    async fn migrated_pool_before_speaker_names() -> SqlitePool {
+        migrated_pool_before(SPEAKER_NAMES_MIGRATION_VERSION).await
     }
 
     async fn apply_full_migration_chain(pool: &SqlitePool) {
@@ -345,8 +352,60 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn speaker_labels_round_trip_through_the_transcript_repository() {
-        use crate::api::TranscriptSegment;
+    async fn meeting_date_columns_leave_legacy_rows_readable_as_unknown() {
+        use crate::database::repositories::meeting::MeetingsRepository;
+
+        let pool = migrated_pool_before(MEETING_DATE_COLUMNS_MIGRATION_VERSION).await;
+
+        sqlx::query("INSERT INTO meetings (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)")
+            .bind("meeting-legacy")
+            .bind("Legacy meeting")
+            .bind("2024-05-06T07:08:09Z")
+            .bind("2024-05-06T07:08:09Z")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        apply_full_migration_chain(&pool).await;
+
+        let row = sqlx::query(
+            "SELECT created_at, recorded_at, duration_seconds FROM meetings WHERE id = 'meeting-legacy'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(
+            row.get::<Option<String>, _>("recorded_at").is_none(),
+            "a legacy row has no meeting date: NULL, never a substituted moment"
+        );
+        assert!(
+            row.get::<Option<f64>, _>("duration_seconds").is_none(),
+            "a legacy row has no duration: NULL, never zero"
+        );
+        assert_eq!(
+            row.get::<String, _>("created_at"),
+            "2024-05-06T07:08:09Z",
+            "created_at keeps its value and meaning"
+        );
+
+        // The list reads through the repository, so reading must not fail on
+        // rows the migration only just extended.
+        let meetings = MeetingsRepository::get_meetings(&pool).await.unwrap();
+        assert_eq!(meetings.len(), 1);
+        assert_eq!(
+            meetings[0].recorded_at.as_ref().map(|d| d.0.to_rfc3339()),
+            None
+        );
+        assert_eq!(meetings[0].duration_seconds, None);
+        assert_eq!(
+            meetings[0].created_at.0.to_rfc3339(),
+            "2024-05-06T07:08:09+00:00",
+            "the legacy created_at is unchanged"
+        );
+    }
+
+    #[tokio::test]
+    async fn speaker_labels_round_trip_through_the_transcript_repository() {        use crate::api::TranscriptSegment;
         use crate::database::repositories::transcript::TranscriptsRepository;
 
         let pool = migrated_pool().await;

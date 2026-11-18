@@ -27,10 +27,18 @@ pub struct ApiResponse<T> {
     pub error: Option<String>,
 }
 
+/// One row of the meeting list. `id` and `title` are unchanged; the meeting's
+/// own moment (GLOSSARY: «дата встречи») and length are additive fields, so an
+/// older frontend keeps working and an unknown value is simply absent.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Meeting {
     pub id: String,
     pub title: String,
+    /// RFC3339 moment of the meeting itself, not of the row's creation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recorded_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_seconds: Option<f64>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -126,6 +134,13 @@ pub struct MeetingDetails {
     /// Recording folder, used by post-transcription diarization.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub folder_path: Option<String>,
+    /// The meeting's own moment (GLOSSARY: «дата встречи»), additive: absent
+    /// while unknown, never the row's `created_at` and never a substituted "now".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recorded_at: Option<String>,
+    /// Meeting length in seconds, additive. Absent while unknown, never zero.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_seconds: Option<f64>,
     pub transcripts: Vec<MeetingTranscript>,
 }
 
@@ -160,6 +175,11 @@ pub struct MeetingMetadata {
     pub updated_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub folder_path: Option<String>,
+    /// The meeting's own moment (GLOSSARY: «дата встречи»), additive. Absent
+    /// while unknown, so the panel header can omit the date instead of showing
+    /// the row's creation time or a substituted "now".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recorded_at: Option<String>,
 }
 
 /// Paginated transcripts response with total count
@@ -424,6 +444,8 @@ pub async fn api_get_meetings<R: Runtime>(
                 .map(|m| Meeting {
                     id: m.id,
                     title: m.title,
+                    recorded_at: m.recorded_at.map(|moment| moment.0.to_rfc3339()),
+                    duration_seconds: m.duration_seconds,
                 })
                 .collect();
             Ok(result)
@@ -939,6 +961,7 @@ pub async fn api_get_meeting_metadata<R: Runtime>(
                 created_at: meeting.created_at.0.to_rfc3339(),
                 updated_at: meeting.updated_at.0.to_rfc3339(),
                 folder_path: meeting.folder_path,
+                recorded_at: meeting.recorded_at.map(|moment| moment.0.to_rfc3339()),
             })
         }
         Ok(None) => {
@@ -1220,7 +1243,7 @@ pub async fn open_meeting_folder<R: Runtime>(
 
     // Get meeting with folder_path
     let meeting: Option<MeetingModel> = sqlx::query_as(
-        "SELECT id, title, created_at, updated_at, folder_path FROM meetings WHERE id = ?",
+        "SELECT id, title, created_at, updated_at, folder_path, recorded_at, duration_seconds FROM meetings WHERE id = ?",
     )
     .bind(&meeting_id)
     .fetch_optional(pool)
@@ -1607,6 +1630,106 @@ pub async fn api_test_custom_openai_connection<R: Runtime>(
 }
 
 #[cfg(test)]
+mod meeting_details_contract_tests {
+    use super::{MeetingDetails, MeetingTranscript};
+
+    fn details(recorded_at: Option<&str>, duration_seconds: Option<f64>) -> MeetingDetails {
+        MeetingDetails {
+            id: "meeting-1".into(),
+            title: "Planning call".into(),
+            created_at: "2026-11-18T21:00:00+07:00".into(),
+            updated_at: "2026-11-18T21:00:00+07:00".into(),
+            folder_path: None,
+            recorded_at: recorded_at.map(str::to_owned),
+            duration_seconds,
+            transcripts: vec![MeetingTranscript {
+                id: "t-0".into(),
+                text: "Hello".into(),
+                timestamp: "2024-01-01T00:00:00Z".into(),
+                audio_start_time: Some(0.0),
+                audio_end_time: Some(1.0),
+                duration: Some(1.0),
+                speaker: None,
+                speaker_name: None,
+            }],
+        }
+    }
+
+    /// `api_get_meeting` is the second way into an open meeting; it must carry
+    /// the same meeting moment and length the metadata payload does.
+    #[test]
+    fn the_meeting_details_carry_the_moment_and_length() {
+        let json = serde_json::to_value(details(
+            Some("2026-11-18T14:32:05+00:00"),
+            Some(4_975.5),
+        ))
+        .unwrap();
+
+        assert_eq!(json["recorded_at"], "2026-11-18T14:32:05+00:00");
+        assert_eq!(json["duration_seconds"], 4_975.5);
+        assert_eq!(
+            json["created_at"], "2026-11-18T21:00:00+07:00",
+            "created_at stays the audit field"
+        );
+    }
+
+    /// Unknown values stay absent, exactly as in the metadata and list payloads:
+    /// a reader can tell "no date" from "a date", and no zero is invented.
+    #[test]
+    fn an_unknown_moment_and_length_are_left_out_of_the_details() {
+        let json = serde_json::to_value(details(None, None)).unwrap();
+
+        assert!(json.get("recorded_at").is_none(), "unknown is absent, not null");
+        assert!(
+            json.get("duration_seconds").is_none(),
+            "zero is never invented"
+        );
+    }
+}
+
+#[cfg(test)]
+mod meeting_metadata_contract_tests {
+    use super::MeetingMetadata;
+
+    /// The open meeting's header reads its date from this payload, so the
+    /// meeting's own moment must arrive here — not the row's `created_at`.
+    #[test]
+    fn the_open_meeting_metadata_carries_the_meeting_moment() {
+        let metadata = MeetingMetadata {
+            id: "meeting-1".into(),
+            title: "Planning call".into(),
+            created_at: "2026-11-18T21:00:00+07:00".into(),
+            updated_at: "2026-11-18T21:00:00+07:00".into(),
+            folder_path: None,
+            recorded_at: Some("2026-11-18T14:32:05+00:00".into()),
+        };
+
+        let json = serde_json::to_value(metadata).unwrap();
+
+        assert_eq!(json["recorded_at"], "2026-11-18T14:32:05+00:00");
+        assert_eq!(json["created_at"], "2026-11-18T21:00:00+07:00");
+    }
+
+    /// An unknown date is absent, never `null` and never a substituted moment:
+    /// the header must be able to tell "no date" from "a date".
+    #[test]
+    fn an_unknown_moment_is_left_out_of_the_metadata() {
+        let metadata = MeetingMetadata {
+            id: "meeting-1".into(),
+            title: "Old call".into(),
+            created_at: "2026-11-18T21:00:00+07:00".into(),
+            updated_at: "2026-11-18T21:00:00+07:00".into(),
+            folder_path: None,
+            recorded_at: None,
+        };
+
+        let json = serde_json::to_value(metadata).unwrap();
+
+        assert!(json.get("recorded_at").is_none(), "unknown is absent, not null");
+    }
+}
+
+#[cfg(test)]
 mod speaker_panel_contract_tests {
     use super::{MeetingSpeaker, SpeakerAssignment, SpeakerNameEntry};
 
@@ -1727,6 +1850,67 @@ mod meeting_transcript_contract_tests {
         .unwrap();
         assert_eq!(legacy.speaker.as_deref(), Some("speaker_0"));
         assert_eq!(legacy.speaker_name, None);
+    }
+}
+
+#[cfg(test)]
+mod meeting_list_contract_tests {
+    use super::Meeting;
+
+    #[test]
+    fn a_listed_meeting_carries_its_moment_and_length() {
+        let json = serde_json::to_value(Meeting {
+            id: "meeting-1".into(),
+            title: "Planning call".into(),
+            recorded_at: Some("2026-11-18T14:32:05+00:00".into()),
+            duration_seconds: Some(4_975.5),
+        })
+        .unwrap();
+
+        assert_eq!(
+            json,
+            serde_json::json!({
+                "id": "meeting-1",
+                "title": "Planning call",
+                "recorded_at": "2026-11-18T14:32:05+00:00",
+                "duration_seconds": 4975.5,
+            })
+        );
+    }
+
+    #[test]
+    fn an_unknown_moment_and_length_are_left_out_of_the_list_row() {
+        let json = serde_json::to_value(Meeting {
+            id: "meeting-1".into(),
+            title: "Old call".into(),
+            recorded_at: None,
+            duration_seconds: None,
+        })
+        .unwrap();
+
+        assert_eq!(json, serde_json::json!({"id": "meeting-1", "title": "Old call"}));
+        assert!(json.get("recorded_at").is_none(), "unknown is absent, not null");
+        assert!(json.get("duration_seconds").is_none(), "zero is never invented");
+    }
+
+    #[test]
+    fn a_row_with_only_a_duration_stays_readable() {
+        let json = serde_json::to_value(Meeting {
+            id: "meeting-1".into(),
+            title: "Half-known call".into(),
+            recorded_at: None,
+            duration_seconds: Some(61.0),
+        })
+        .unwrap();
+
+        assert_eq!(
+            json,
+            serde_json::json!({
+                "id": "meeting-1",
+                "title": "Half-known call",
+                "duration_seconds": 61.0,
+            })
+        );
     }
 }
 

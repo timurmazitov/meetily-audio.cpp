@@ -220,11 +220,13 @@ export default function PageContent({
               onRefetchTranscripts={onRefetchTranscripts}
               meetingSpeakers={meetingSpeakers}
               onSpeakerChanged={onSpeakerChanged}
+              meetingDate={meeting.recorded_at}
             />
           }
           summary={
             <SummaryPanel
               meeting={meeting}
+              meetingDate={meeting.recorded_at}
               meetingTitle={meetingData.meetingTitle}
               summaryRef={meetingData.blockNoteSummaryRef}
               isSaving={meetingData.isSaving}

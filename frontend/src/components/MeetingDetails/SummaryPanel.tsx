@@ -20,13 +20,21 @@ import {
   SummaryLanguageStorage,
 } from '@/lib/summary-language-preferences';
 import { hasVisibleSummaryContent } from '@/lib/summary-content';
+import { formatMeetingDateTime } from '@/lib/meeting-datetime';
 
 interface SummaryPanelProps {
   meeting: {
     id: string;
     title: string;
     created_at: string;
+    /** The meeting's own moment (RFC3339), preferred over `created_at`. */
+    recorded_at?: string | null;
   };
+  /**
+   * The meeting's own moment (RFC3339), shown in the header. When absent or
+   * unparsable the header keeps its old single row — never a placeholder.
+   */
+  meetingDate?: string | null;
   meetingTitle: string;
   isSummaryDirty: boolean;
   summaryRef: RefObject<BlockNoteSummaryViewRef>;
@@ -58,6 +66,7 @@ interface SummaryPanelProps {
 
 export function SummaryPanel({
   meeting,
+  meetingDate = null,
   meetingTitle,
   isSummaryDirty,
   summaryRef,
@@ -213,6 +222,7 @@ export function SummaryPanel({
 
   const isSummaryLoading = summaryStatus === 'processing' || summaryStatus === 'summarizing' || summaryStatus === 'regenerating';
   const hasSummary = hasVisibleSummaryContent(aiSummary);
+  const formattedMeetingDate = formatMeetingDateTime(meetingDate);
 
   const languageSlot = (
     <Popover open={langPickerOpen} onOpenChange={setLangPickerOpen}>
@@ -246,6 +256,13 @@ export function SummaryPanel({
     <div className="flex-1 min-w-0 flex flex-col bg-white overflow-hidden h-full w-full @container">
       {/* Top-level actions — always visible, same pattern as TranscriptPanel */}
       <div className="p-4 border-b border-gray-200">
+        {/* The meeting's own moment sits in its own right-aligned row, so it
+            can never shift the centered buttons below it. */}
+        {formattedMeetingDate && (
+          <div className="flex items-center justify-end mb-2 min-w-0">
+            <span className="text-xs text-gray-500 tabular-nums whitespace-nowrap">{formattedMeetingDate}</span>
+          </div>
+        )}
         <div className="flex items-center justify-center w-full min-w-0 gap-2 flex-wrap">
           <div className="flex-shrink-0 min-w-0">
             <SummaryGeneratorButtonGroup
@@ -312,7 +329,10 @@ export function SummaryPanel({
               meeting={{
                 id: meeting.id,
                 title: meetingTitle,
-                created_at: meeting.created_at
+                created_at: meeting.created_at,
+                // Passed through so the legacy export dates from the meeting
+                // itself, not from when the database row appeared.
+                recorded_at: meeting.recorded_at ?? meetingDate
               }}
             />
           </div>

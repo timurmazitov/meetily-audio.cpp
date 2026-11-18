@@ -16,7 +16,29 @@ interface Props {
     id: string;
     title: string;
     created_at: string;
+    /**
+     * The meeting's own moment (RFC3339). Preferred over `created_at` when a
+     * date is rendered; `created_at` stays as a fallback because an export
+     * needs *a* date. Absent while unknown.
+     */
+    recorded_at?: string | null;
   };
+}
+
+/**
+ * The `## Date:` line of a legacy summary export.
+ *
+ * The meeting's own moment comes first (GLOSSARY: «дата встречи»); `created_at`
+ * is the fallback because an export needs *a* date even when the meeting moment
+ * is unknown, and only then is the current moment used — the long-standing
+ * behaviour of this export.
+ */
+export function legacySummaryExportDate(meeting?: {
+  created_at?: string;
+  recorded_at?: string | null;
+}): string {
+  const meetingDate = meeting?.recorded_at ?? meeting?.created_at;
+  return meetingDate ? new Date(meetingDate).toLocaleDateString() : new Date().toLocaleDateString();
 }
 
 export const AISummary = ({ summary, status, error, onSummaryChange, onRegenerateSummary, meeting }: Props) => {
@@ -559,7 +581,7 @@ export const AISummary = ({ summary, status, error, onSummaryChange, onRegenerat
 
   const convertToMarkdown = () => {
     let markdown = `# AI Generated Summary of Meeting: ${meeting?.id || 'Unknown'} - ${meeting?.title || 'Untitled Meeting'}\n\n`;
-    markdown += `## Date: ${meeting?.created_at ? new Date(meeting.created_at).toLocaleDateString() : new Date().toLocaleDateString()}\n\n`;
+    markdown += `## Date: ${legacySummaryExportDate(meeting)}\n\n`;
     
     Object.entries(currentSummary).forEach(([key, section]) => {
       if (key === 'title') {

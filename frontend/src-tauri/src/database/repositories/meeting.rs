@@ -16,10 +16,16 @@ fn resolve_speaker_name(label: &Option<String>, names: &HashMap<String, String>)
 
 impl MeetingsRepository {
     pub async fn get_meetings(pool: &SqlitePool) -> Result<Vec<MeetingModel>, sqlx::Error> {
-        let meetings =
-            sqlx::query_as::<_, MeetingModel>("SELECT * FROM meetings ORDER BY created_at DESC")
-                .fetch_all(pool)
-                .await?;
+        // Chronology of meetings, not of rows: an import of an old recording
+        // lands on its historical place even though its `created_at` is today.
+        // `COALESCE` keeps a meeting without a date from sinking to the bottom —
+        // it falls back to when the row appeared. Both columns hold RFC3339 UTC
+        // text written by the same path, so the comparison is lexicographic.
+        let meetings = sqlx::query_as::<_, MeetingModel>(
+            "SELECT * FROM meetings ORDER BY COALESCE(recorded_at, created_at) DESC",
+        )
+        .fetch_all(pool)
+        .await?;
         Ok(meetings)
     }
 
@@ -70,7 +76,7 @@ impl MeetingsRepository {
 
         // Get meeting details
         let meeting: Option<MeetingModel> =
-            sqlx::query_as("SELECT id, title, created_at, updated_at, folder_path FROM meetings WHERE id = ?")
+            sqlx::query_as("SELECT id, title, created_at, updated_at, folder_path, recorded_at, duration_seconds FROM meetings WHERE id = ?")
                 .bind(meeting_id)
                 .fetch_optional(&mut *transaction)
                 .await?;
@@ -115,6 +121,8 @@ impl MeetingsRepository {
                 created_at: meeting.created_at.0.to_rfc3339(),
                 updated_at: meeting.updated_at.0.to_rfc3339(),
                 folder_path: meeting.folder_path,
+                recorded_at: meeting.recorded_at.map(|moment| moment.0.to_rfc3339()),
+                duration_seconds: meeting.duration_seconds,
                 transcripts: meeting_transcripts,
             }))
         } else {
@@ -135,7 +143,7 @@ impl MeetingsRepository {
         }
 
         let meeting: Option<MeetingModel> =
-            sqlx::query_as("SELECT id, title, created_at, updated_at, folder_path FROM meetings WHERE id = ?")
+            sqlx::query_as("SELECT id, title, created_at, updated_at, folder_path, recorded_at, duration_seconds FROM meetings WHERE id = ?")
                 .bind(meeting_id)
                 .fetch_optional(pool)
                 .await?;
@@ -320,6 +328,83 @@ mod tests {
             .await
             .expect("migrations apply");
         pool
+    }
+
+    /// A row whose audit field (`created_at`) and meeting date (`recorded_at`)
+    /// deliberately disagree: an import of an old recording.
+    async fn seed_meeting_with_moments(
+        pool: &SqlitePool,
+        meeting_id: &str,
+        created_at: &str,
+        recorded_at: Option<&str>,
+    ) {
+        sqlx::query(
+            "INSERT INTO meetings (id, title, created_at, updated_at, recorded_at)
+             VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(meeting_id)
+        .bind(meeting_id)
+        .bind(created_at)
+        .bind(created_at)
+        .bind(recorded_at)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    /// The list exactly as the list command returns it, ids only.
+    async fn listed_ids(pool: &SqlitePool) -> Vec<String> {
+        MeetingsRepository::get_meetings(pool)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|meeting| meeting.id)
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn an_archived_import_sits_on_its_historical_place_not_on_top() {
+        let pool = migrated_pool().await;
+        // Both rows appeared in the database today; only one meeting happened today.
+        seed_meeting_with_moments(
+            &pool,
+            "today",
+            "2026-11-18T10:00:00Z",
+            Some("2026-11-18T09:00:00Z"),
+        )
+        .await;
+        seed_meeting_with_moments(
+            &pool,
+            "archived",
+            "2026-11-18T11:00:00Z",
+            Some("2020-03-04T09:00:00Z"),
+        )
+        .await;
+
+        assert_eq!(
+            listed_ids(&pool).await,
+            ["today", "archived"],
+            "the meeting that happened today stays on top, the freshly imported old one goes under it"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_meeting_without_a_date_does_not_sink_to_the_bottom() {
+        let pool = migrated_pool().await;
+        seed_meeting_with_moments(&pool, "undated", "2026-11-17T10:00:00Z", None).await;
+        seed_meeting_with_moments(
+            &pool,
+            "archived",
+            "2026-11-18T10:00:00Z",
+            Some("2020-03-04T09:00:00Z"),
+        )
+        .await;
+
+        assert_eq!(
+            listed_ids(&pool).await,
+            ["undated", "archived"],
+            "unknown date falls back to when the row appeared, so it is not last"
+        );
     }
 
     async fn seed_meeting_with_two_speakers(pool: &SqlitePool, meeting_id: &str) {

@@ -4,7 +4,7 @@
   "sections": [
     {
       "title": "Date",
-      "instruction": "YYYY-MM-DD",
+      "instruction": "Meeting date taken from the <meeting_date> block in the user message and converted to YYYY-MM-DD (drop its time); if the block is absent, do not invent a date and write that the date is unknown",
       "format": "string"
     },
     {

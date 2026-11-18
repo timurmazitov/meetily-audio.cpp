@@ -77,6 +77,42 @@ fn strip_title_if_present(markdown: &str) -> String {
 
 const ENGLISH_CACHE_FIELD: &str = "english_cache";
 
+/// The meeting date as the model and the interface both show it:
+/// `18/11/2026, 14:32` in local time, every part zero-padded.
+///
+/// This duplicates `formatMeetingDateTime` in `frontend/src/lib/meeting-datetime.ts`
+/// on purpose (spec, Further Notes): the two are pinned to the same literal by
+/// tests rather than by sharing code. The stored value is an instant, so the
+/// local zone is what the person who was in the room saw.
+fn format_meeting_date(recorded_at: DateTime<Utc>) -> String {
+    recorded_at
+        .with_timezone(&chrono::Local)
+        .format("%d/%m/%Y, %H:%M")
+        .to_string()
+}
+
+/// Reads the meeting date for the prompt, following the same fail-soft shape as
+/// `read_detected_summary_language`: a missing or unreadable meeting row means
+/// "no date", never an error and never the current moment.
+async fn read_meeting_date(pool: &SqlitePool, meeting_id: &str) -> Option<String> {
+    match MeetingsRepository::get_meeting_metadata(pool, meeting_id).await {
+        Ok(Some(meeting)) => {
+            meeting.recorded_at.map(|recorded_at| format_meeting_date(recorded_at.0))
+        }
+        Ok(None) => {
+            warn!("Meeting not found while reading the meeting date: {}", meeting_id);
+            None
+        }
+        Err(e) => {
+            warn!(
+                "Failed to read meeting metadata for the meeting date (meeting_id={}): {}",
+                meeting_id, e
+            );
+            None
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 struct SummaryCacheSource {
     transcript_fingerprint: String,
@@ -91,6 +127,20 @@ struct SummaryCacheSource {
     max_tokens: Option<u32>,
     temperature: Option<f32>,
     top_p: Option<f32>,
+    /// The meeting date as it appears in the final prompt (`18/11/2026, 14:32`),
+    /// or `None` when the meeting has no date.
+    ///
+    /// `serde(default)` is belt-and-braces here: serde already reads a missing
+    /// `Option<T>` field as `None` (`serde::private::de::missing_field`), so
+    /// cache records written before this field existed deserialise as "no
+    /// date" either way. The attribute keeps that guarantee explicit and holds
+    /// if the field ever stops being an `Option` — without it, such a change
+    /// would turn every pre-existing cache entry into a silent permanent miss.
+    ///
+    /// The meeting date is immutable, so unlike the current moment it never
+    /// makes cache hits rot over time.
+    #[serde(default)]
+    meeting_date: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -126,6 +176,7 @@ fn build_summary_cache_source(
     max_tokens: Option<u32>,
     temperature: Option<f32>,
     top_p: Option<f32>,
+    meeting_date: Option<&str>,
 ) -> SummaryCacheSource {
     SummaryCacheSource {
         transcript_fingerprint: stable_text_fingerprint(text),
@@ -140,6 +191,7 @@ fn build_summary_cache_source(
         max_tokens,
         temperature,
         top_p,
+        meeting_date: meeting_date.map(str::to_string),
     }
 }
 
@@ -515,6 +567,18 @@ impl SummaryService {
 
         let base_system_prompt = load_base_system_prompt(&pool).await;
 
+        let meeting_date = read_meeting_date(&pool, &meeting_id).await;
+        // Presence only: the meeting's date is meeting content and must not be
+        // written to the log.
+        info!(
+            "📅 Summary prompt: meeting date {}",
+            if meeting_date.is_some() {
+                "included"
+            } else {
+                "absent"
+            }
+        );
+
         let template = match templates::get_template(&template_id) {
             Ok(template) => template,
             Err(e) => {
@@ -538,6 +602,7 @@ impl SummaryService {
             custom_openai_max_tokens,
             custom_openai_temperature,
             custom_openai_top_p,
+            meeting_date.as_deref(),
         );
 
         let cached_english = match SummaryProcessesRepository::get_summary_data(&pool, &meeting_id).await {
@@ -589,6 +654,7 @@ impl SummaryService {
             detected_summary_language.as_deref(),
             cached_english.as_deref(),
             Some(&base_system_prompt),
+            meeting_date.as_deref(),
         )
         .await;
 
@@ -715,6 +781,7 @@ impl SummaryService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::TimeZone;
 
     #[tokio::test]
     async fn base_system_prompt_comes_from_settings_and_falls_back_to_default() {
@@ -888,6 +955,28 @@ mod tests {
             None,
             None,
             None,
+            None,
+        )
+    }
+
+    /// The same inputs as `sample_cache_source`, plus the meeting date that the
+    /// final prompt carries — built through the production builder so the test
+    /// covers the wiring of the date into the fingerprint.
+    fn dated_cache_source(meeting_date: &str) -> SummaryCacheSource {
+        build_summary_cache_source(
+            "transcript body",
+            "custom prompt",
+            "standard_meeting",
+            &stable_text_fingerprint("standard template prompt"),
+            3700,
+            "ollama",
+            "gemma3:1b",
+            Some("http://localhost:11434"),
+            None,
+            None,
+            None,
+            None,
+            Some(meeting_date),
         )
     }
 
@@ -1028,6 +1117,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             ),
             build_summary_cache_source(
                 "transcript body",
@@ -1038,6 +1128,7 @@ mod tests {
                 "ollama",
                 "gemma3:1b",
                 Some("http://localhost:11434"),
+                None,
                 None,
                 None,
                 None,
@@ -1056,6 +1147,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             ),
             build_summary_cache_source(
                 "transcript body",
@@ -1066,6 +1158,7 @@ mod tests {
                 "openai",
                 "gemma3:1b",
                 Some("http://localhost:11434"),
+                None,
                 None,
                 None,
                 None,
@@ -1084,6 +1177,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             ),
             build_summary_cache_source(
                 "transcript body",
@@ -1094,6 +1188,7 @@ mod tests {
                 "ollama",
                 "gemma3:1b",
                 Some("http://localhost:11500"),
+                None,
                 None,
                 None,
                 None,
@@ -1112,6 +1207,7 @@ mod tests {
                 Some(2048),
                 Some(0.2),
                 Some(0.9),
+                None,
             ),
         ];
 
@@ -1121,6 +1217,122 @@ mod tests {
                 None
             );
         }
+    }
+
+    #[test]
+    fn test_changed_meeting_date_rejects_cache() {
+        let source = dated_cache_source("18/11/2026, 14:32");
+
+        // An undated source, and the same meeting dated differently.
+        let changed_sources = [
+            sample_cache_source(),
+            dated_cache_source("19/11/2026, 09:00"),
+        ];
+
+        for changed_source in &changed_sources {
+            assert_ne!(
+                source, *changed_source,
+                "sources differing only by meeting date must not be equal"
+            );
+        }
+
+        let raw = build_summary_result_json(
+            "# Reunion\n## Points\nBonjour",
+            "# Meeting\n## Points\nHello",
+            source,
+            Some("fr"),
+            false,
+            false,
+        )
+        .unwrap()
+        .to_string();
+
+        for changed_source in changed_sources {
+            assert_eq!(
+                extract_cached_english_markdown(&raw, &changed_source, Some("de")).unwrap(),
+                None
+            );
+        }
+    }
+
+    #[test]
+    fn regenerating_the_same_meeting_with_the_same_date_hits_the_cache() {
+        let source = dated_cache_source("18/11/2026, 14:32");
+        let raw = build_summary_result_json(
+            "# Reunion\n## Points\nBonjour",
+            "# Meeting\n## Points\nHello",
+            source.clone(),
+            Some("fr"),
+            false,
+            false,
+        )
+        .unwrap()
+        .to_string();
+
+        assert_eq!(
+            extract_cached_english_markdown(&raw, &source, Some("de")).unwrap(),
+            Some("# Meeting\n## Points\nHello".to_string()),
+            "an immutable meeting date must not make cache hits decay with time"
+        );
+    }
+
+    /// The pre-ticket-10 JSON shape, written literally so the assertion does not
+    /// derive from the current struct. Cache records are persisted inside the
+    /// `summary_processes.result` column, so older builds have records without
+    /// `meeting_date` in `english_cache.source`.
+    #[test]
+    fn legacy_cache_source_without_a_meeting_date_deserialises_as_absent() {
+        let legacy = serde_json::json!({
+            "markdown": "# Meeting\n## Points\nHello",
+            "output_language": "French",
+            "source": {
+                "transcript_fingerprint": "0f0f0f0f0f0f0f0f:15",
+                "custom_prompt_fingerprint": "1e1e1e1e1e1e1e1e:13",
+                "template_id": "standard_meeting",
+                "template_fingerprint": "2d2d2d2d2d2d2d2d:24",
+                "token_threshold": 3700,
+                "model_provider": "ollama",
+                "model_name": "gemma3:1b",
+                "ollama_endpoint": "http://localhost:11434",
+                "custom_openai_endpoint": null,
+                "max_tokens": null,
+                "temperature": null,
+                "top_p": null
+            }
+        });
+
+        let cache: EnglishSummaryCache = serde_json::from_value(legacy)
+            .expect("cache records written before the meeting date existed must still deserialise");
+
+        assert_eq!(cache.source.meeting_date, None);
+    }
+
+    /// Same guarantee observed through the cache lookup: a record persisted
+    /// without the field still hits for a meeting that has no date. Without the
+    /// field being optional on deserialisation, this would silently become a
+    /// permanent cache miss for every pre-existing record.
+    #[test]
+    fn legacy_cache_record_without_the_date_still_hits_the_cache() {
+        let source = sample_cache_source();
+        let mut result = build_summary_result_json(
+            "# Reunion\n## Points\nBonjour",
+            "# Meeting\n## Points\nHello",
+            source.clone(),
+            Some("fr"),
+            false,
+            false,
+        )
+        .unwrap();
+        // Reproduce the pre-ticket-10 record: no `meeting_date` key at all.
+        result[ENGLISH_CACHE_FIELD]["source"]
+            .as_object_mut()
+            .expect("cache source is an object")
+            .remove("meeting_date");
+
+        assert_eq!(
+            extract_cached_english_markdown(&result.to_string(), &source, Some("de")).unwrap(),
+            Some("# Meeting\n## Points\nHello".to_string())
+        );
     }
 
     #[test]
@@ -1226,5 +1438,102 @@ mod tests {
     fn test_extract_cached_english_from_malformed_json_errors() {
         let raw = r#"{ not valid json"#;
         assert!(extract_cached_english_markdown(raw, &sample_cache_source(), Some("de")).is_err());
+    }
+
+    /// Pinned to the same literal the interface formatter produces
+    /// (`frontend/src/lib/meeting-datetime.ts`): `18/11/2026, 14:32`.
+    ///
+    /// Time-zone safe: the fixture is a *local* wall-clock moment converted to
+    /// UTC, so the expectation holds in any zone. 14:32 on 18 November is far
+    /// from a DST transition, so `.single()` cannot be ambiguous.
+    #[test]
+    fn meeting_date_matches_the_interface_format() {
+        let local_instant = chrono::Local
+            .with_ymd_and_hms(2026, 11, 18, 14, 32, 0)
+            .single()
+            .expect("18 Nov 2026 14:32 is an unambiguous local time");
+
+        assert_eq!(
+            format_meeting_date(local_instant.with_timezone(&Utc)),
+            "18/11/2026, 14:32"
+        );
+    }
+
+    #[test]
+    fn meeting_date_pads_every_part() {
+        let local_instant = chrono::Local
+            .with_ymd_and_hms(2026, 1, 2, 9, 5, 0)
+            .single()
+            .expect("2 Jan 2026 09:05 is an unambiguous local time");
+
+        assert_eq!(
+            format_meeting_date(local_instant.with_timezone(&Utc)),
+            "02/01/2026, 09:05"
+        );
+    }
+
+    #[tokio::test]
+    async fn meeting_date_is_read_from_the_meeting_row() {
+        let pool = migrated_pool().await;
+        seed_meeting(&pool, "meeting-dated", Some("2026-11-18T11:32:00Z")).await;
+
+        let recorded_at = DateTime::parse_from_rfc3339("2026-11-18T11:32:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+
+        assert_eq!(
+            read_meeting_date(&pool, "meeting-dated").await,
+            Some(format_meeting_date(recorded_at)),
+            "the prompt date comes from recorded_at, not the created_at audit field"
+        );
+    }
+
+    #[tokio::test]
+    async fn meeting_without_a_date_yields_no_date_at_all() {
+        let pool = migrated_pool().await;
+        seed_meeting(&pool, "meeting-undated", None).await;
+
+        assert_eq!(
+            read_meeting_date(&pool, "meeting-undated").await,
+            None,
+            "an unknown meeting date must never be replaced by the current moment"
+        );
+    }
+
+    #[tokio::test]
+    async fn unknown_meeting_yields_no_date_rather_than_failing_the_summary() {
+        let pool = migrated_pool().await;
+
+        assert_eq!(read_meeting_date(&pool, "no-such-meeting").await, None);
+    }
+
+    async fn migrated_pool() -> SqlitePool {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("in-memory sqlite");
+        sqlx::migrate!("./migrations")
+            .run(&pool)
+            .await
+            .expect("migrations apply");
+        pool
+    }
+
+    async fn seed_meeting(pool: &SqlitePool, meeting_id: &str, recorded_at: Option<&str>) {
+        // `created_at` deliberately differs from `recorded_at` so a reader that
+        // picks the wrong column cannot pass.
+        sqlx::query(
+            "INSERT INTO meetings (id, title, created_at, updated_at, recorded_at)
+             VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(meeting_id)
+        .bind("Meeting")
+        .bind("2020-01-01T00:00:00Z")
+        .bind("2020-01-01T00:00:00Z")
+        .bind(recorded_at)
+        .execute(pool)
+        .await
+        .expect("seed meeting");
     }
 }
