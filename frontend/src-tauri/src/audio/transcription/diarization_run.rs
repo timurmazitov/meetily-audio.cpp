@@ -10,7 +10,7 @@
 // belong to a *saved* meeting: the process-wide serialization of passes, the
 // recording guard, and the native `transcript-updated` event.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use log::{info, warn};
@@ -345,6 +345,24 @@ async fn persist_speaker_labels(
     Ok(reconcile.names_reset)
 }
 
+/// Mirrors freshly committed speaker labels into the meeting's
+/// `transcripts.json`.
+///
+/// Both batch paths and the recording saver write that file before a pass
+/// runs, so without this the export would keep `speaker: null` for every
+/// segment while the database has the labels — the file would silently
+/// diverge from the meeting. A failure here only logs: the labels are already
+/// committed, and a stale export must not turn a successful pass into a
+/// failure.
+fn rewrite_transcripts_json(folder: &Path, segments: &[crate::api::TranscriptSegment]) {
+    if let Err(error) = crate::audio::common::write_transcripts_json(folder, segments) {
+        warn!(
+            "Failed to rewrite transcripts.json in {}: {error}",
+            folder.display()
+        );
+    }
+}
+
 /// Diarizes a saved meeting: decide, run one pass over the meeting's audio
 /// file, persist the labels with the speaker-name recount, and emit the
 /// native events.
@@ -464,6 +482,10 @@ pub async fn diarize_saved_meeting<R: Runtime>(
                 return Ok(result);
             }
         }
+        // The database is now the authority; bring the meeting's export with
+        // it so imports, retranscriptions and live recordings do not leave a
+        // `transcripts.json` whose speakers disagree with the transcript.
+        rewrite_transcripts_json(&folder, &segments);
         info!(
             "Diarized meeting {}: {} of {} transcript segments labeled",
             meeting_id, labeled, total_segments
@@ -834,5 +856,88 @@ mod tests {
                 .await
                 .unwrap();
         assert_eq!(bindings, vec![("speaker_0".to_string(),)]);
+    }
+
+    /// Points a seeded meeting at a recording folder, the way every saved
+    /// meeting is laid out on disk.
+    async fn set_folder_path(pool: &SqlitePool, meeting_id: &str, folder: &std::path::Path) {
+        sqlx::query("UPDATE meetings SET folder_path = ? WHERE id = ?")
+            .bind(folder.to_string_lossy().to_string())
+            .bind(meeting_id)
+            .execute(pool)
+            .await
+            .unwrap();
+    }
+
+    fn read_written_speakers(folder: &std::path::Path) -> Vec<serde_json::Value> {
+        let written: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(folder.join("transcripts.json"))
+                .expect("transcripts.json exists"),
+        )
+        .expect("transcripts.json is valid json");
+        written["segments"]
+            .as_array()
+            .expect("segments array")
+            .iter()
+            .map(|segment| segment["speaker"].clone())
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn rewritten_transcripts_json_carries_the_new_speaker_labels() {
+        // Both batch paths write `transcripts.json` before the pass and then
+        // store labels only in the database. The shared rewrite must close
+        // that gap: the file a user exports has to agree with the transcript.
+        let pool = migrated_pool().await;
+        let folder = tempfile::tempdir().unwrap();
+        seed_meeting(&pool, "meeting-1").await;
+        set_folder_path(&pool, "meeting-1", folder.path()).await;
+
+        let labeled = [
+            segment("t-0", Some("speaker_2")),
+            segment("t-1", Some("speaker_2")),
+        ];
+
+        persist_speaker_labels(&pool, "meeting-1", &labeled)
+            .await
+            .expect("labels persist");
+        rewrite_transcripts_json(folder.path(), &labeled);
+
+        let file_speakers = read_written_speakers(folder.path());
+        assert_eq!(
+            file_speakers,
+            vec![
+                serde_json::json!("speaker_2"),
+                serde_json::json!("speaker_2")
+            ],
+            "the file must carry the labels the pass produced"
+        );
+
+        let db_speakers: Vec<(Option<String>,)> =
+            sqlx::query_as("SELECT speaker FROM transcripts WHERE meeting_id = ? ORDER BY id")
+                .bind("meeting-1")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        let db_speakers: Vec<serde_json::Value> = db_speakers
+            .into_iter()
+            .map(|(speaker,)| serde_json::json!(speaker))
+            .collect();
+        assert_eq!(
+            file_speakers, db_speakers,
+            "the export and the database must not diverge"
+        );
+    }
+
+    #[test]
+    fn a_missing_folder_only_logs_instead_of_inverting_the_result() {
+        // Rewriting the export is best effort: the labels are already in the
+        // database, so a folder that cannot be written keeps the pass's
+        // `ran` status and only warns.
+        let folder = tempfile::tempdir().unwrap();
+        let gone = folder.path().join("deleted");
+        rewrite_transcripts_json(&gone, &[segment("t-0", Some("speaker_2"))]);
+
+        assert!(!gone.join("transcripts.json").exists());
     }
 }
