@@ -225,6 +225,24 @@ fn build_combine_summary_user_prompt(combined_text: &str) -> String {
         "{ENGLISH_BASE_SUMMARY_INSTRUCTION}\n\nThe following are consecutive summaries of a meeting. Combine them into a single, coherent, and detailed narrative summary that retains all important details, organized logically. Do not include reasoning, self-correction, or meta-commentary — output only the summary content.\n\n<summaries>\n{combined_text}\n</summaries>"
     )
 }
+
+/// The final-pass user message: the optional meeting date, the transcript, and
+/// the optional user context. The date block is omitted entirely when the
+/// meeting has no date — never substituted with the current moment.
+fn build_final_user_prompt(content: &str, custom_prompt: &str, meeting_date: Option<&str>) -> String {
+    let mut prompt = String::new();
+    if let Some(date) = meeting_date {
+        prompt.push_str(&format!("<meeting_date>{date}</meeting_date>\n"));
+    }
+    prompt.push_str(&format!("<transcript_chunks>\n{content}\n</transcript_chunks>\n"));
+    if !custom_prompt.is_empty() {
+        prompt.push_str("\n\nUser Provided Context:\n\n<user_context>\n");
+        prompt.push_str(custom_prompt);
+        prompt.push_str("\n</user_context>");
+    }
+    prompt
+}
+
 fn build_final_report_system_prompt(template: &Template, base_system_prompt: Option<&str>) -> String {
     crate::summary::system_prompt::render_system_prompt(template, base_system_prompt)
 }
@@ -359,6 +377,7 @@ pub(crate) async fn generate_meeting_summary(
     detected_transcript_language: Option<&str>,
     cached_english: Option<&str>,
     base_system_prompt: Option<&str>,
+    meeting_date: Option<&str>,
 ) -> Result<GeneratedMeetingSummary, String> {
     if cancellation_token.is_some_and(CancellationToken::is_cancelled) {
         return Err("Summary generation was cancelled".to_string());
@@ -469,13 +488,8 @@ pub(crate) async fn generate_meeting_summary(
             info!("Generating final markdown report with template: {}", template_id);
             let final_system_prompt =
                 build_final_report_system_prompt(template, base_system_prompt);
-            let mut final_user_prompt =
-                format!("<transcript_chunks>\n{content_to_summarize}\n</transcript_chunks>\n");
-            if !custom_prompt.is_empty() {
-                final_user_prompt.push_str("\n\nUser Provided Context:\n\n<user_context>\n");
-                final_user_prompt.push_str(custom_prompt);
-                final_user_prompt.push_str("\n</user_context>");
-            }
+            let final_user_prompt =
+                build_final_user_prompt(&content_to_summarize, custom_prompt, meeting_date);
             let completion = generate_summary(
                 client, provider, model_name, api_key, &final_system_prompt, &final_user_prompt,
                 ollama_endpoint, custom_openai_endpoint, max_tokens, temperature, top_p,
@@ -659,6 +673,52 @@ mod tests {
     }
 
     #[test]
+    fn final_user_prompt_without_meeting_date_keeps_the_transcript_bytes() {
+        let prompt = build_final_user_prompt("Transcript body", "", None);
+
+        assert_eq!(
+            prompt,
+            "<transcript_chunks>\nTranscript body\n</transcript_chunks>\n"
+        );
+    }
+
+    #[test]
+    fn final_user_prompt_without_meeting_date_keeps_user_context_bytes() {
+        let prompt = build_final_user_prompt("Transcript body", "Speakers: Alex", None);
+
+        assert_eq!(
+            prompt,
+            "<transcript_chunks>\nTranscript body\n</transcript_chunks>\n\n\nUser Provided Context:\n\n<user_context>\nSpeakers: Alex\n</user_context>"
+        );
+    }
+
+    #[test]
+    fn final_user_prompt_puts_the_meeting_date_before_the_transcript() {
+        let prompt =
+            build_final_user_prompt("Transcript body", "", Some("18/11/2026, 14:32"));
+
+        assert_eq!(
+            prompt,
+            "<meeting_date>18/11/2026, 14:32</meeting_date>\n<transcript_chunks>\nTranscript body\n</transcript_chunks>\n"
+        );
+        assert!(
+            prompt.find("<meeting_date>") < prompt.find("<transcript_chunks>"),
+            "the date block must precede the transcript: {prompt:?}"
+        );
+    }
+
+    #[test]
+    fn final_user_prompt_with_meeting_date_keeps_user_context_last() {
+        let prompt =
+            build_final_user_prompt("Transcript body", "Speakers: Alex", Some("18/11/2026, 14:32"));
+
+        assert_eq!(
+            prompt,
+            "<meeting_date>18/11/2026, 14:32</meeting_date>\n<transcript_chunks>\nTranscript body\n</transcript_chunks>\n\n\nUser Provided Context:\n\n<user_context>\nSpeakers: Alex\n</user_context>"
+        );
+    }
+
+    #[test]
     fn final_report_prompt_forces_english_base_output() {
         let prompt = build_final_report_system_prompt(&report_template("Summary"), None);
 
@@ -687,6 +747,15 @@ mod tests {
                 example_item_format: None,
             }],
         }
+    }
+
+    #[test]
+    fn chunk_and_combine_prompts_never_carry_the_meeting_date() {
+        let chunk = build_chunk_summary_user_prompt("chunk body");
+        let combine = build_combine_summary_user_prompt("summary body");
+
+        assert!(!chunk.contains("<meeting_date>"));
+        assert!(!combine.contains("<meeting_date>"));
     }
 
     #[test]
