@@ -27,6 +27,7 @@ import {
   hasInstalledDiarizationModel,
   shouldToastDiarizationStatus,
   shouldToastDiarizationUnavailable,
+  startLiveDiarization,
   type DiarizationClient,
   type DiarizationResult,
   type DiarizationStatus,
@@ -93,6 +94,67 @@ describe('diarizeSavedMeeting', () => {
     expect(await diarizeSavedMeeting(instance, 'meeting-1')).toBeNull();
     expect(diarizeMeeting).toHaveBeenCalledTimes(1);
   });
+});
+
+describe('startLiveDiarization', () => {
+  /** Minimal toast seam: only `error` is reachable from an automatic pass. */
+  function recorder() {
+    const error = mock((_message: string, _options?: { description?: string }) => {});
+    return {
+      toast: { error },
+      error,
+    };
+  }
+
+  test('runs the pass once for the saved meeting and stays quiet', async () => {
+    const { instance, diarizeMeeting } = client(resultFor('ran'));
+    const { toast, error } = recorder();
+
+    await startLiveDiarization(instance, 'meeting-42', toast);
+
+    expect(diarizeMeeting).toHaveBeenCalledTimes(1);
+    expect(diarizeMeeting).toHaveBeenCalledWith('meeting-42');
+    expect(error).not.toHaveBeenCalled();
+  });
+
+  test('only a failed pass interrupts the user, and explains it with the mirrored text', async () => {
+    const expected: Array<[DiarizationStatus, boolean]> = [
+      ['ran', false],
+      ['no_model', false],
+      ['no_runtime', false],
+      ['deferred', false],
+      ['failed', true],
+    ];
+
+    for (const [status, speaks] of expected) {
+      const { instance } = client(resultFor(status));
+      const { toast, error } = recorder();
+
+      await startLiveDiarization(instance, 'meeting-42', toast);
+
+      expect(error).toHaveBeenCalledTimes(speaks ? 1 : 0);
+      if (speaks) {
+        expect(error).toHaveBeenCalledWith('Diarization failed', {
+          description: DIARIZATION_FAILED_MESSAGE,
+        });
+      }
+    }
+  });
+
+  test('a rejected pass leaves the saved meeting alone: it resolves and stays quiet', async () => {
+    const { instance, diarizeMeeting } = client(new Error('native library missing'));
+    const { toast, error } = recorder();
+
+    // Must not reject: the stop flow's outer error path would mark the saved
+    // meeting as failed.
+    await expect(
+      startLiveDiarization(instance, 'meeting-42', toast),
+    ).resolves.toBeUndefined();
+
+    expect(diarizeMeeting).toHaveBeenCalledTimes(1);
+    expect(error).not.toHaveBeenCalled();
+  });
+
 });
 
 describe('shouldToastDiarizationStatus', () => {

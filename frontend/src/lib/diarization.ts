@@ -172,6 +172,33 @@ export function shouldToastDiarizationStatus(status: DiarizationStatus): boolean
   return status === 'failed';
 }
 
+/** What an automatic pass needs from the toast library (only `error`). */
+export interface DiarizationToast {
+  error(message: string, options?: { description?: string }): void;
+}
+
+/**
+ * The automatic pass after a live recording, as one testable step.
+ *
+ * Returns a promise instead of being fire-and-forget itself so a test can
+ * await the outcome; the stop flow drops it with `void`, which is what keeps
+ * saving and navigation off the pass's critical path. Never rejects: a native
+ * failure leaves the saved meeting unlabeled and stays silent, because the
+ * meeting and its transcript are already safe.
+ */
+export async function startLiveDiarization(
+  client: DiarizationClient,
+  meetingId: string,
+  toast: DiarizationToast,
+): Promise<void> {
+  const result = await diarizeSavedMeeting(client, meetingId);
+  // `null` means the native command itself failed: the meeting stays saved
+  // without labels, and there is no status to explain.
+  if (result === null) return;
+  if (!shouldToastDiarizationStatus(result.status)) return;
+  toast.error('Diarization failed', { description: DIARIZATION_FAILED_MESSAGE });
+}
+
 /** Payload of the native `diarization-unavailable` event. */
 export interface DiarizationUnavailablePayload {
   /** The meeting the pass ran for; absent on events from older callers. */
