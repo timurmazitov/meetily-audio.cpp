@@ -4,7 +4,7 @@
   "sections": [
     {
       "title": "Meeting Date & Time",
-      "instruction": "Date, start/end time, facilitator name",
+      "instruction": "Date and time taken verbatim from the <meeting_date> block in the user message, plus the facilitator name from the transcript; if the block is absent, do not invent a date or time and write that they are unknown",
       "format": "string"
     },
     {

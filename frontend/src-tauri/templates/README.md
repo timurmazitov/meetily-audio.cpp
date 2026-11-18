@@ -86,3 +86,18 @@ let available = templates::list_templates();
 let custom_json = std::fs::read_to_string("custom.json")?;
 let validated = templates::validate_template(&custom_json)?;
 ```
+
+## Meeting Date in Report Sections
+
+Sections that report the meeting date (`Date` in `daily_standup.json`, `Meeting Date & Time` in
+`project_sync.json`, `Session Metadata` in `psychatric_session.json`, `Meeting Metadata` in
+`sales_marketing_client_call.json`) take it from the `<meeting_date>...</meeting_date>` block at
+the start of the final generation request, not from the transcript. Each instruction states that a
+missing block must not be invented around: the report says the date is unknown instead.
+
+`Sprint` in `retrospective.json` is different: it asks for a sprint date range, which still comes
+from the transcript. The meeting date is explicitly not a substitute for that range.
+
+Note for release notes: this change only touches the bundled templates. A user who already copied a
+template into their own templates directory keeps their copy (custom templates win over bundled
+ones), so the updated date instructions do not reach it.
