@@ -730,15 +730,11 @@ async fn run_import<R: Runtime>(
     emit_progress(&app, "complete", 100, "Import complete");
 
     // Diarization is a second stage over the saved meeting: the transcript is
-    // already committed and the import is already complete for the user. The
-    // pass re-decodes the meeting file, so it does not depend on the buffers
-    // this function freed.
-    diarization_run::schedule_after_batch(
-        engine_kind,
-        app.clone(),
-        pool.clone(),
-        meeting_id.clone(),
-    );
+    // already committed and the import is already complete for the user. There
+    // is no engine gate — the pass re-decodes the meeting file, so it does not
+    // depend on the buffers this function freed, and it decides on its own
+    // whether a model is installed.
+    diarization_run::schedule_saved_meeting(app.clone(), pool.clone(), meeting_id.clone());
 
     Ok(ImportResult {
         meeting_id,

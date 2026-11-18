@@ -25,7 +25,6 @@ use super::diarization_service::{
     DIARIZATION_UNAVAILABLE_MESSAGE, SPEAKER_NAMES_RESET_EVENT, SPEAKER_NAMES_RESET_MESSAGE,
     TRANSCRIPT_UPDATED_EVENT,
 };
-use crate::audio::common::BatchEngine;
 use crate::database::repositories::meeting::MeetingsRepository;
 use crate::database::repositories::speaker;
 
@@ -86,11 +85,14 @@ pub enum DiarizationEvent {
     SpeakerNamesReset { meeting_id: String },
 }
 
-/// Message shown for an `diarization-unavailable` announcement.
+/// Message shown for a `diarization-unavailable` announcement.
 ///
 /// Native code is the source of truth for these texts; the frontend mirrors
 /// them. Missing model and missing runtime read differently on purpose so the
-/// user knows what to fix.
+/// user knows what to fix. The event itself fires only for `failed` today, but
+/// the `NoModel`/`NoRuntime` arms stay because the spec makes native code the
+/// source of truth for those texts and requires the frontend to mirror them;
+/// the mapping is pinned by tests.
 pub fn unavailable_message(status: DiarizationStatus) -> &'static str {
     match status {
         DiarizationStatus::NoRuntime => DIARIZATION_RUNTIME_UNAVAILABLE_MESSAGE,
@@ -133,34 +135,6 @@ pub fn diarization_events(
         }
     }
     events
-}
-
-/// Whether a finished batch job (import or retranscription) hands the saved
-/// meeting to the background diarization pass.
-///
-/// It no longer depends on the transcription engine: diarization is a second
-/// stage over a finished transcript, and [`diarize_saved_meeting`] decides on
-/// its own whether a pass can run. The parameter is kept (and deliberately
-/// unused) so the call sites still name the engine: a future gate, if one ever
-/// returns, lands here once instead of in two batch jobs. `tests` pin the
-/// behaviour for all three engines.
-pub(crate) fn schedules_diarization(_engine: BatchEngine) -> bool {
-    true
-}
-
-/// Schedules the post-save pass when [`schedules_diarization`] says so.
-///
-/// Both batch jobs go through this instead of calling the scheduler directly,
-/// so the "does this path diarize?" question has one answer.
-pub(crate) fn schedule_after_batch<R: Runtime>(
-    engine: BatchEngine,
-    app: AppHandle<R>,
-    pool: SqlitePool,
-    meeting_id: String,
-) {
-    if schedules_diarization(engine) {
-        schedule_saved_meeting(app, pool, meeting_id);
-    }
 }
 
 /// What happened to a pass that ran after the batch job had already finished.
@@ -218,7 +192,9 @@ where
 ///
 /// Import and retranscription call this after the meeting row and its
 /// transcript are committed, so the user gets the meeting immediately instead
-/// of waiting for a pass they did not order. The task is detached on purpose:
+/// of waiting for a pass they did not order. There is no engine parameter: the
+/// old `engine_kind == AudioCpp` gate is gone, and [`diarize_saved_meeting`]
+/// decides on its own whether a pass can run. The task is detached on purpose:
 ///
 /// * It does not hold `audio::common`'s engine-lifecycle lock, so
 ///   `unload_engine_after_batch` can run while the pass runs; the pass loads
@@ -229,17 +205,20 @@ where
 ///   releasing `ImportGuard`/`RetranscriptionGuard` cannot cancel it.
 /// * It never rejects the caller's future: [`run_scheduled_diarization`]
 ///   resolves even when the pass cannot start.
+///
+/// The spawned handle is returned so a test can await the very work a batch job
+/// leaves behind; production drops it.
 pub(crate) fn schedule_saved_meeting<R: Runtime>(
     app: AppHandle<R>,
     pool: SqlitePool,
     meeting_id: String,
-) {
+) -> tauri::async_runtime::JoinHandle<BackgroundPassOutcome> {
     tauri::async_runtime::spawn(async move {
         run_scheduled_diarization(&meeting_id, || async {
             diarize_saved_meeting(&app, &pool, &meeting_id).await
         })
-        .await;
-    });
+        .await
+    })
 }
 
 /// The result of a pass whose labels could not be written.
@@ -351,15 +330,24 @@ async fn persist_speaker_labels(
 /// Both batch paths and the recording saver write that file before a pass
 /// runs, so without this the export would keep `speaker: null` for every
 /// segment while the database has the labels — the file would silently
-/// diverge from the meeting. A failure here only logs: the labels are already
-/// committed, and a stale export must not turn a successful pass into a
-/// failure.
-fn rewrite_transcripts_json(folder: &Path, segments: &[crate::api::TranscriptSegment]) {
-    if let Err(error) = crate::audio::common::write_transcripts_json(folder, segments) {
-        warn!(
-            "Failed to rewrite transcripts.json in {}: {error}",
-            folder.display()
-        );
+/// diverge from the meeting. The write is blocking file I/O, so it runs on a
+/// blocking thread instead of the async runtime. A failure here only logs: the
+/// labels are already committed, and a stale export must not turn a successful
+/// pass into a failure.
+async fn rewrite_transcripts_json(folder: &Path, segments: Vec<crate::api::TranscriptSegment>) {
+    let folder = folder.to_path_buf();
+    let written = tokio::task::spawn_blocking(move || {
+        crate::audio::common::write_transcripts_json(&folder, &segments)
+    })
+    .await;
+    match written {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => {
+            warn!("Failed to rewrite transcripts.json: {error}");
+        }
+        Err(error) => {
+            warn!("transcripts.json rewrite task failed: {error}");
+        }
     }
 }
 
@@ -381,6 +369,17 @@ pub async fn diarize_saved_meeting<R: Runtime>(
     // second caller.
     let _pass = acquire_pass_lock().await;
 
+    // The meeting is read before the decision: its segment count is part of
+    // every result, including the ones that never run a pass, and the speakers
+    // panel shows it. The recording check still runs before the *model load*,
+    // which is what the spec asks for — a cheap database read does not
+    // compete with an active recording.
+    let meeting = MeetingsRepository::get_meeting(pool, meeting_id)
+        .await
+        .map_err(|error| format!("Failed to load meeting: {error}"))?
+        .ok_or_else(|| format!("Meeting not found: {meeting_id}"))?;
+    let total_segments = meeting.transcripts.len();
+
     let models = match crate::audio_cpp_engine::commands::model_manager() {
         Some(manager) => manager.discover_models().await.unwrap_or_default(),
         // No model manager means no catalogued model at all, exactly like a
@@ -389,10 +388,12 @@ pub async fn diarize_saved_meeting<R: Runtime>(
     };
     // Only pay for the runtime probe when a model exists: "no model" outranks
     // "no runtime", and probing loads the library.
-    let has_model = crate::audio::transcription::diarization_service::select_diarization_model(
-        &models,
-    )
-    .is_some();
+    let has_model =
+        crate::audio::transcription::diarization_service::select_diarization_model(&models)
+            .is_some();
+    // The probe runs even when a recording is active on purpose: the spec fixes
+    // the priority as no_model → no_runtime → deferred, so with a model
+    // installed this is the only way to tell `no_runtime` from `deferred`.
     let runtime_available = if has_model {
         crate::audio_cpp_engine::commands::detect_runtime_available().await
     } else {
@@ -414,18 +415,13 @@ pub async fn diarize_saved_meeting<R: Runtime>(
                 meeting_id: meeting_id.to_string(),
                 status,
                 labeled_segments: 0,
-                total_segments: 0,
+                total_segments,
                 error: None,
             };
             emit_events(app, &diarization_events(&result, false));
             return Ok(result);
         }
     };
-
-    let meeting = MeetingsRepository::get_meeting(pool, meeting_id)
-        .await
-        .map_err(|error| format!("Failed to load meeting: {error}"))?
-        .ok_or_else(|| format!("Meeting not found: {meeting_id}"))?;
 
     let folder = match meeting.folder_path.as_deref().map(PathBuf::from) {
         Some(folder) => folder,
@@ -434,7 +430,7 @@ pub async fn diarize_saved_meeting<R: Runtime>(
                 meeting_id: meeting_id.to_string(),
                 status: DiarizationStatus::Failed,
                 labeled_segments: 0,
-                total_segments: meeting.transcripts.len(),
+                total_segments,
                 error: Some("meeting has no recording folder".to_string()),
             };
             emit_events(app, &diarization_events(&result, false));
@@ -456,7 +452,6 @@ pub async fn diarize_saved_meeting<R: Runtime>(
             speaker: segment.speaker.clone(),
         })
         .collect();
-    let total_segments = segments.len();
 
     let outcome = super::diarization_service::diarize_recording_folder_with_model(
         &folder,
@@ -485,7 +480,7 @@ pub async fn diarize_saved_meeting<R: Runtime>(
         // The database is now the authority; bring the meeting's export with
         // it so imports, retranscriptions and live recordings do not leave a
         // `transcripts.json` whose speakers disagree with the transcript.
-        rewrite_transcripts_json(&folder, &segments);
+        rewrite_transcripts_json(&folder, segments).await;
         info!(
             "Diarized meeting {}: {} of {} transcript segments labeled",
             meeting_id, labeled, total_segments
@@ -528,18 +523,28 @@ mod tests {
         }
     }
 
-    #[test]
-    fn every_transcription_engine_gets_a_post_save_pass() {
-        // The pass used to be gated on the audioCpp engine. It is now part of
-        // every save path, because `diarize_saved_meeting` decides on its own
-        // whether it can run (installed model, available runtime, no active
-        // recording) and knows nothing about the transcription engine.
-        for engine in [
-            BatchEngine::Whisper,
-            BatchEngine::Parakeet,
-            BatchEngine::AudioCpp,
-        ] {
-            assert!(schedules_diarization(engine), "engine: {engine:?}");
+    #[tokio::test]
+    async fn a_saved_meeting_is_scheduled_regardless_of_the_engine() {
+        // The pass used to be gated on the audioCpp engine. The scheduler now
+        // takes no engine at all: diarization is a second stage over a finished
+        // transcript, and `diarize_saved_meeting` decides on its own whether it
+        // can run. Every transcription choice reaches the same pass, and with
+        // no catalog in unit tests that pass reports `no_model` and settles —
+        // exactly what a Whisper/Parakeet import must see.
+        for provider in [Some("whisper"), Some("parakeet"), Some("audioCpp"), None] {
+            let engine = BatchEngine::from_provider_name(provider);
+            let (pool, app) = meeting_with_two_segments().await;
+
+            let outcome =
+                schedule_saved_meeting(app.handle().clone(), pool, "meeting-1".to_string())
+                    .await
+                    .expect("the scheduled task runs");
+
+            assert_eq!(
+                outcome,
+                BackgroundPassOutcome::Finished(DiarizationStatus::NoModel),
+                "engine: {engine:?}"
+            );
         }
     }
 
@@ -893,7 +898,7 @@ mod tests {
         seed_meeting(&pool, "meeting-1").await;
         set_folder_path(&pool, "meeting-1", folder.path()).await;
 
-        let labeled = [
+        let labeled = vec![
             segment("t-0", Some("speaker_2")),
             segment("t-1", Some("speaker_2")),
         ];
@@ -901,7 +906,7 @@ mod tests {
         persist_speaker_labels(&pool, "meeting-1", &labeled)
             .await
             .expect("labels persist");
-        rewrite_transcripts_json(folder.path(), &labeled);
+        rewrite_transcripts_json(folder.path(), labeled).await;
 
         let file_speakers = read_written_speakers(folder.path());
         assert_eq!(
@@ -929,14 +934,52 @@ mod tests {
         );
     }
 
-    #[test]
-    fn a_missing_folder_only_logs_instead_of_inverting_the_result() {
+    /// A saved meeting with two labelled transcripts, addressed by the mock
+    /// app the same way the manual command and the batch jobs address it.
+    async fn meeting_with_two_segments() -> (SqlitePool, tauri::App<tauri::test::MockRuntime>) {
+        let pool = migrated_pool().await;
+        seed_meeting(&pool, "meeting-1").await;
+        (pool, tauri::test::mock_app())
+    }
+
+    #[tokio::test]
+    async fn a_skipped_pass_still_reports_the_meetings_segment_count() {
+        // The speakers panel shows "N of M segments" from the manual result, so
+        // a `no_model` answer must carry the real total instead of zero: the
+        // meeting is read before the decision, and the decision only guards the
+        // model load.
+        let (pool, app) = meeting_with_two_segments().await;
+
+        let result = diarize_saved_meeting(app.handle(), &pool, "meeting-1")
+            .await
+            .expect("a missing model is a status, not an error");
+
+        assert_eq!(result.status, DiarizationStatus::NoModel);
+        assert_eq!(result.labeled_segments, 0);
+        assert_eq!(result.total_segments, 2);
+    }
+
+    #[tokio::test]
+    async fn a_pass_for_an_unknown_meeting_is_an_error_even_without_a_model() {
+        // Reading the meeting before the decision keeps the id honest: a
+        // request for a meeting that does not exist must never come back as a
+        // calm "no model" result. The repository reports the missing row as a
+        // database error, so only the shape of the answer is asserted here.
+        let (pool, app) = meeting_with_two_segments().await;
+
+        let result = diarize_saved_meeting(app.handle(), &pool, "meeting-gone").await;
+
+        assert!(result.is_err(), "result: {result:?}");
+    }
+
+    #[tokio::test]
+    async fn a_missing_folder_only_logs_instead_of_inverting_the_result() {
         // Rewriting the export is best effort: the labels are already in the
         // database, so a folder that cannot be written keeps the pass's
         // `ran` status and only warns.
         let folder = tempfile::tempdir().unwrap();
         let gone = folder.path().join("deleted");
-        rewrite_transcripts_json(&gone, &[segment("t-0", Some("speaker_2"))]);
+        rewrite_transcripts_json(&gone, vec![segment("t-0", Some("speaker_2"))]).await;
 
         assert!(!gone.join("transcripts.json").exists());
     }

@@ -585,13 +585,8 @@ async fn run_retranscription<R: Runtime>(
     // the meeting is complete for the user. Diarization is a second stage over
     // that saved meeting: it re-decodes the meeting file and reports its own
     // status through native events. Its failure cannot fail the
-    // retranscription.
-    diarization_run::schedule_after_batch(
-        engine_kind,
-        app.clone(),
-        pool.clone(),
-        meeting_id.clone(),
-    );
+    // retranscription, and it is scheduled whatever engine produced the text.
+    diarization_run::schedule_saved_meeting(app.clone(), pool.clone(), meeting_id.clone());
 
     Ok(RetranscriptionResult {
         meeting_id,
