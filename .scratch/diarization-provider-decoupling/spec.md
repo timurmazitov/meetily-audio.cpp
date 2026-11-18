@@ -1,6 +1,6 @@
 # Диаризация независима от провайдера транскрибации
 
-Status: ready-for-agent
+Status: implemented (2026-11-18). Branch `feature/diarization-provider-decoupling`.
 
 ## Problem Statement
 
