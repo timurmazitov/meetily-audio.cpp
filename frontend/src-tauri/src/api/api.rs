@@ -27,10 +27,18 @@ pub struct ApiResponse<T> {
     pub error: Option<String>,
 }
 
+/// One row of the meeting list. `id` and `title` are unchanged; the meeting's
+/// own moment (GLOSSARY: «дата встречи») and length are additive fields, so an
+/// older frontend keeps working and an unknown value is simply absent.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Meeting {
     pub id: String,
     pub title: String,
+    /// RFC3339 moment of the meeting itself, not of the row's creation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recorded_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_seconds: Option<f64>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -424,6 +432,8 @@ pub async fn api_get_meetings<R: Runtime>(
                 .map(|m| Meeting {
                     id: m.id,
                     title: m.title,
+                    recorded_at: m.recorded_at.map(|moment| moment.0.to_rfc3339()),
+                    duration_seconds: m.duration_seconds,
                 })
                 .collect();
             Ok(result)
@@ -1220,7 +1230,7 @@ pub async fn open_meeting_folder<R: Runtime>(
 
     // Get meeting with folder_path
     let meeting: Option<MeetingModel> = sqlx::query_as(
-        "SELECT id, title, created_at, updated_at, folder_path FROM meetings WHERE id = ?",
+        "SELECT id, title, created_at, updated_at, folder_path, recorded_at, duration_seconds FROM meetings WHERE id = ?",
     )
     .bind(&meeting_id)
     .fetch_optional(pool)
@@ -1727,6 +1737,67 @@ mod meeting_transcript_contract_tests {
         .unwrap();
         assert_eq!(legacy.speaker.as_deref(), Some("speaker_0"));
         assert_eq!(legacy.speaker_name, None);
+    }
+}
+
+#[cfg(test)]
+mod meeting_list_contract_tests {
+    use super::Meeting;
+
+    #[test]
+    fn a_listed_meeting_carries_its_moment_and_length() {
+        let json = serde_json::to_value(Meeting {
+            id: "meeting-1".into(),
+            title: "Planning call".into(),
+            recorded_at: Some("2026-11-18T14:32:05+00:00".into()),
+            duration_seconds: Some(4_975.5),
+        })
+        .unwrap();
+
+        assert_eq!(
+            json,
+            serde_json::json!({
+                "id": "meeting-1",
+                "title": "Planning call",
+                "recorded_at": "2026-11-18T14:32:05+00:00",
+                "duration_seconds": 4975.5,
+            })
+        );
+    }
+
+    #[test]
+    fn an_unknown_moment_and_length_are_left_out_of_the_list_row() {
+        let json = serde_json::to_value(Meeting {
+            id: "meeting-1".into(),
+            title: "Old call".into(),
+            recorded_at: None,
+            duration_seconds: None,
+        })
+        .unwrap();
+
+        assert_eq!(json, serde_json::json!({"id": "meeting-1", "title": "Old call"}));
+        assert!(json.get("recorded_at").is_none(), "unknown is absent, not null");
+        assert!(json.get("duration_seconds").is_none(), "zero is never invented");
+    }
+
+    #[test]
+    fn a_row_with_only_a_duration_stays_readable() {
+        let json = serde_json::to_value(Meeting {
+            id: "meeting-1".into(),
+            title: "Half-known call".into(),
+            recorded_at: None,
+            duration_seconds: Some(61.0),
+        })
+        .unwrap();
+
+        assert_eq!(
+            json,
+            serde_json::json!({
+                "id": "meeting-1",
+                "title": "Half-known call",
+                "duration_seconds": 61.0,
+            })
+        );
     }
 }
 

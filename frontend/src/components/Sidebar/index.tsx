@@ -1,10 +1,11 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { ChevronDown, ChevronRight, File, Settings, ChevronLeftCircle, ChevronRightCircle, Calendar, StickyNote, Home, Trash2, Mic, Square, Plus, Search, Pencil, NotebookPen, SearchIcon, X, Upload } from 'lucide-react';
+import { ChevronDown, ChevronRight, Settings, ChevronLeftCircle, ChevronRightCircle, Calendar, StickyNote, Home, Mic, Square, Search, NotebookPen, SearchIcon, X, Upload } from 'lucide-react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useSidebar } from './SidebarProvider';
 import type { CurrentMeeting, SidebarItem } from '@/components/Sidebar/SidebarProvider';
+import { MeetingFileItem } from './MeetingFileItem';
 import { ConfirmationModal } from '../ConfirmationModel/confirmation-modal';
 import { ModelConfig } from '@/components/ModelSettingsModal';
 import { SettingTabs } from '../SettingTabs';
@@ -580,51 +581,15 @@ const Sidebar: React.FC = () => {
               )}
             </>
           ) : (
-            <div className="flex flex-col w-full">
-              <div className="flex items-center w-full">
-                {isMeetingItem ? (
-                  <div className="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full mr-2 bg-gray-100">
-                    <File className="w-3.5 h-3.5 text-gray-600" />
-                  </div>
-                ) : (
-                  <div className="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full mr-2 bg-blue-100">
-                    <Plus className="w-3.5 h-3.5 text-blue-600" />
-                  </div>
-                )}
-                <span className="flex-1 break-words">{item.title}</span>
-                {isMeetingItem && (
-                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleEditStart(item.id, item.title);
-                      }}
-                      className="hover:text-blue-600 p-1 rounded-md hover:bg-blue-50 flex-shrink-0"
-                      aria-label="Edit meeting title"
-                    >
-                      <Pencil className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setDeleteModalState({ isOpen: true, itemId: item.id });
-                      }}
-                      className="hover:text-red-600 p-1 rounded-md hover:bg-red-50 flex-shrink-0"
-                      aria-label="Delete meeting"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {/* Show transcript match snippet if available */}
-              {hasTranscriptMatch && (
-                <div className="mt-1 ml-8 text-xs text-gray-500 bg-yellow-50 p-1.5 rounded border border-yellow-100 line-clamp-2">
-                  <span className="font-medium text-yellow-600">Match:</span> {matchingResult.matchContext}
-                </div>
-              )}
-            </div>
+            <MeetingFileItem
+              title={item.title}
+              recordedAt={item.recordedAt ?? null}
+              durationSeconds={item.durationSeconds ?? null}
+              matchContext={hasTranscriptMatch ? matchingResult.matchContext : null}
+              isMeeting={isMeetingItem}
+              onEdit={() => handleEditStart(item.id, item.title)}
+              onDelete={() => setDeleteModalState({ isOpen: true, itemId: item.id })}
+            />
           )}
         </div>
         {item.type === 'folder' && isExpanded && item.children && (
