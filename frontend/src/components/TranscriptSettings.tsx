@@ -221,6 +221,25 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
                         </div>
                     )}
 
+                    {/*
+                     * Speaker diarization is a second stage that runs over a
+                     * finished transcript, so its model is offered whatever
+                     * engine produced the text. No selection is passed: a
+                     * diarization model cannot transcribe.
+                     */}
+                    <div className="mt-6 border-t border-gray-200 pt-4">
+                        <Label className="block text-sm font-medium text-gray-700">
+                            Speaker diarization
+                        </Label>
+                        <p className="mt-1 text-xs text-gray-500">
+                            Install this model to label who said what. It works with every
+                            transcription provider above.
+                        </p>
+                        <div className="mt-3">
+                            <AudioCppModelManager task="diar" />
+                        </div>
+                    </div>
+
 
                     {requiresApiKey && (
                         <div>
