@@ -8,12 +8,14 @@ const originalPreferences = { ...await import('../../src/lib/summary-language-pr
 const originalToast = { ...await import('sonner') };
 const originalNavigation = { ...await import('next/navigation') };
 const originalConfig = { ...await import('../../src/contexts/ConfigContext') };
+const originalRecordingState = { ...await import('../../src/contexts/RecordingStateContext') };
 afterAll(() => {
   mock.module('@tauri-apps/api/core', () => originalCore);
   mock.module('../../src/lib/summary-language-preferences', () => originalPreferences);
   mock.module('sonner', () => originalToast);
   mock.module('next/navigation', () => originalNavigation);
   mock.module('../../src/contexts/ConfigContext', () => originalConfig);
+  mock.module('../../src/contexts/RecordingStateContext', () => originalRecordingState);
 });
 
 let selectedMeeting = 'meeting-a';

@@ -8,11 +8,7 @@ import { useRecordingState, RecordingStatus } from '@/contexts/RecordingStateCon
 import { storageService } from '@/services/storageService';
 import { transcriptService } from '@/services/transcriptService';
 import { diarizationClient } from '@/lib/diarizationClient';
-import {
-  diarizeSavedMeeting,
-  shouldToastDiarizationStatus,
-  DIARIZATION_FAILED_MESSAGE,
-} from '@/lib/diarization';
+import { startLiveDiarization } from '@/lib/diarization';
 import {
   applyPinnedSummaryLanguageToMeeting,
   detectAndCacheSummaryLanguage,
@@ -83,18 +79,7 @@ export function useRecordingStop(
   // toast: a missing model, a missing runtime or a deferred pass were not
   // requested by the user.
   const applyLiveDiarization = useCallback((meetingId: string) => {
-    void (async () => {
-      const result = await diarizeSavedMeeting(diarizationClient, meetingId);
-      if (result === null) {
-        // The command itself failed; the meeting stays saved without labels.
-        return;
-      }
-      if (shouldToastDiarizationStatus(result.status)) {
-        toast.error('Diarization failed', {
-          description: DIARIZATION_FAILED_MESSAGE,
-        });
-      }
-    })();
+    void startLiveDiarization(diarizationClient, meetingId, toast);
   }, []);
 
   // Guard to prevent duplicate/concurrent stop calls (e.g., from UI and tray simultaneously)
