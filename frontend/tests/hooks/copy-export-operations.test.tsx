@@ -7,16 +7,20 @@ import type { MeetingSummary, Transcript } from '../../src/types';
 // Bun shares module mocks between test files; restore application modules after this suite.
 const originalCore = { ...await import('@tauri-apps/api/core') };
 const originalToast = { ...await import('sonner') };
+// `window` is absent in the default bun test environment; remember that so later
+// suites that rely on its absence (react-dom/server) are not affected by our shim.
+const globalWindow = globalThis as any;
+const hadWindow = 'window' in globalWindow;
+const originalWindow = globalWindow.window;
 afterAll(() => {
   mock.module('@tauri-apps/api/core', () => originalCore);
   mock.module('sonner', () => originalToast);
+  if (hadWindow) globalWindow.window = originalWindow;
+  else Reflect.deleteProperty(globalWindow, 'window');
 });
 
 const successToast = mock(() => {});
 const errorToast = mock(() => {});
-mock.module('sonner', () => ({
-  toast: { success: successToast, error: errorToast, info: mock(() => {}), warning: mock(() => {}) },
-}));
 
 const transcript: Transcript = { id: 'transcript-1', text: 'We shipped it', timestamp: '00:00' };
 let transcriptsPage: { transcripts: Transcript[]; total_count: number; has_more: boolean };
@@ -30,7 +34,25 @@ const invoke = mock(async (command: string, args?: Record<string, unknown>): Pro
   }
   throw new Error(`Unexpected command: ${command} (${JSON.stringify(args)})`);
 });
-mock.module('@tauri-apps/api/core', () => ({ ...originalCore, invoke }));
+
+/**
+ * Re-apply the test doubles for one test.
+ *
+ * Bun shares module mocks between test files, and another suite's `afterAll`
+ * restore can run after this file was loaded, so a mock registered only at
+ * module load may be gone by the first test. The `window` shim additionally
+ * covers the case where `export-file.ts` is already bound to the real `invoke`:
+ * the real `invoke` delegates to `window.__TAURI_INTERNALS__.invoke`.
+ */
+function installTestDoubles() {
+  mock.module('sonner', () => ({
+    toast: { success: successToast, error: errorToast, info: mock(() => {}), warning: mock(() => {}) },
+  }));
+  mock.module('@tauri-apps/api/core', () => ({ ...originalCore, invoke }));
+  (globalThis as any).window ??= {};
+  (globalThis as any).window.__TAURI_INTERNALS__ = { invoke };
+}
+installTestDoubles();
 
 const { useCopyOperations } = await import('../../src/hooks/meeting-details/useCopyOperations');
 
@@ -75,6 +97,7 @@ async function show() {
 }
 
 beforeEach(() => {
+  installTestDoubles();
   Object.defineProperty(globalThis.navigator, 'clipboard', {
     configurable: true,
     value: { writeText },
