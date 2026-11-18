@@ -2,13 +2,14 @@
 
 import { Button } from '@/components/ui/button';
 import { ButtonGroup } from '@/components/ui/button-group';
-import { Copy, Save, Loader2 } from 'lucide-react';
+import { Copy, Download, Save, Loader2 } from 'lucide-react';
 
 interface SummaryUpdaterButtonGroupProps {
   isSaving: boolean;
   isDirty: boolean;
   onSave: () => Promise<void>;
   onCopy: () => Promise<void>;
+  onExport: () => Promise<void>;
 }
 
 export function SummaryUpdaterButtonGroup({
@@ -16,6 +17,7 @@ export function SummaryUpdaterButtonGroup({
   isDirty,
   onSave,
   onCopy,
+  onExport,
 }: SummaryUpdaterButtonGroupProps) {
   return (
     <ButtonGroup>
@@ -55,6 +57,20 @@ export function SummaryUpdaterButtonGroup({
       >
         <Copy />
         <span className="hidden @[40rem]:inline">Copy</span>
+      </Button>
+
+      {/* Export button */}
+      <Button
+        variant="outline"
+        size="sm"
+        title="Export Summary"
+        onClick={() => {
+          onExport();
+        }}
+        className="cursor-pointer"
+      >
+        <Download />
+        <span className="hidden @[40rem]:inline">Export</span>
       </Button>
 
     </ButtonGroup>

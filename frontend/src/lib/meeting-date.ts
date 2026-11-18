@@ -1,0 +1,61 @@
+/**
+ * Reading a meeting's `created_at` value, shared by the export file name, the
+ * summary metadata block and the transcript header.
+ *
+ * The file name and the document must always name the same day, so all three go
+ * through `resolveMeetingDate`. A bare `YYYY-MM-DD` value is a calendar day, not
+ * an instant: it is read as that *local* day so the time zone cannot shift it.
+ * Anything else is a normal `Date`-parsable instant.
+ */
+
+/** A date-only `created_at`: year, month and day with no time or zone. */
+const DATE_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/**
+ * Parse a meeting moment, falling back to the current moment when it is
+ * missing, unparsable, or names a calendar day that does not exist.
+ */
+export function resolveMeetingDate(value?: string | Date | number | null): Date {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? new Date() : value;
+  }
+
+  if (typeof value === 'number') {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (trimmed) {
+      return parseDateString(trimmed) ?? new Date();
+    }
+  }
+
+  return new Date();
+}
+
+/** Parsed value, or null when it is not a real calendar day. */
+function parseDateString(value: string): Date | null {
+  const dateOnly = DATE_ONLY.exec(value);
+  if (!dateOnly) {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  const [, year, month, day] = dateOnly;
+  const local = new Date(Number(year), Number(month) - 1, Number(day));
+
+  // `new Date(2026, 1, 31)` rolls over to March 3 and `new Date(2026, 12, 1)`
+  // to January 1 of the next year, so a mismatching round trip means the input
+  // named a day that does not exist.
+  if (
+    local.getFullYear() !== Number(year)
+    || local.getMonth() !== Number(month) - 1
+    || local.getDate() !== Number(day)
+  ) {
+    return null;
+  }
+
+  return local;
+}

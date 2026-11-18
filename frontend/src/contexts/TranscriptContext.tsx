@@ -8,7 +8,7 @@ import { transcriptService } from '@/services/transcriptService';
 import { recordingService } from '@/services/recordingService';
 import { indexedDBService } from '@/services/indexedDBService';
 import { formatTranscriptText } from '@/lib/transcript-format';
-import { exportTranscriptToFile } from '@/lib/transcript-export';
+import { buildExportFileName, exportFileWithDialog } from '@/lib/export-file';
 
 interface TranscriptContextType {
   transcripts: Transcript[];
@@ -473,11 +473,18 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
     }
 
     const fullTranscript = formatTranscriptText(transcripts);
-    const defaultName = meetingTitle?.trim() && meetingTitle !== '+ New Call'
-      ? meetingTitle.trim()
-      : 'transcript';
 
-    await exportTranscriptToFile(fullTranscript, `${defaultName}.txt`);
+    await exportFileWithDialog({
+      content: fullTranscript,
+      defaultFileName: buildExportFileName({
+        // A live recording has no meeting row yet, so the current moment
+        // supplies the date.
+        date: new Date(),
+        title: meetingTitle,
+        kind: 'transcript',
+      }),
+      kind: 'transcript',
+    });
   }, [transcripts, meetingTitle]);
 
   // Force flush buffer (for final transcript processing)
