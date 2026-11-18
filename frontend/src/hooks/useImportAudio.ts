@@ -2,6 +2,11 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import { applyPinnedSummaryLanguageToMeeting } from '@/lib/summary-language-preferences';
+import {
+  DIARIZATION_FAILED_MESSAGE,
+  shouldToastDiarizationUnavailable,
+  type DiarizationUnavailablePayload,
+} from '@/lib/diarization';
 import { toast } from 'sonner';
 
 export interface AudioFileInfo {
@@ -139,16 +144,17 @@ export function useImportAudio({
       }
       unlisteners.push(unlistenError);
 
-      // Speaker labels were skipped (no Nemotron model, or the pass failed).
-      // The transcript is complete; this is a hint, not an error.
-      const unlistenDiarization = await listen<{ meeting_id?: string; message?: string }>(
+      // A diarization pass that was attempted and failed. Native code emits
+      // this event only for `failed`; the status check keeps the hook silent
+      // for configuration reasons if that contract is ever widened. The
+      // transcript is already complete, so this is never an error state.
+      const unlistenDiarization = await listen<DiarizationUnavailablePayload>(
         'diarization-unavailable',
         (event) => {
           if (isCancelledRef.current) return;
-          toast.info('Speaker labels not assigned', {
-            description:
-              event.payload.message ??
-              'Download the Nemotron-3-Diarization model in Settings to see who said what.',
+          if (!shouldToastDiarizationUnavailable(event.payload.status)) return;
+          toast.error('Diarization failed', {
+            description: event.payload.message ?? DIARIZATION_FAILED_MESSAGE,
           });
         }
       );

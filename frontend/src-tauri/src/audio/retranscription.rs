@@ -4,8 +4,8 @@ use super::common::{
     create_transcript_segments, find_audio_file, split_segment_at_silence, write_transcripts_json,
     BatchEngine,
 };
+use super::transcription::diarization_run;
 use super::transcription::diarization_service::{
-    diarize_segments, unavailable_segments, DIARIZATION_UNAVAILABLE_MESSAGE,
     SPEAKER_NAMES_RESET_EVENT, SPEAKER_NAMES_RESET_MESSAGE,
 };
 use super::transcription::engine::get_or_init_audio_cpp_provider_with_model;
@@ -228,14 +228,12 @@ async fn run_retranscription<R: Runtime>(
     // transcription). IMPORTANT: Run VAD in a blocking task to avoid blocking
     // the async runtime; for large files (35+ minutes) it can take minutes.
     //
-    // VAD only borrows the buffer, so the same buffer is handed back for the
-    // post-transcription diarization pass instead of being cloned: a whole
-    // recording is hundreds of MB.
+    // The buffer is dropped with this task: diarization re-decodes the meeting
+    // file instead of keeping a whole recording alive in memory.
     let app_for_vad = app.clone();
     let meeting_id_for_vad = meeting_id.clone();
-    let needs_diarization = engine_kind == BatchEngine::AudioCpp;
 
-    let (speech_segments, audio_for_diarization) = tokio::task::spawn_blocking(move || {
+    let speech_segments = tokio::task::spawn_blocking(move || {
         let segments = get_speech_chunks_with_progress(
             &audio_samples,
             VAD_REDEMPTION_TIME_MS,
@@ -257,7 +255,7 @@ async fn run_retranscription<R: Runtime>(
                 !RETRANSCRIPTION_CANCELLED.load(Ordering::SeqCst)
             },
         )?;
-        Ok::<_, anyhow::Error>((segments, needs_diarization.then_some(audio_samples)))
+        Ok::<_, anyhow::Error>(segments)
     })
     .await
     .map_err(|e| anyhow!("VAD task panicked: {}", e))?
@@ -482,34 +480,7 @@ async fn run_retranscription<R: Runtime>(
     emit_progress(&app, &meeting_id, "saving", 80, "Saving transcripts...");
 
     // Create transcript segments with proper timestamps from VAD
-    let mut segments = create_transcript_segments(&all_transcripts);
-
-    // Diarization is an audioCpp feature: when the user picked audioCpp and
-    // the Nemotron model is installed, overlay speaker turns onto the
-    // segments before saving. A missing model or a failed pass leaves the
-    // transcript intact without labels.
-    if engine_kind == BatchEngine::AudioCpp {
-        emit_progress(&app, &meeting_id, "saving", 82, "Assigning speakers...");
-        // Only a real buffer can be diarized; a missing one is reported as an
-        // unavailable pass instead of degrading into "audio is too short".
-        let outcome = match audio_for_diarization {
-            Some(audio) => diarize_segments(&mut segments, audio).await,
-            None => unavailable_segments(
-                segments.len(),
-                Some("the decoded audio buffer was released before diarization".to_string()),
-            ),
-        };
-        if !outcome.speakers_available {
-            let _ = app.emit(
-                "diarization-unavailable",
-                serde_json::json!({
-                    "meeting_id": meeting_id,
-                    "reason": outcome.error,
-                    "message": DIARIZATION_UNAVAILABLE_MESSAGE,
-                }),
-            );
-        }
-    }
+    let segments = create_transcript_segments(&all_transcripts);
 
     // Save to database
     let app_state = app
@@ -608,6 +579,18 @@ async fn run_retranscription<R: Runtime>(
         "complete",
         100,
         "Retranscription complete",
+    );
+
+    // The transcript transaction has committed and the files are written, so
+    // the meeting is complete for the user. Diarization is a second stage over
+    // that saved meeting: it re-decodes the meeting file and reports its own
+    // status through native events. Its failure cannot fail the
+    // retranscription.
+    diarization_run::schedule_after_batch(
+        engine_kind,
+        app.clone(),
+        pool.clone(),
+        meeting_id.clone(),
     );
 
     Ok(RetranscriptionResult {

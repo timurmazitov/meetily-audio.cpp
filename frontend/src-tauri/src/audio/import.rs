@@ -23,8 +23,8 @@ use super::common::{
 };
 use super::constants::AUDIO_EXTENSIONS;
 use super::recording_preferences::get_default_recordings_folder;
+use super::transcription::diarization_run;
 use super::transcription::diarization_service::{
-    diarize_segments, unavailable_segments, DIARIZATION_UNAVAILABLE_MESSAGE,
     SPEAKER_NAMES_RESET_EVENT, SPEAKER_NAMES_RESET_MESSAGE,
 };
 use super::transcription::engine::get_or_init_audio_cpp_provider_with_model;
@@ -424,13 +424,12 @@ async fn run_import<R: Runtime>(
 
     // Use VAD to find speech segments.
     //
-    // VAD only borrows the buffer, so the same buffer is handed back for the
-    // post-transcription diarization pass instead of being cloned: an
-    // imported recording is hundreds of MB.
+    // VAD only borrows the buffer and the buffer is dropped when this task
+    // ends: diarization re-decodes the meeting file instead of holding a
+    // hundreds-of-MB copy of the audio alive for the rest of the import.
     let app_for_vad = app.clone();
-    let needs_diarization = engine_kind == BatchEngine::AudioCpp;
 
-    let (speech_segments, audio_samples_for_diarization) = tokio::task::spawn_blocking(move || {
+    let speech_segments = tokio::task::spawn_blocking(move || {
         let segments = get_speech_chunks_with_progress(
             &audio_samples,
             VAD_REDEMPTION_TIME_MS,
@@ -448,7 +447,7 @@ async fn run_import<R: Runtime>(
                 !IMPORT_CANCELLED.load(Ordering::SeqCst)
             },
         )?;
-        Ok::<_, anyhow::Error>((segments, needs_diarization.then_some(audio_samples)))
+        Ok::<_, anyhow::Error>(segments)
     })
     .await
     .map_err(|e| anyhow!("VAD task panicked: {}", e))?
@@ -682,39 +681,16 @@ async fn run_import<R: Runtime>(
     emit_progress(&app, "saving", 85, "Creating meeting...");
 
     // Create transcript segments
-    let mut segments = create_transcript_segments(&all_transcripts);
-
-    // audioCpp diarization: overlay speaker turns when the Nemotron model is
-    // installed. Other engines have no diarization model, so they skip it.
-    if engine_kind == BatchEngine::AudioCpp {
-        emit_progress(&app, "saving", 87, "Assigning speakers...");
-        // Only a real buffer can be diarized; a missing one is reported as an
-        // unavailable pass instead of degrading into "audio is too short".
-        let outcome = match audio_samples_for_diarization {
-            Some(audio) => diarize_segments(&mut segments, audio).await,
-            None => unavailable_segments(
-                segments.len(),
-                Some("the decoded audio buffer was released before diarization".to_string()),
-            ),
-        };
-        if !outcome.speakers_available {
-            let _ = app.emit(
-                "diarization-unavailable",
-                serde_json::json!({
-                    "reason": outcome.error,
-                    "message": DIARIZATION_UNAVAILABLE_MESSAGE,
-                }),
-            );
-        }
-    }
+    let segments = create_transcript_segments(&all_transcripts);
 
     // Save to database
     let app_state = app
         .try_state::<AppState>()
         .ok_or_else(|| anyhow!("App state not available"))?;
+    let pool = app_state.db_manager.pool();
 
     let (meeting_id, reconcile) = create_meeting_with_transcripts(
-        app_state.db_manager.pool(),
+        pool,
         &title,
         &segments,
         meeting_folder.to_string_lossy().to_string(),
@@ -752,6 +728,17 @@ async fn run_import<R: Runtime>(
     }
 
     emit_progress(&app, "complete", 100, "Import complete");
+
+    // Diarization is a second stage over the saved meeting: the transcript is
+    // already committed and the import is already complete for the user. The
+    // pass re-decodes the meeting file, so it does not depend on the buffers
+    // this function freed.
+    diarization_run::schedule_after_batch(
+        engine_kind,
+        app.clone(),
+        pool.clone(),
+        meeting_id.clone(),
+    );
 
     Ok(ImportResult {
         meeting_id,

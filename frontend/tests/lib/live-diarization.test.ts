@@ -26,6 +26,7 @@ import {
   diarizeSavedMeeting,
   hasInstalledDiarizationModel,
   shouldToastDiarizationStatus,
+  shouldToastDiarizationUnavailable,
   startLiveDiarization,
   type DiarizationClient,
   type DiarizationResult,
@@ -171,6 +172,41 @@ describe('shouldToastDiarizationStatus', () => {
 
     for (const [status, shouldToast] of expected) {
       expect(shouldToastDiarizationStatus(status)).toBe(shouldToast);
+    }
+  });
+});
+
+describe('shouldToastDiarizationUnavailable', () => {
+  // The `diarization-unavailable` native event now fires only for `failed`,
+  // but the listener checks the payload status before speaking: if native code
+  // ever widens the event, the UI must stay quiet for configuration reasons
+  // instead of re-learning the old "toast for everything" behaviour.
+  test('stays silent for every status except failed', () => {
+    const expected: Array<[DiarizationStatus | undefined, boolean]> = [
+      ['ran', false],
+      ['no_model', false],
+      ['no_runtime', false],
+      ['deferred', false],
+      ['failed', true],
+      [undefined, false],
+    ];
+
+    for (const [status, shouldToast] of expected) {
+      expect(shouldToastDiarizationUnavailable(status)).toBe(shouldToast);
+    }
+  });
+
+  test('agrees with the automatic-pass rule', () => {
+    for (const status of [
+      'ran',
+      'no_model',
+      'no_runtime',
+      'deferred',
+      'failed',
+    ] as DiarizationStatus[]) {
+      expect(shouldToastDiarizationUnavailable(status)).toBe(
+        shouldToastDiarizationStatus(status),
+      );
     }
   });
 });
