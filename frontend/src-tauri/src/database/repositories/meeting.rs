@@ -121,6 +121,8 @@ impl MeetingsRepository {
                 created_at: meeting.created_at.0.to_rfc3339(),
                 updated_at: meeting.updated_at.0.to_rfc3339(),
                 folder_path: meeting.folder_path,
+                recorded_at: meeting.recorded_at.map(|moment| moment.0.to_rfc3339()),
+                duration_seconds: meeting.duration_seconds,
                 transcripts: meeting_transcripts,
             }))
         } else {

@@ -134,6 +134,13 @@ pub struct MeetingDetails {
     /// Recording folder, used by post-transcription diarization.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub folder_path: Option<String>,
+    /// The meeting's own moment (GLOSSARY: «дата встречи»), additive: absent
+    /// while unknown, never the row's `created_at` and never a substituted "now".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recorded_at: Option<String>,
+    /// Meeting length in seconds, additive. Absent while unknown, never zero.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_seconds: Option<f64>,
     pub transcripts: Vec<MeetingTranscript>,
 }
 
@@ -1619,6 +1626,64 @@ pub async fn api_test_custom_openai_connection<R: Runtime>(
                 Err(format!("Connection failed: {}", error))
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod meeting_details_contract_tests {
+    use super::{MeetingDetails, MeetingTranscript};
+
+    fn details(recorded_at: Option<&str>, duration_seconds: Option<f64>) -> MeetingDetails {
+        MeetingDetails {
+            id: "meeting-1".into(),
+            title: "Planning call".into(),
+            created_at: "2026-11-18T21:00:00+07:00".into(),
+            updated_at: "2026-11-18T21:00:00+07:00".into(),
+            folder_path: None,
+            recorded_at: recorded_at.map(str::to_owned),
+            duration_seconds,
+            transcripts: vec![MeetingTranscript {
+                id: "t-0".into(),
+                text: "Hello".into(),
+                timestamp: "2024-01-01T00:00:00Z".into(),
+                audio_start_time: Some(0.0),
+                audio_end_time: Some(1.0),
+                duration: Some(1.0),
+                speaker: None,
+                speaker_name: None,
+            }],
+        }
+    }
+
+    /// `api_get_meeting` is the second way into an open meeting; it must carry
+    /// the same meeting moment and length the metadata payload does.
+    #[test]
+    fn the_meeting_details_carry_the_moment_and_length() {
+        let json = serde_json::to_value(details(
+            Some("2026-11-18T14:32:05+00:00"),
+            Some(4_975.5),
+        ))
+        .unwrap();
+
+        assert_eq!(json["recorded_at"], "2026-11-18T14:32:05+00:00");
+        assert_eq!(json["duration_seconds"], 4_975.5);
+        assert_eq!(
+            json["created_at"], "2026-11-18T21:00:00+07:00",
+            "created_at stays the audit field"
+        );
+    }
+
+    /// Unknown values stay absent, exactly as in the metadata and list payloads:
+    /// a reader can tell "no date" from "a date", and no zero is invented.
+    #[test]
+    fn an_unknown_moment_and_length_are_left_out_of_the_details() {
+        let json = serde_json::to_value(details(None, None)).unwrap();
+
+        assert!(json.get("recorded_at").is_none(), "unknown is absent, not null");
+        assert!(
+            json.get("duration_seconds").is_none(),
+            "zero is never invented"
+        );
     }
 }
 
