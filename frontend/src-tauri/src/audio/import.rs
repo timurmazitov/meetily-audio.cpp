@@ -29,6 +29,7 @@ use super::transcription::diarization_service::{
 };
 use super::transcription::engine::get_or_init_audio_cpp_provider_with_model;
 use super::transcription::provider::TranscriptionProvider;
+use crate::database::meeting_facts::usable_duration_seconds;
 use crate::database::repositories::speaker::{self, ReconcileOutcome};
 
 /// Global flag to track if import is in progress
@@ -757,19 +758,15 @@ fn emit_progress<R: Runtime>(app: &AppHandle<R>, stage: &str, progress: u32, mes
     );
 }
 
-/// A decoded length that is worth storing: zero, negative or non-finite means
-/// "unknown" (the file was too short or could not be measured), and the spec
-/// forbids writing that as a real `0.0`.
-fn usable_duration_seconds(duration_seconds: Option<f64>) -> Option<f64> {
-    duration_seconds.filter(|seconds| seconds.is_finite() && *seconds > 0.0)
-}
-
 /// Create a new meeting with transcripts in the database.
 ///
-/// `duration_seconds` is the length of the decoded source file. An import has
-/// no earlier start than itself, so the meeting's own moment is the moment of
-/// the import: the same value `created_at` gets, and the same moment the
-/// `metadata.json` written right after this commit records.
+/// `duration_seconds` is the length of the decoded source file, read through the
+/// one shared rule (see `database::meeting_facts::usable_duration_seconds`):
+/// zero, negative or non-finite means "unknown", and the spec forbids writing
+/// that as a real `0.0`. An import has no earlier start than itself, so the
+/// meeting's own moment is the moment of the import: the same value `created_at`
+/// gets, and the same moment the `metadata.json` written right after this commit
+/// records.
 async fn create_meeting_with_transcripts(
     pool: &sqlx::SqlitePool,
     title: &str,

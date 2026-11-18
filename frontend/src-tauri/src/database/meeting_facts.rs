@@ -26,6 +26,18 @@ pub(crate) struct FolderMeetingFacts {
     pub duration_seconds: Option<f64>,
 }
 
+/// A length worth storing: zero, negative or non-finite means "unknown" (the
+/// recording was too short or could not be measured), and the spec forbids
+/// writing that as a real length.
+///
+/// This is the one home of the rule for Rust. The other two are the SQL
+/// `HAVING MAX(audio_end_time) > 0` in `database/backfill.rs` and the display
+/// formatter `formatMeetingDuration` in the frontend; they read the same values
+/// from places Rust cannot reach.
+pub(crate) fn usable_duration_seconds(duration_seconds: Option<f64>) -> Option<f64> {
+    duration_seconds.filter(|seconds| seconds.is_finite() && *seconds > 0.0)
+}
+
 /// Reads the meeting's own facts from `folder_path`, if it has any.
 ///
 /// A missing folder, a missing file, unparsable JSON, or an unusable value each
@@ -49,10 +61,9 @@ pub(crate) fn read_folder_meeting_facts(folder_path: Option<&str>) -> FolderMeet
             .get("created_at")
             .and_then(|value| value.as_str())
             .and_then(parse_moment_ms),
-        duration_seconds: value
-            .get("duration_seconds")
-            .and_then(|value| value.as_f64())
-            .filter(|seconds| *seconds > 0.0),
+        duration_seconds: usable_duration_seconds(
+            value.get("duration_seconds").and_then(|value| value.as_f64()),
+        ),
     }
 }
 
@@ -82,7 +93,19 @@ fn parse_moment_ms(value: &str) -> Option<i64> {
 
 #[cfg(test)]
 mod tests {
-    use super::{read_folder_meeting_facts, FolderMeetingFacts};
+    use super::{read_folder_meeting_facts, usable_duration_seconds, FolderMeetingFacts};
+
+    #[test]
+    fn a_length_is_stored_only_when_it_is_a_real_positive_measurement() {
+        assert_eq!(usable_duration_seconds(Some(4_975.5)), Some(4_975.5));
+        assert_eq!(usable_duration_seconds(Some(0.5)), Some(0.5));
+        // Zero, negative, NaN and the infinities are all "not measured".
+        assert_eq!(usable_duration_seconds(Some(0.0)), None);
+        assert_eq!(usable_duration_seconds(Some(-3.0)), None);
+        assert_eq!(usable_duration_seconds(Some(f64::NAN)), None);
+        assert_eq!(usable_duration_seconds(Some(f64::INFINITY)), None);
+        assert_eq!(usable_duration_seconds(None), None);
+    }
 
     fn folder_with(metadata: &str) -> tempfile::TempDir {
         let dir = tempfile::tempdir().unwrap();

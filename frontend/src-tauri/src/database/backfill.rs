@@ -103,6 +103,8 @@ pub(crate) async fn backfill_meeting_facts(
     // end. Step 4 falls out of the same query: a meeting with no timed segments
     // has no row here, so its length stays NULL. A degenerate zero is "unknown"
     // too, exactly as `meeting_facts` treats a zero folder duration.
+    // The rule lives in Rust at `meeting_facts::usable_duration_seconds`; SQL
+    // cannot call it, so `HAVING ... > 0` restates the same predicate here.
     let segment_ends: Vec<(String, f64)> = sqlx::query_as(
         "SELECT meeting_id, MAX(audio_end_time) FROM transcripts
          WHERE audio_end_time IS NOT NULL
