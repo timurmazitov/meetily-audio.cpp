@@ -127,6 +127,20 @@ struct SummaryCacheSource {
     max_tokens: Option<u32>,
     temperature: Option<f32>,
     top_p: Option<f32>,
+    /// The meeting date as it appears in the final prompt (`18/11/2026, 14:32`),
+    /// or `None` when the meeting has no date.
+    ///
+    /// `serde(default)` is belt-and-braces here: serde already reads a missing
+    /// `Option<T>` field as `None` (`serde::private::de::missing_field`), so
+    /// cache records written before this field existed deserialise as "no
+    /// date" either way. The attribute keeps that guarantee explicit and holds
+    /// if the field ever stops being an `Option` — without it, such a change
+    /// would turn every pre-existing cache entry into a silent permanent miss.
+    ///
+    /// The meeting date is immutable, so unlike the current moment it never
+    /// makes cache hits rot over time.
+    #[serde(default)]
+    meeting_date: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -162,6 +176,7 @@ fn build_summary_cache_source(
     max_tokens: Option<u32>,
     temperature: Option<f32>,
     top_p: Option<f32>,
+    meeting_date: Option<&str>,
 ) -> SummaryCacheSource {
     SummaryCacheSource {
         transcript_fingerprint: stable_text_fingerprint(text),
@@ -176,6 +191,7 @@ fn build_summary_cache_source(
         max_tokens,
         temperature,
         top_p,
+        meeting_date: meeting_date.map(str::to_string),
     }
 }
 
@@ -579,6 +595,7 @@ impl SummaryService {
             custom_openai_max_tokens,
             custom_openai_temperature,
             custom_openai_top_p,
+            meeting_date.as_deref(),
         );
 
         let cached_english = match SummaryProcessesRepository::get_summary_data(&pool, &meeting_id).await {
@@ -931,6 +948,28 @@ mod tests {
             None,
             None,
             None,
+            None,
+        )
+    }
+
+    /// The same inputs as `sample_cache_source`, plus the meeting date that the
+    /// final prompt carries — built through the production builder so the test
+    /// covers the wiring of the date into the fingerprint.
+    fn dated_cache_source(meeting_date: &str) -> SummaryCacheSource {
+        build_summary_cache_source(
+            "transcript body",
+            "custom prompt",
+            "standard_meeting",
+            &stable_text_fingerprint("standard template prompt"),
+            3700,
+            "ollama",
+            "gemma3:1b",
+            Some("http://localhost:11434"),
+            None,
+            None,
+            None,
+            None,
+            Some(meeting_date),
         )
     }
 
@@ -1071,6 +1110,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             ),
             build_summary_cache_source(
                 "transcript body",
@@ -1081,6 +1121,7 @@ mod tests {
                 "ollama",
                 "gemma3:1b",
                 Some("http://localhost:11434"),
+                None,
                 None,
                 None,
                 None,
@@ -1099,6 +1140,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             ),
             build_summary_cache_source(
                 "transcript body",
@@ -1109,6 +1151,7 @@ mod tests {
                 "openai",
                 "gemma3:1b",
                 Some("http://localhost:11434"),
+                None,
                 None,
                 None,
                 None,
@@ -1127,6 +1170,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             ),
             build_summary_cache_source(
                 "transcript body",
@@ -1137,6 +1181,7 @@ mod tests {
                 "ollama",
                 "gemma3:1b",
                 Some("http://localhost:11500"),
+                None,
                 None,
                 None,
                 None,
@@ -1155,6 +1200,7 @@ mod tests {
                 Some(2048),
                 Some(0.2),
                 Some(0.9),
+                None,
             ),
         ];
 
@@ -1164,6 +1210,122 @@ mod tests {
                 None
             );
         }
+    }
+
+    #[test]
+    fn test_changed_meeting_date_rejects_cache() {
+        let source = dated_cache_source("18/11/2026, 14:32");
+
+        // An undated source, and the same meeting dated differently.
+        let changed_sources = [
+            sample_cache_source(),
+            dated_cache_source("19/11/2026, 09:00"),
+        ];
+
+        for changed_source in &changed_sources {
+            assert_ne!(
+                source, *changed_source,
+                "sources differing only by meeting date must not be equal"
+            );
+        }
+
+        let raw = build_summary_result_json(
+            "# Reunion\n## Points\nBonjour",
+            "# Meeting\n## Points\nHello",
+            source,
+            Some("fr"),
+            false,
+            false,
+        )
+        .unwrap()
+        .to_string();
+
+        for changed_source in changed_sources {
+            assert_eq!(
+                extract_cached_english_markdown(&raw, &changed_source, Some("de")).unwrap(),
+                None
+            );
+        }
+    }
+
+    #[test]
+    fn regenerating_the_same_meeting_with_the_same_date_hits_the_cache() {
+        let source = dated_cache_source("18/11/2026, 14:32");
+        let raw = build_summary_result_json(
+            "# Reunion\n## Points\nBonjour",
+            "# Meeting\n## Points\nHello",
+            source.clone(),
+            Some("fr"),
+            false,
+            false,
+        )
+        .unwrap()
+        .to_string();
+
+        assert_eq!(
+            extract_cached_english_markdown(&raw, &source, Some("de")).unwrap(),
+            Some("# Meeting\n## Points\nHello".to_string()),
+            "an immutable meeting date must not make cache hits decay with time"
+        );
+    }
+
+    /// The pre-ticket-10 JSON shape, written literally so the assertion does not
+    /// derive from the current struct. Cache records are persisted inside the
+    /// `summary_processes.result` column, so older builds have records without
+    /// `meeting_date` in `english_cache.source`.
+    #[test]
+    fn legacy_cache_source_without_a_meeting_date_deserialises_as_absent() {
+        let legacy = serde_json::json!({
+            "markdown": "# Meeting\n## Points\nHello",
+            "output_language": "French",
+            "source": {
+                "transcript_fingerprint": "0f0f0f0f0f0f0f0f:15",
+                "custom_prompt_fingerprint": "1e1e1e1e1e1e1e1e:13",
+                "template_id": "standard_meeting",
+                "template_fingerprint": "2d2d2d2d2d2d2d2d:24",
+                "token_threshold": 3700,
+                "model_provider": "ollama",
+                "model_name": "gemma3:1b",
+                "ollama_endpoint": "http://localhost:11434",
+                "custom_openai_endpoint": null,
+                "max_tokens": null,
+                "temperature": null,
+                "top_p": null
+            }
+        });
+
+        let cache: EnglishSummaryCache = serde_json::from_value(legacy)
+            .expect("cache records written before the meeting date existed must still deserialise");
+
+        assert_eq!(cache.source.meeting_date, None);
+    }
+
+    /// Same guarantee observed through the cache lookup: a record persisted
+    /// without the field still hits for a meeting that has no date. Without the
+    /// field being optional on deserialisation, this would silently become a
+    /// permanent cache miss for every pre-existing record.
+    #[test]
+    fn legacy_cache_record_without_the_date_still_hits_the_cache() {
+        let source = sample_cache_source();
+        let mut result = build_summary_result_json(
+            "# Reunion\n## Points\nBonjour",
+            "# Meeting\n## Points\nHello",
+            source.clone(),
+            Some("fr"),
+            false,
+            false,
+        )
+        .unwrap();
+        // Reproduce the pre-ticket-10 record: no `meeting_date` key at all.
+        result[ENGLISH_CACHE_FIELD]["source"]
+            .as_object_mut()
+            .expect("cache source is an object")
+            .remove("meeting_date");
+
+        assert_eq!(
+            extract_cached_english_markdown(&result.to_string(), &source, Some("de")).unwrap(),
+            Some("# Meeting\n## Points\nHello".to_string())
+        );
     }
 
     #[test]
