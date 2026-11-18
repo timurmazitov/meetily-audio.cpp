@@ -82,3 +82,8 @@
 
 Проверено: `bun test tests/lib/export-file.test.ts` — 31 pass, 0 fail; весь набор из пяти файлов
 экспорта — 70 pass под `TZ=UTC`, `TZ=America/New_York`, `TZ=Asia/Kamchatka`; `tsc --noEmit` чисто.
+
+Уточнение к разделу «Не проверено» выше: пункт про Rust-часть контракта команды устарел — тикет 03
+слит, `export.rs` принимает `extension` / `filterLabel` и дозаписывает расширение. Второй правки
+имени файла в кодовой базе по-прежнему нет: `grep -rn "suffix: 'transcript'\|filterLabel: 'Text Files'\|successMessage: 'Transcript exported'" frontend/src`
+находит эти строки только внутри `EXPORT_KINDS` в `frontend/src/lib/export-file.ts`.

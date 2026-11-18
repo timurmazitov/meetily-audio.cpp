@@ -43,3 +43,25 @@
 
 - Поведение в живом Tauri-приложении (реальный ref BlockNote, реальный буфер обмена, тосты) — по контексту спеки это ручная проверка оркестратора/ревьюера.
 - Полный `bun test` не гонялся целиком: в нём 12 предсуществующих падений из-за утечки `mock.module` между файлами (см. контекст спеки).
+
+### Дополнение по ревью `review-fixes/summary-export` (2026-11-18)
+
+- **Дата в метаданных читается общим хелпером.** `formatMetadataDate(meetingDate)` заменён на
+  `formatMeetingDate`, который сначала зовёт `resolveMeetingDate` из нового нейтрального модуля
+  `frontend/src/lib/meeting-date.ts`, а форматирование оставляет прежним. Причина — расхождение
+  с именем файла: дата-онли `created_at` (`2026-11-18`) разбиралась здесь как UTC-полночь и к западу
+  от Гринвича давала в блоке `**Date:**` предыдущий день, тогда как `export-file.ts` считал тот же
+  `created_at` локальным календарным днём. Теперь буфер и файл всегда называют один день.
+  Для полноценных инстансов (`2026-11-18T10:30:00Z`) форматирование не изменилось.
+- **Единственный аргумент `buildSummaryText`.** В хуке `action: 'Copy' | 'Export'` + `label`
+  свёрнуты в один `label: SummaryDocumentLabel`; глагол для тостов выводится из метки
+  (`Copied` → `copy`, `Exported` → `export`). Внешнее поведение тостов прежнее.
+- **Общее название встречи.** `meetingTitle` заменён на `exportTitle = meetingTitle ?? meeting.title`
+  и в сборке документа тоже, поэтому шапка `# Meeting Summary:` не теряет название, когда
+  редактируемый заголовок не передан.
+
+Проверено: `bun test tests/lib/summary-document.test.ts` — 6 pass, 0 fail (включая новый тест
+«reads a date-only created_at as that local calendar day»); набор из пяти файлов экспорта — 70 pass
+под `TZ=UTC`, `TZ=America/New_York` и `TZ=Asia/Kamchatka`; `./node_modules/.bin/tsc --noEmit` — чисто.
+
+Не проверено: живое Tauri-приложение, как и выше — `tauri:dev`/`tauri:build` в этой среде не запускались.

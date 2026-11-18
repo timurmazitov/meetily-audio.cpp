@@ -42,11 +42,13 @@
   `Option`-аргументы как `None` (см. `deserialize_option` в крейте `tauri`: при отсутствии ключа вызывается
   `visit_none`). Запись осталась `std::fs::write` над `content.as_bytes()` — UTF-8 без BOM.
 - **Хук** (`useCopyOperations.ts`): markdown резолвится один раз в `resolveSummaryMarkdown` (ref редактора →
-  `aiSummary.markdown` → legacy-конвертация), документ собирает общий `buildSummaryText(action, label)`, поэтому
+  `aiSummary.markdown` → legacy-конвертация), документ собирает общий `buildSummaryText(label)`, поэтому
   Copy и Export не могут разойтись. `handleExportSummary` собирает документ с `label: 'Exported'` и зовёт
-  `exportFileWithDialog` с `md` / `Markdown Files` / `Summary exported` / `Failed to export summary`;
-  имя по умолчанию — `buildExportFileName({ date: meeting.created_at, title: meetingTitle, suffix: 'summary', extension: 'md' })`.
+  `exportFileWithDialog` с `kind: 'summary'` (дескриптор `EXPORT_KINDS` даёт `md` / `Markdown Files` /
+  `Summary exported` / `Failed to export summary`);
+  имя по умолчанию — `buildExportFileName({ date: meeting.created_at, title: exportTitle, kind: 'summary' })`.
   Автосохранения нет: экспортируется текущее состояние редактора, даже несохранённое.
+  (Исходно было `buildSummaryText(action, label)` и `suffix` / `extension` в аргументах — см. уборку по ревью ниже.)
 - **UI**: в `SummaryUpdaterButtonGroup` добавлена кнопка Export (`Download`) сразу после Copy, подпись скрывается
   так же (`hidden @[40rem]:inline`), проброшена через `SummaryPanel` (`onExportSummary`) и
   `app/meeting-details/page-content.tsx`. Группа, а значит и кнопка, видна при `hasSummary && !isSummaryLoading`;
@@ -149,12 +151,26 @@
 - Прогон каждого файла из `tests/` по отдельности — падений нет.
 - `./node_modules/.bin/tsc --noEmit` — чисто.
 
+Повторная проверка на интеграционной ветке после мержа `review-fixes/summary-export` (`106b579`):
+
+- `bun test tests/lib/export-file.test.ts tests/lib/summary-document.test.ts tests/hooks/copy-export-operations.test.tsx
+  tests/lib/summary-content.test.ts tests/lib/transcript-format.test.ts` — 70 pass, 0 fail под `TZ=UTC`,
+  `TZ=America/New_York` и `TZ=Asia/Kamchatka`.
+- По файлам: `export-file.test.ts` — 31 pass, `summary-document.test.ts` — 6 pass,
+  `copy-export-operations.test.tsx` — 13 pass (было 10 до правок по ревью).
+- `./node_modules/.bin/tsc --noEmit` — чисто.
+- `cargo test --lib export` на интеграционной ветке — 9 тестов, все ok (614 отфильтровано); Rust правки
+  по ревью не затронули.
+
 Не проверено:
 
-- Ручная проверка в Tauri-приложении (диалог, фильтры, отмена, дозапись расширения) — как и раньше,
-  `tauri:dev` в этой среде не запускается; чек-бокс не отмечен.
+- **Нативный диалог сохранения в этой среде не проверялся ни разу.** `pnpm run tauri:dev` и
+  `pnpm run tauri:build` не запускались (нет sidecars, GPU-тулчейна и дисплея), поэтому открытие
+  диалога, фильтры «Markdown Files» / «Text Files», отмена, дозапись расширения после стирания и
+  запись в реальную файловую систему остаются непроверенными. Чек-бокс ручной проверки не отмечен.
+- Встречи с кириллическим и с пустым названием в живом диалоге не открывались; имя собирает
+  `buildExportFileName`, и это покрыто тестами тикета 01.
 - Совместный прогон `meeting-details-refresh` + `summary-generation` + `paginated-transcripts` одним
   вызовом даёт 1 fail (`SyntaxError: Export named 'useSearchParams' not found`), но ровно тот же
   результат воспроизводится на `cf611a6` без этих правок — это известное протекание `mock.module`
   между файлами, не регрессия.
-- Rust не менялся (`export.rs` не тронут), поэтому `cargo test` не запускался.

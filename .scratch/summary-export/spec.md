@@ -1,6 +1,6 @@
 # Спецификация: экспорт саммари в файл
 
-Status: ready-for-agent
+Status: implemented (2026-11-18). Branch `feature/summary-export`.
 
 Термины — по `GLOSSARY.md`: «транскрипция», «экспорт транскрипции», «саммари», «спикер», «имя спикера». Текущий экспорт транскрипции и контракт Tauri-команды описаны в `docs/architecture.md` и `frontend/src-tauri/src/export.rs`.
 
@@ -126,3 +126,52 @@ Status: ready-for-agent
 - Оба экспорта транскрипции обязаны использовать один сборщик имени файла: карточка встречи берёт `meeting.created_at`, живая панель — текущий момент, иначе имена разъедутся.
 - Проверка в приложении: экспорт саммари в формате `summary_json`, в формате `markdown` и legacy; экспорт с несохранёнными правками; отмена диалога; встреча без названия; встреча с кириллическим названием и длинным названием.
 - Ветка — от `devtest`, по `CONTRIBUTING.md`; публикация на GitHub (issue/PR) требует отдельного разрешения и поиска дубликатов.
+
+## Comments
+
+Закрыто 2026-11-18 на ветке `feature/summary-export`. Все три тикета — `resolved`
+(`01` — единый сборщик имени файла, `02` — общий текст саммари для Copy и Export,
+`03` — кнопка Export и нативный диалог).
+
+Что попало в ветку:
+
+- `frontend/src/lib/export-file.ts` — `buildExportFileName`, `ensureFileExtension`,
+  `exportFileWithDialog` и карта `EXPORT_KINDS`; старый `frontend/src/lib/transcript-export.ts` удалён,
+  второй сборки имени файла в кодовой базе нет.
+- `frontend/src/lib/summary-document.ts` — `buildSummaryDocument` и `convertLegacySummaryToMarkdown`;
+  Copy и Export идут через одну функцию и отличаются только словом метки.
+- `frontend/src/lib/meeting-date.ts` — `resolveMeetingDate`, общий разбор `created_at` для имени файла,
+  блока метаданных и шапки транскрипции.
+- `frontend/src-tauri/src/export.rs` — аддитивные `extension` / `filterLabel` у
+  `export_transcript_file_command`, 9 юнит-тестов на нормализацию; имя команды и старый вызов сохранены.
+- Кнопка **Export** в `SummaryUpdaterButtonGroup`, проброшенная через `SummaryPanel` и
+  `app/meeting-details/page-content.tsx`; термин «экспорт саммари» в `GLOSSARY.md`.
+
+Исправлено по двум осям ревью (ветка `review-fixes/summary-export`, мерж `106b579`):
+
+1. **Дата встречи расходилась между именем файла и метаданными (критично).** `created_at` вида
+   `2026-11-18` читался в `export-file.ts` как локальный календарный день, а в `summary-document.ts` —
+   как UTC-полночь, поэтому файл `20261118-…-summary.md` мог содержать `**Date:** November 17, 2026`.
+   Разбор вынесен в общий `resolveMeetingDate`; заодно отвергаются несуществующие дни
+   (`2026-02-31`, `2026-13-01`, `2026-00-10` → текущий момент).
+2. **Фолбэк названия терялся при экспорте саммари.** Введено одно `exportTitle = meetingTitle ?? meeting.title`
+   для копирования/экспорта транскрипции, экспорта саммари и обоих имён файлов.
+3. **Дублирование аргументов экспорта и тост при сбое буфера.** Пять констант (`suffix` / `extension` /
+   `filterLabel` / `successMessage` / `errorMessage`) собраны в `EXPORT_KINDS`, `kind: 'transcript' | 'summary'`
+   теперь типизирован, а исключение из `navigator.clipboard.writeText(path)` после успешной записи файла
+   больше не выглядит как провал экспорта: успешный тост показывается сразу, сбой копирования пути даёт
+   `toast.warning('Saved, but could not copy the path')`.
+
+Проверено на интеграционной ветке после мержа: 70 тестов экспорта (`export-file`, `summary-document`,
+`copy-export-operations`, `summary-content`, `transcript-format`) — 0 fail под `TZ=UTC`,
+`TZ=America/New_York` и `TZ=Asia/Kamchatka`; `tsc --noEmit` чисто; `cargo test --lib export` — 9 pass.
+Разовый скрипт подтвердил, что дата-онли `created_at` даёт один и тот же день в имени файла и в блоке
+метаданных во всех трёх таймзонах.
+
+Не проверено:
+
+- Поведение нативного диалога (фильтры, отмена, дозапись расширения после стирания, запись в реальную
+  файловую систему): `pnpm run tauri:dev` / `pnpm run tauri:build` в этой среде не запускались,
+  системный диалог ни разу не открывался.
+- Сквозная проверка в Tauri-приложении из «Further Notes» (несохранённые правки, встреча без названия,
+  кириллическое и длинное название, все три формата саммари) — остаётся за ручной проверкой.
