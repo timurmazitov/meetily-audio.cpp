@@ -59,6 +59,19 @@ const { useCopyOperations } = await import('../../src/hooks/meeting-details/useC
 
 const meeting = { id: 'meeting-1', title: 'Release planning', created_at: '2026-11-18' };
 
+/**
+ * The meeting's own moment (GLOSSARY: «дата встречи»), which the page reads from
+ * the meeting metadata. Absent while unknown, so the tests that do not set it
+ * exercise a legacy meeting that has no date at all.
+ */
+let meetingRecordedAt: string | null | undefined;
+
+/**
+ * The row's creation time (GLOSSARY ADR-0005: an audit field, not the meeting
+ * date). Overridable so a test can prove it is never consulted as a date source.
+ */
+let meetingCreatedAt: string;
+
 const clipboardWrites: string[] = [];
 const writeText = mock(async (text: string) => {
   clipboardWrites.push(text);
@@ -88,7 +101,7 @@ async function show() {
   await act(async () => {
     renderer = create(
       <Harness
-        meeting={meeting}
+        meeting={{ ...meeting, created_at: meetingCreatedAt, recorded_at: meetingRecordedAt }}
         transcripts={[]}
         meetingTitle={titleFromProps}
         aiSummary={aiSummary}
@@ -109,6 +122,8 @@ beforeEach(() => {
   savedPath = '/home/user/exports/20261118-Release_planning-summary.md';
   saveError = null;
   titleFromProps = meeting.title;
+  meetingRecordedAt = undefined;
+  meetingCreatedAt = meeting.created_at;
   editorMarkdown = '## Decisions\n\n- Ship on Friday';
   aiSummary = { markdown: '## Saved summary' } as MeetingSummary;
   clipboardWrites.length = 0;
@@ -130,6 +145,128 @@ afterEach(async () => {
 function exportCalls() {
   return invoke.mock.calls.filter(([command]) => command === 'export_transcript_file_command');
 }
+
+/** One `**<label>:** …` line of a document's metadata block. */
+function metadataLine(document: string, label: string): string | undefined {
+  return document
+    .split('\n')
+    .find(line => line.startsWith(`**${label}:**`));
+}
+
+describe('the document date is the meeting date, not the row creation time', () => {
+  test('copies the summary with the meeting date the screen shows', async () => {
+    // The row was created on 18 November (when the recording was saved or the
+    // file imported); the meeting itself happened on 2 October. The copied
+    // document must name the meeting's own day.
+    meetingRecordedAt = '2026-10-02T09:15:00';
+
+    await show();
+    await act(async () => {
+      await operations.handleCopySummary();
+    });
+
+    expect(metadataLine(clipboardWrites[0], 'Date')).toBe('**Date:** October 2, 2026 at 09:15 AM');
+    // The moment of copying still belongs to the copy, not the meeting.
+    expect(metadataLine(clipboardWrites[0], 'Copied on'))
+      .toBe('**Copied on:** November 18, 2026 at 10:30 AM');
+  });
+
+  test('exports the summary with the same day in the file name and the document', async () => {
+    meetingRecordedAt = '2026-10-02T09:15:00';
+
+    await show();
+    await act(async () => {
+      await operations.handleExportSummary();
+    });
+
+    const [, args] = exportCalls()[0] as [string, Record<string, unknown>];
+    expect(args.defaultFileName).toBe('20261002-Release_planning-summary.md');
+    expect(args.content).toContain('**Date:** October 2, 2026 at 09:15 AM');
+  });
+
+  test('copies the transcript with the meeting date in its header', async () => {
+    meetingRecordedAt = '2026-10-02T09:15:00';
+
+    await show();
+    await act(async () => {
+      await operations.handleCopyTranscript();
+    });
+
+    const expectedDay = new Date(2026, 9, 2).toLocaleDateString();
+    expect(clipboardWrites[0]).toContain(`## Date: ${expectedDay}`);
+  });
+
+  test('exports the transcript under a file name built from the meeting date', async () => {
+    meetingRecordedAt = '2026-10-02T09:15:00';
+    savedPath = '/home/user/exports/20261002-Release_planning-transcript.txt';
+
+    await show();
+    await act(async () => {
+      await operations.handleExportTranscript();
+    });
+
+    const [, args] = exportCalls()[0] as [string, Record<string, unknown>];
+    expect(args.defaultFileName).toBe('20261002-Release_planning-transcript.txt');
+  });
+
+  test('keeps the current-moment fallback for a meeting without a meeting date', async () => {
+    // The row's creation time is deliberately not used as a fallback: it names
+    // when the row appeared in the database — for a recording that is after the
+    // meeting ended. With no meeting date at all, Copy and Export fall back to
+    // the current moment, which is the long-standing export behaviour.
+    meetingRecordedAt = undefined;
+
+    await show();
+    await act(async () => {
+      await operations.handleCopySummary();
+    });
+    await act(async () => {
+      await operations.handleExportSummary();
+    });
+    await act(async () => {
+      await operations.handleCopyTranscript();
+    });
+
+    // `setSystemTime` froze the clock on 18 November 2026, 10:30, which is the
+    // fallback moment — an hour that `created_at` (bare `YYYY-MM-DD`) could
+    // never produce, so the two are distinguishable here.
+    expect(clipboardWrites[0]).toContain('**Date:** November 18, 2026 at 10:30 AM');
+    const [, args] = exportCalls()[0] as [string, Record<string, unknown>];
+    expect(args.defaultFileName).toBe('20261118-Release_planning-summary.md');
+    expect(args.content).toContain('**Date:** November 18, 2026 at 10:30 AM');
+    expect(clipboardWrites[2]).toContain(`## Date: ${new Date(2026, 10, 18).toLocaleDateString()}`);
+  });
+
+  test('never reads the row creation time as a date source', async () => {
+    // Even when a row has no meeting date, `created_at` must not date the
+    // document: it names when the row reached the database, which for a
+    // recording is after the meeting ended.
+    meetingRecordedAt = undefined;
+    meetingCreatedAt = '2026-03-04T18:00:00';
+
+    await show();
+    await act(async () => {
+      await operations.handleExportSummary();
+    });
+
+    const [, args] = exportCalls()[0] as [string, Record<string, unknown>];
+    expect(args.defaultFileName).toBe('20261118-Release_planning-summary.md');
+    expect(args.content).toContain('**Date:** November 18, 2026 at 10:30 AM');
+  });
+
+  test('treats an empty meeting date like an absent one', async () => {
+    meetingRecordedAt = '';
+
+    await show();
+    await act(async () => {
+      await operations.handleExportSummary();
+    });
+
+    const [, args] = exportCalls()[0] as [string, Record<string, unknown>];
+    expect(args.defaultFileName).toBe('20261118-Release_planning-summary.md');
+    expect(args.content).toContain('**Date:** November 18, 2026 at 10:30 AM');
+  });
+});
 
 describe('summary export through the native dialog', () => {
   test('asks for a markdown file and writes the document with the Exported label', async () => {
@@ -305,8 +442,10 @@ describe('summary export through the native dialog', () => {
 
 describe('transcript export keeps its text file contract', () => {
   test('copies the meeting date as its local calendar day', async () => {
-    // `created_at` is a bare `YYYY-MM-DD` in the meeting row; reading it as UTC
+    // The meeting date may arrive as a bare `YYYY-MM-DD`; reading it as UTC
     // midnight would print the previous day west of Greenwich.
+    meetingRecordedAt = '2026-11-18';
+
     await show();
     await act(async () => {
       await operations.handleCopyTranscript();
