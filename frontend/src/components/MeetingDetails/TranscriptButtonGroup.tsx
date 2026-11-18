@@ -6,6 +6,8 @@ import { ButtonGroup } from '@/components/ui/button-group';
 import { Copy, Download, FolderOpen, RefreshCw, Users } from 'lucide-react';
 import { RetranscribeDialog } from './RetranscribeDialog';
 import { SpeakersPanel } from './SpeakersPanel';
+import type { DiarizationClient } from '@/lib/diarization';
+import type { AudioCppModelClient } from '@/lib/audiocpp';
 
 
 interface TranscriptButtonGroupProps {
@@ -16,6 +18,9 @@ interface TranscriptButtonGroupProps {
   meetingId?: string;
   meetingFolderPath?: string | null;
   onRefetchTranscripts?: () => Promise<void>;
+  /** Panel seams, forwarded so component tests can inject fakes. */
+  diarizationClient?: DiarizationClient;
+  diarizationModelClient?: Pick<AudioCppModelClient, 'getAvailableModels'>;
 }
 
 
@@ -27,6 +32,8 @@ export function TranscriptButtonGroup({
   meetingId,
   meetingFolderPath,
   onRefetchTranscripts,
+  diarizationClient,
+  diarizationModelClient,
 }: TranscriptButtonGroupProps) {
   const [showRetranscribeDialog, setShowRetranscribeDialog] = useState(false);
   const [showSpeakersPanel, setShowSpeakersPanel] = useState(false);
@@ -116,6 +123,8 @@ export function TranscriptButtonGroup({
         onOpenChange={setShowSpeakersPanel}
         meetingId={meetingId}
         onRefetchTranscripts={onRefetchTranscripts}
+        diarizationClient={diarizationClient}
+        modelClient={diarizationModelClient}
       />
 
       {meetingId && meetingFolderPath && (

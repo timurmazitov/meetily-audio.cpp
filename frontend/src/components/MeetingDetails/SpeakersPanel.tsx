@@ -1,8 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { Check, ChevronsUpDown, Loader2, Users } from 'lucide-react';
+import { Check, ChevronsUpDown, Loader2, Sparkles, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import {
@@ -21,7 +21,16 @@ import {
   CommandItem,
   CommandList,
 } from '@/components/ui/command';
-import { DIARIZATION_UNAVAILABLE_HINT } from '@/lib/diarization';
+import {
+  DIARIZATION_NO_SPEAKERS_FOUND_MESSAGE,
+  DIARIZATION_UNAVAILABLE_HINT,
+  diarizationStatusMessage,
+  hasInstalledDiarizationModel,
+  type DiarizationClient,
+} from '@/lib/diarization';
+import type { AudioCppModelClient } from '@/lib/audiocpp';
+import { audioCppClient } from '@/lib/audiocppClient';
+import { diarizationClient as defaultDiarizationClient } from '@/lib/diarizationClient';
 import { formatSpeakerDisplayLabel } from '@/lib/transcript-format';
 import type { MeetingSpeaker, SpeakerAssignment, SpeakerNameEntry } from '@/types';
 
@@ -180,18 +189,28 @@ interface SpeakersPanelProps {
   onOpenChange: (open: boolean) => void;
   meetingId?: string;
   onRefetchTranscripts?: () => Promise<void>;
+  /** Diarization command seam; production uses the Tauri client. */
+  diarizationClient?: DiarizationClient;
+  /** Model catalog seam: decides whether the manual run button is enabled. */
+  modelClient?: Pick<AudioCppModelClient, 'getAvailableModels'>;
 }
 
 /**
  * Right-hand sheet listing the meeting's diarized speakers. Every edit stays in
  * a local draft; Done sends one batch assignment, while Escape / outside click /
  * Cancel just throw the draft away.
+ *
+ * When the meeting has no labels the panel is no longer a dead end: it offers a
+ * manual diarization run, which also covers meetings recorded before the model
+ * was downloaded. The run is independent of the transcription provider.
  */
 export function SpeakersPanel({
   open,
   onOpenChange,
   meetingId,
   onRefetchTranscripts,
+  diarizationClient = defaultDiarizationClient,
+  modelClient = audioCppClient,
 }: SpeakersPanelProps) {
   const [speakers, setSpeakers] = useState<MeetingSpeaker[]>([]);
   const [draft, setDraft] = useState<Record<string, string | null>>({});
@@ -200,6 +219,13 @@ export function SpeakersPanel({
   const [isSaving, setIsSaving] = useState(false);
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
   const [panelError, setPanelError] = useState<string | null>(null);
+  // Starts disabled until the catalog answers, so a click can never start a
+  // pass that is known to answer `no_model`.
+  const [hasDiarizationModel, setHasDiarizationModel] = useState(false);
+  const [isDiarizing, setIsDiarizing] = useState(false);
+  const [diarizationReason, setDiarizationReason] = useState<string | null>(null);
+  // Guards against a second click landing before the disabled state renders.
+  const diarizingRef = useRef(false);
 
   const loadSpeakers = useCallback(async () => {
     if (!meetingId) return;
@@ -228,8 +254,81 @@ export function SpeakersPanel({
       setDraft({});
       setRowErrors({});
       setPanelError(null);
+      setDiarizationReason(null);
     }
   }, [open, loadSpeakers]);
+
+  // Whether a manual run can work at all: an installed diarization model. The
+  // catalog is the same one the settings section lists, so a downloaded model is
+  // immediately usable here.
+  useEffect(() => {
+    if (!open) return;
+
+    let cancelled = false;
+    const loadModels = async () => {
+      try {
+        const models = await modelClient.getAvailableModels();
+        if (!cancelled) setHasDiarizationModel(hasInstalledDiarizationModel(models));
+      } catch (error) {
+        // An unreachable catalog is not a reason to hide the button; a run will
+        // report the reason instead.
+        console.warn('Failed to read the audio.cpp model list:', error);
+        if (!cancelled) setHasDiarizationModel(false);
+      }
+    };
+
+    void loadModels();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, modelClient]);
+
+  /**
+   * Runs one diarization pass for this meeting and reports the outcome inside
+   * the panel: the user pressed a button, so every refusal is shown, unlike the
+   * silent automatic path.
+   */
+  const handleDiarize = async () => {
+    // A ref guards against a second click landing before the disabled state
+    // renders: two concurrent passes are exactly what native code serializes,
+    // and the panel must not queue them either.
+    if (!meetingId || isDiarizing || !hasDiarizationModel || diarizingRef.current) return;
+
+    diarizingRef.current = true;
+    setIsDiarizing(true);
+    setDiarizationReason(null);
+    setPanelError(null);
+    try {
+      let result;
+      try {
+        result = await diarizationClient.diarizeMeeting(meetingId);
+      } catch (error) {
+        setDiarizationReason(String(error));
+        return;
+      }
+
+      const reason = diarizationStatusMessage(result.status);
+      // A failed pass carries diagnostic detail; the panel shows it next to the
+      // generic message so a support report can quote something concrete.
+      const detail = result.status === 'failed' ? result.error : null;
+      setDiarizationReason(detail ? `${reason} (${detail})` : reason);
+
+      if (result.status === 'ran') {
+        // Labels (and possibly names) changed: reload both the panel's own list
+        // and the transcript behind the sheet.
+        await loadSpeakers();
+        await onRefetchTranscripts?.();
+      }
+      if (result.status === 'ran' && result.labeled_segments === 0) {
+        // A pass that found no distinct voices is a success, but an empty list
+        // right after a click needs an explanation.
+        setDiarizationReason(DIARIZATION_NO_SPEAKERS_FOUND_MESSAGE);
+      }
+    } finally {
+      diarizingRef.current = false;
+      setIsDiarizing(false);
+    }
+  };
 
   const resetDraft = () => {
     setDraft({});
@@ -359,9 +458,37 @@ export function SpeakersPanel({
           ) : loadError ? (
             <div className="py-6 text-center text-sm text-red-600">{loadError}</div>
           ) : speakers.length === 0 ? (
-            <p className="py-6 text-center text-sm text-muted-foreground">
-              {DIARIZATION_UNAVAILABLE_HINT}
-            </p>
+            <div className="space-y-3 py-6 text-center">
+              <p className="text-sm text-muted-foreground">{DIARIZATION_UNAVAILABLE_HINT}</p>
+              <div className="flex justify-center">
+                <Button
+                  size="sm"
+                  data-testid="diarize-meeting-button"
+                  onClick={handleDiarize}
+                  disabled={isDiarizing || !hasDiarizationModel}
+                  title={
+                    hasDiarizationModel
+                      ? 'Run speaker diarization for this meeting'
+                      : DIARIZATION_UNAVAILABLE_HINT
+                  }
+                >
+                  {isDiarizing ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Sparkles className="mr-2 h-4 w-4" />
+                  )}
+                  {isDiarizing ? 'Running diarization…' : 'Run diarization'}
+                </Button>
+              </div>
+              {diarizationReason && (
+                <p
+                  data-testid="diarization-reason"
+                  className="text-sm text-red-600"
+                >
+                  {diarizationReason}
+                </p>
+              )}
+            </div>
           ) : (
             <ul className="space-y-4">
               {speakers.map((row) => (

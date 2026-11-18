@@ -1,11 +1,13 @@
 /**
- * Post-transcription diarization for live recordings.
+ * Post-transcription diarization of a saved meeting.
  *
  * The recording pipeline saves the meeting as soon as the last transcript
  * segment lands; diarization is a separate pass over the saved recording
- * (GLOSSARY: «диаризация» — postprocessing after transcription). Only the
- * audioCpp provider has a diarization engine, so this is a no-op for Whisper
- * and Parakeet.
+ * (GLOSSARY: «диаризация» — postprocessing after transcription). The pass is
+ * independent of the transcription provider: native code decides whether it
+ * can run (installed Nemotron model, available audio.cpp runtime, no active
+ * recording) and reports the outcome as a status. This module holds the seam
+ * and the status→UI rules; it never decides availability itself.
  *
  * Kept free of Tauri imports at module scope so plain unit tests can inject a
  * fake: production uses `TauriDiarizationClient` via `diarizationClient`.
@@ -13,23 +15,34 @@
  * test that never touches it does not need the native bridge.
  */
 
-import { AUDIO_CPP_PROVIDER } from './transcription-provider';
+import type { AudioCppModelInfo } from './audiocpp';
+
+/**
+ * Why a diarization pass did or did not happen, as native code reports it.
+ *
+ * `ran` with zero labeled segments is a successful pass over a recording with
+ * no distinguishable voices, not a failure.
+ */
+export type DiarizationStatus = 'ran' | 'no_model' | 'no_runtime' | 'deferred' | 'failed';
 
 /** Result of a diarization pass, as returned by `audiocpp_diarize_meeting`. */
 export interface DiarizationResult {
   meeting_id: string;
+  /** Why the pass did or did not run. */
+  status: DiarizationStatus;
   /** Number of transcript segments that received a speaker label. */
   labeled_segments: number;
   total_segments: number;
-  /** False when no diarization model is installed or the pass failed. */
+  /** Historical availability flag, derived natively from `status === 'ran'`. */
   speakers_available: boolean;
+  /** Diagnostic detail for `failed`; never user-facing prose. */
   error?: string | null;
 }
 
 /** The native command the diarization seam calls. */
 export const AUDIOCPP_DIARIZE_COMMAND = 'audiocpp_diarize_meeting';
 
-/** The seam between the stop flow and the native diarization command. */
+/** The seam between the UI and the native diarization command. */
 export interface DiarizationClient {
   /** Diarize a saved meeting, resolving with the native result. */
   diarizeMeeting(meetingId: string): Promise<DiarizationResult>;
@@ -60,12 +73,44 @@ export class TauriDiarizationClient implements DiarizationClient {
   }
 }
 
-/** Whether the provider that recorded this meeting has a diarization pass. */
-export function providerSupportsDiarization(provider: string | undefined): boolean {
-  return provider === AUDIO_CPP_PROVIDER;
-}
+/**
+ * Mirrored native message texts.
+ *
+ * `frontend/src-tauri/src/audio/transcription/diarization_service.rs` is the
+ * source of truth; the frontend duplicates the strings it needs for direct
+ * answers to an explicit run. `tests/lib/live-diarization.test.ts` compares
+ * them verbatim, so the two cannot drift apart silently.
+ */
 
-/** Hint shown when the diarization pass could not label the transcript. */
+/** Native `DIARIZATION_UNAVAILABLE_MESSAGE`: no diarization model installed. */
+export const DIARIZATION_NO_MODEL_MESSAGE =
+  'Speaker labels were skipped. Download the Nemotron-3-Diarization model in Settings to see who said what.';
+
+/** Native `DIARIZATION_RUNTIME_UNAVAILABLE_MESSAGE`: model present, library missing. */
+export const DIARIZATION_NO_RUNTIME_MESSAGE =
+  'Speaker labels were skipped. The audio.cpp engine is unavailable on this system.';
+
+/** Native `DIARIZATION_FAILED_MESSAGE`: the pass was attempted and broke. */
+export const DIARIZATION_FAILED_MESSAGE =
+  'Speaker labels were skipped because diarization failed.';
+
+/**
+ * No native counterpart: a deferred pass is silent in automatic paths, so
+ * native code has no message for it. The panel explains it when the user asks
+ * for a run during a recording.
+ */
+export const DIARIZATION_DEFERRED_MESSAGE =
+  'Speaker labels were postponed because a recording is in progress. Run diarization again once the recording stops.';
+
+/**
+ * No native counterpart: `ran` with zero labels is a successful pass, so native
+ * code has no refusal text. The panel still explains why the list stayed empty
+ * after the user pressed the button.
+ */
+export const DIARIZATION_NO_SPEAKERS_FOUND_MESSAGE =
+  'Diarization finished but found no distinct speakers in this recording.';
+
+/** Hint shown in the speakers panel when the meeting has no labels yet. */
 export const DIARIZATION_UNAVAILABLE_HINT =
   'Download the Nemotron-3-Diarization model in Settings to see who said what.';
 
@@ -84,24 +129,77 @@ export interface SpeakerNamesResetPayload {
 }
 
 /**
- * Diarize a just-saved live recording when (and only when) the configured
- * provider is audioCpp.
- *
- * Non-fatal by design: the meeting is already saved and a missing model or a
- * failed pass only leaves the speaker labels out. Any error resolves to
- * `null` so the caller never has to guard the stop flow against it.
+ * The native event announcing that a saved meeting's transcript gained speaker
+ * labels. The meeting page subscribes to it instead of the old window event, so
+ * a background pass can refresh an open meeting on its own.
  */
-export async function diarizeIfAudioCpp(
+export const TRANSCRIPT_UPDATED_EVENT = 'transcript-updated';
+
+/** Payload of the `transcript-updated` event. */
+export interface TranscriptUpdatedPayload {
+  /** The meeting whose labels changed; absent payloads match no page. */
+  meeting_id?: string;
+  labeled_segments?: number;
+  total_segments?: number;
+}
+
+/**
+ * Diarize a saved meeting, whatever provider transcribed it.
+ *
+ * Non-fatal by design: the meeting is already saved and a missing model, a
+ * missing runtime or a failed pass only leaves the speaker labels out. A
+ * rejected native call resolves to `null` so the caller never has to guard the
+ * stop flow against it.
+ */
+export async function diarizeSavedMeeting(
   client: DiarizationClient,
-  provider: string | undefined,
   meetingId: string,
 ): Promise<DiarizationResult | null> {
-  if (!providerSupportsDiarization(provider)) {
-    return null;
-  }
   try {
     return await client.diarizeMeeting(meetingId);
   } catch {
     return null;
   }
+}
+
+/**
+ * Whether an automatic pass should interrupt the user with a toast.
+ *
+ * Only `failed` does: the three configuration statuses were not requested by
+ * the user, so `no_model`, `no_runtime` and `deferred` stay silent.
+ */
+export function shouldToastDiarizationStatus(status: DiarizationStatus): boolean {
+  return status === 'failed';
+}
+
+/**
+ * Explanation of a status for an explicit run, or `null` after a pass.
+ *
+ * Unlike the automatic path, the panel shows the reason for every refusal: it
+ * answers a button the user pressed.
+ */
+export function diarizationStatusMessage(status: DiarizationStatus): string | null {
+  switch (status) {
+    case 'ran':
+      return null;
+    case 'no_model':
+      return DIARIZATION_NO_MODEL_MESSAGE;
+    case 'no_runtime':
+      return DIARIZATION_NO_RUNTIME_MESSAGE;
+    case 'deferred':
+      return DIARIZATION_DEFERRED_MESSAGE;
+    case 'failed':
+      return DIARIZATION_FAILED_MESSAGE;
+  }
+}
+
+/**
+ * Whether a catalogued model can actually diarize: the `diar` task with an
+ * installed artifact. Mirrors the native selection rule, so the manual run
+ * button is disabled exactly when the pass would answer `no_model`.
+ */
+export function hasInstalledDiarizationModel(
+  models: Array<Pick<AudioCppModelInfo, 'task' | 'status'>>,
+): boolean {
+  return models.some((model) => model.task === 'diar' && model.status === 'Available');
 }
