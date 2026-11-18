@@ -471,3 +471,49 @@ test('two managers on one screen announce a download once, and only for the mode
   const messages = notify.mock.calls.map(call => call[0]);
   expect(messages.filter(message => message.includes('Nemotron-3 Diarization'))).toHaveLength(1);
 });
+
+test('the diarization section downloads, cancels, deletes and re-downloads its model', async () => {
+  const client = new FakeClient();
+  client.models = [diarizationModel()];
+
+  const view = await render(client, { task: 'diar' });
+
+  await act(async () => { click(buttonWithText(view, 'Download')!); });
+  expect(client.calls).toContain('download:nemotron-3-diarization-bf16');
+
+  await act(async () => {
+    client.emitProgress({
+      modelName: 'nemotron-3-diarization-bf16',
+      progress: 25,
+      status: 'downloading',
+    });
+  });
+  expect(textOf(view)).toContain('25%');
+
+  await act(async () => { click(buttonWithText(view, 'Cancel')!); });
+  expect(client.calls).toContain('cancel:nemotron-3-diarization-bf16');
+
+  await act(async () => {
+    client.emitProgress({
+      modelName: 'nemotron-3-diarization-bf16',
+      progress: 0,
+      status: 'cancelled',
+    });
+  });
+  expect(textOf(view)).toContain('Download');
+
+  // Finished download: the card is ready and can be deleted again.
+  await act(async () => { click(buttonWithText(view, 'Download')!); });
+  await act(async () => { client.emitComplete({ modelName: 'nemotron-3-diarization-bf16' }); });
+  expect(textOf(view)).toContain('Ready');
+
+  const card = view.root.findByProps({ 'data-testid': 'audiocpp-model-nemotron-3-diarization-bf16' });
+  await act(async () => { card.props.onMouseEnter(); });
+  const del = view.root.findAllByType('button')
+    .find(button => typeof button.props['aria-label'] === 'string'
+      && button.props['aria-label'].startsWith('Delete'));
+  await act(async () => { click(del!); });
+
+  expect(client.calls).toContain('delete:nemotron-3-diarization-bf16');
+  expect(textOf(view)).toContain('Download');
+});
