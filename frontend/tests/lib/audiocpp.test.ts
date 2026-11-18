@@ -41,6 +41,7 @@ describe('audio.cpp model manager types', () => {
       cancelDownload: 'audiocpp_cancel_download',
       deleteModel: 'audiocpp_delete_model',
       openModelsFolder: 'open_audiocpp_models_folder',
+      diagnostics: 'audiocpp_diagnostics',
     });
   });
 
@@ -52,6 +53,15 @@ describe('audio.cpp model manager types', () => {
       getAvailableModels: async () => [],
       hasAvailableModels: async () => false,
       getModelsDirectory: async () => '',
+      getDiagnostics: async () => ({
+        available: false,
+        library_path: null,
+        abi_version: null,
+        build_version: null,
+        families: [],
+        tasks: [],
+        error: 'libaudiocpp not found',
+      }),
       downloadModel: async () => {},
       cancelDownload: async () => 'cancelled' as const,
       deleteModel: async () => '',
