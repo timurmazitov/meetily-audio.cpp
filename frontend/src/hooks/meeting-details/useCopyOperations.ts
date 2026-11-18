@@ -6,7 +6,7 @@ import { invoke as invokeTauri } from '@tauri-apps/api/core';
 import { hasVisibleSummaryContent } from '@/lib/summary-content';
 import { buildSummaryDocument, convertLegacySummaryToMarkdown } from '@/lib/summary-document';
 import { formatTranscriptText } from '@/lib/transcript-format';
-import { exportTranscriptToFile } from '@/lib/transcript-export';
+import { buildExportFileName, exportFileWithDialog } from '@/lib/export-file';
 
 interface UseCopyOperationsProps {
   meeting: any;
@@ -99,8 +99,20 @@ export function useCopyOperations({
     const text = await buildTranscriptText();
     if (!text) return;
 
-    await exportTranscriptToFile(text, `${meetingTitle ?? meeting.title}.txt`);
-  }, [buildTranscriptText, meetingTitle]);
+    await exportFileWithDialog({
+      content: text,
+      defaultFileName: buildExportFileName({
+        date: meeting.created_at,
+        title: meetingTitle ?? meeting.title,
+        suffix: 'transcript',
+        extension: 'txt',
+      }),
+      extension: 'txt',
+      filterLabel: 'Text Files',
+      successMessage: 'Transcript exported',
+      errorMessage: 'Failed to export transcript',
+    });
+  }, [buildTranscriptText, meeting, meetingTitle]);
 
   // Copy summary to clipboard
   const handleCopySummary = useCallback(async () => {
