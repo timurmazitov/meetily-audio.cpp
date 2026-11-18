@@ -6,7 +6,6 @@ import { ButtonGroup } from '@/components/ui/button-group';
 import { Copy, Download, FolderOpen, RefreshCw, Users } from 'lucide-react';
 import { RetranscribeDialog } from './RetranscribeDialog';
 import { SpeakersPanel } from './SpeakersPanel';
-import { useConfig } from '@/contexts/ConfigContext';
 
 
 interface TranscriptButtonGroupProps {
@@ -29,7 +28,6 @@ export function TranscriptButtonGroup({
   meetingFolderPath,
   onRefetchTranscripts,
 }: TranscriptButtonGroupProps) {
-  const { betaFeatures } = useConfig();
   const [showRetranscribeDialog, setShowRetranscribeDialog] = useState(false);
   const [showSpeakersPanel, setShowSpeakersPanel] = useState(false);
 
@@ -97,11 +95,11 @@ export function TranscriptButtonGroup({
           <span className="hidden @[22rem]:inline">Speakers</span>
         </Button>
 
-        {betaFeatures.importAndRetranscribe && meetingId && meetingFolderPath && (
+        {meetingId && meetingFolderPath && (
           <Button
             size="sm"
             variant="outline"
-            className="bg-gradient-to-r from-blue-50 to-purple-50 hover:from-blue-100 hover:to-purple-100 border-blue-200 px-2 @[22rem]:px-4"
+            className="px-2 @[22rem]:px-4"
             onClick={() => {
               setShowRetranscribeDialog(true);
             }}
@@ -120,7 +118,7 @@ export function TranscriptButtonGroup({
         onRefetchTranscripts={onRefetchTranscripts}
       />
 
-      {betaFeatures.importAndRetranscribe && meetingId && meetingFolderPath && (
+      {meetingId && meetingFolderPath && (
         <RetranscribeDialog
           open={showRetranscribeDialog}
           onOpenChange={setShowRetranscribeDialog}

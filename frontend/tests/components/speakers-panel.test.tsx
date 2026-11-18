@@ -68,7 +68,10 @@ afterAll(() => {
 });
 
 mock.module('../../src/contexts/ConfigContext', () => ({
-  useConfig: () => ({ betaFeatures: { importAndRetranscribe: false } }),
+  useConfig: () => ({
+    selectedLanguage: 'auto',
+    transcriptModelConfig: { provider: 'whisper', model: 'large-v3' },
+  }),
 }));
 const originalConfig = { ...(await import('../../src/contexts/ConfigContext')) };
 afterAll(() => {
