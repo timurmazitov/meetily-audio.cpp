@@ -55,7 +55,8 @@ export function useSpeakerNamesResetListener(
 
     const setup = async () => {
       const stop = await listenImpl(SPEAKER_NAMES_RESET_EVENT, (event) => {
-        // The import path has no meeting yet, so a missing id matches any page.
+        // Every save path now recounts on a saved meeting and names it, so the
+        // id is always present; the optional check stays for an older payload.
         if (event.payload.meeting_id && event.payload.meeting_id !== meetingId) return;
         toast.info('Speaker names were reset', {
           description: event.payload.message ?? SPEAKER_NAMES_RESET_HINT,

@@ -123,7 +123,10 @@ export const SPEAKER_NAMES_RESET_EVENT = 'speaker-names-reset';
 
 /** Payload of the `speaker-names-reset` event. */
 export interface SpeakerNamesResetPayload {
-  /** Absent when the event comes from an import, which has no saved meeting yet. */
+  /**
+   * The meeting whose names changed. Every save path recounts on a saved
+   * meeting, so the id is always present; optional for older payloads.
+   */
   meeting_id?: string;
   message?: string;
 }
