@@ -6,9 +6,9 @@
 //
 // The overlay itself is the pure function in `diarization.rs`; this module is
 // the thin I/O layer around it. Diarization is strictly optional: when the
-// Nemotron model is not installed the transcript is returned unchanged with
-// `speakers_available == false`, so the UI can show a hint instead of failing
-// the transcription.
+// Nemotron model is not installed the transcript is returned unchanged with a
+// `no_model` status, so the UI can explain it instead of failing the
+// transcription.
 
 use std::path::Path;
 use std::time::Instant;
@@ -203,8 +203,10 @@ pub fn select_diarization_model(models: &[ModelInfo]) -> Option<&ModelInfo> {
 
 /// Resolves the installed diarization model from the shared catalog state.
 ///
-/// Returns `None` when the model manager is not initialized (non-audioCpp
-/// sessions) or when no diarization artifact is installed.
+/// The model manager is initialized at startup for every transcription
+/// provider, so a Whisper or Parakeet session finds the model too. Returns
+/// `None` when the manager is not initialized at all (unit tests, a failed
+/// init) or when no diarization artifact is installed.
 pub async fn installed_diarization_model() -> Option<ModelInfo> {
     let manager = crate::audio_cpp_engine::commands::model_manager()?;
     let models = manager.discover_models().await.ok()?;
@@ -221,20 +223,6 @@ pub fn apply_speaker_labels(
     }
 }
 
-/// An outcome with no labels for a pass that could not run.
-///
-/// Kept with its historical two-argument shape for the inline import and
-/// retranscription paths (rewired separately): an attached error means the
-/// pass was attempted and failed, no error means it never started.
-pub fn unavailable_segments(count: usize, error: Option<String>) -> DiarizationOutcome {
-    let status = if error.is_some() {
-        DiarizationStatus::Failed
-    } else {
-        DiarizationStatus::NoModel
-    };
-    unavailable_for(count, status, error)
-}
-
 /// An outcome with no labels for the given non-`Ran` status.
 pub fn unavailable_for(
     count: usize,
@@ -242,43 +230,6 @@ pub fn unavailable_for(
     error: Option<String>,
 ) -> DiarizationOutcome {
     DiarizationOutcome::new(vec![None; count], status, error)
-}
-
-/// Diarizes `audio` (16 kHz mono f32) and applies the labels to `segments`.
-///
-/// A missing diarization model is not an error: the segments keep no labels
-/// and `speakers_available` is false so the caller can show a hint.
-pub async fn diarize_segments(
-    segments: &mut [crate::api::TranscriptSegment],
-    audio: Vec<f32>,
-) -> DiarizationOutcome {
-    let bounds: Vec<(f64, f64)> = segments
-        .iter()
-        .map(|segment| {
-            (
-                segment.audio_start_time.unwrap_or(0.0),
-                segment.audio_end_time.unwrap_or(0.0),
-            )
-        })
-        .collect();
-    let outcome = diarize_transcript(audio, &bounds).await;
-    apply_speaker_labels(segments, &outcome);
-    outcome
-}
-
-/// Diarizes a saved recording folder and applies the labels to `segments`.
-///
-/// Decoding and the engine run happen off the async runtime. This resolves the
-/// installed model itself; [`diarize_recording_folder_with_model`] takes the
-/// model the run decision already picked.
-pub async fn diarize_recording_folder(
-    folder: &Path,
-    segments: &mut [crate::api::TranscriptSegment],
-) -> DiarizationOutcome {
-    let Some(model) = installed_diarization_model().await else {
-        return unavailable_for(segments.len(), DiarizationStatus::NoModel, None);
-    };
-    diarize_recording_folder_with_model(folder, segments, &model).await
 }
 
 /// Diarizes a saved recording folder with an explicitly chosen model.
@@ -340,23 +291,6 @@ pub async fn diarize_recording_folder_with_model(
     let outcome = run_and_overlay(&model.path, audio, &bounds).await;
     apply_speaker_labels(segments, &outcome);
     outcome
-}
-
-/// Runs diarization for `audio` (16 kHz mono f32) and overlays the resulting
-/// speaker turns onto `segment_bounds` (`(start_sec, end_sec)` per segment).
-///
-/// When no diarization model is installed the segments are returned
-/// unattributed with `speakers_available == false`. Failures are reported in
-/// `error` and never discard the transcript.
-pub async fn diarize_transcript(
-    audio: Vec<f32>,
-    segment_bounds: &[(f64, f64)],
-) -> DiarizationOutcome {
-    let Some(model) = installed_diarization_model().await else {
-        return unavailable_for(segment_bounds.len(), DiarizationStatus::NoModel, None);
-    };
-
-    run_and_overlay(&model.path, audio, segment_bounds).await
 }
 
 /// Runs the pass with an already resolved model and overlays the turns onto
@@ -553,16 +487,21 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn no_installed_model_leaves_every_segment_without_a_speaker_and_is_unavailable() {
-        // The catalog manager is uninitialized in unit tests, exactly like a
-        // Whisper/Parakeet session: no model, no labels, no hard error.
-        let outcome = diarize_transcript(vec![0.0; 160], &[(0.0, 1.0), (1.0, 2.0)]).await;
+    #[test]
+    fn an_empty_catalog_decides_no_model_and_leaves_every_segment_unlabelled() {
+        // A Whisper/Parakeet session with no diarization model installed has an
+        // empty catalog. The decision must answer `no_model`, and the outcome it
+        // maps to must leave the transcript untouched rather than fail it.
+        let decision = decide_diarization(&[], true, false);
+        assert_eq!(decision.status(), DiarizationStatus::NoModel);
+
+        let outcome = unavailable_for(2, decision.status(), None);
 
         assert_eq!(outcome.speakers, vec![None, None]);
         assert!(!outcome.speakers_available);
         assert_eq!(outcome.status, DiarizationStatus::NoModel);
         assert!(outcome.error.is_none());
+        assert_eq!(outcome.labeled_segments(), 0);
     }
 
     #[test]
@@ -620,7 +559,7 @@ mod tests {
     }
 
     #[test]
-    fn an_unavailable_outcome_keeps_existing_segments_unlabeled() {
+    fn a_failed_outcome_keeps_existing_segments_unlabeled() {
         let mut segments = vec![crate::api::TranscriptSegment {
             id: "t1".to_string(),
             text: "hello".to_string(),
@@ -631,11 +570,15 @@ mod tests {
             speaker: None,
         }];
 
-        let outcome =
-            unavailable_segments(segments.len(), Some("recording audio not found".into()));
+        let outcome = unavailable_for(
+            segments.len(),
+            DiarizationStatus::Failed,
+            Some("recording audio not found".into()),
+        );
         apply_speaker_labels(&mut segments, &outcome);
 
         assert!(!outcome.speakers_available);
+        assert_eq!(outcome.status, DiarizationStatus::Failed);
         assert_eq!(outcome.speakers, vec![None]);
         assert_eq!(segments[0].speaker, None);
         assert_eq!(outcome.error.as_deref(), Some("recording audio not found"));
