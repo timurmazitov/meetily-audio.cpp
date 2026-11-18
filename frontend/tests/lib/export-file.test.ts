@@ -41,21 +41,34 @@ describe('buildExportFileName', () => {
     })).toBe('20260102-Late_meeting-transcript.txt');
   });
 
-  test('accepts a created_at timestamp string', () => {
-    const createdAt = localDate(2026, 9, 1, 9).toISOString();
+  test('accepts a timestamp-string meeting date', () => {
+    const recordedAt = localDate(2026, 9, 1, 9).toISOString();
     expect(buildExportFileName({
-      date: createdAt,
+      date: recordedAt,
       title: 'Kickoff',
       kind: 'transcript',
     })).toBe('20260901-Kickoff-transcript.txt');
   });
 
-  test('accepts a date-only created_at value as that local day', () => {
+  test('accepts a date-only meeting date as that local day', () => {
     expect(buildExportFileName({
       date: '2026-09-01',
       title: 'Kickoff',
       kind: 'transcript',
     })).toBe('20260901-Kickoff-transcript.txt');
+  });
+
+  test('accepts a meeting date in the RFC3339 form the backend sends', () => {
+    // `recorded_at` reaches the frontend as Rust's `DateTimeUtc` rendering —
+    // `+00:00`, not `Z` — so the offset form must name the local day too.
+    const recordedAt = localDate(2026, 9, 1, 9).toISOString().replace('Z', '+00:00');
+    expect(recordedAt).toEndWith('+00:00');
+
+    expect(buildExportFileName({
+      date: recordedAt,
+      title: 'Kickoff',
+      kind: 'summary',
+    })).toBe('20260901-Kickoff-summary.md');
   });
 
   test('falls back to the current moment for a missing or invalid date', () => {

@@ -1,8 +1,9 @@
-import { describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, setSystemTime, test } from 'bun:test';
 import {
   buildSummaryDocument,
   convertLegacySummaryToMarkdown,
 } from '../../src/lib/summary-document';
+import { buildExportFileName } from '../../src/lib/export-file';
 
 // Local dates: `toLocaleDateString('en-US', …)` renders them identically in any
 // timezone, so the expected literals below are stable.
@@ -62,8 +63,8 @@ describe('summary document', () => {
     })).toContain('**Date:** January 15, 2026 at 02:05 PM\n');
   });
 
-  test('reads a date-only created_at as that local calendar day', () => {
-    // `created_at` is often stored as a bare `YYYY-MM-DD`. Parsing it as UTC
+  test('reads a date-only meeting date as that local calendar day', () => {
+    // A meeting date may be stored as a bare `YYYY-MM-DD`. Parsing it as UTC
     // midnight would make the metadata block name the previous day west of
     // Greenwich while the file name uses the local day.
     expect(buildSummaryDocument({
@@ -74,6 +75,83 @@ describe('summary document', () => {
       label: 'Exported',
       timestamp: copiedAt,
     })).toContain('**Date:** November 18, 2026');
+  });
+});
+
+describe('the document and the export file name name the same day', () => {
+  afterEach(() => {
+    setSystemTime();
+  });
+
+  /** The `**Date:**` line of a summary document. */
+  const dateLine = (document: string) => document
+    .split('\n')
+    .find(line => line.startsWith('**Date:**'));
+
+  test('an instant meeting date dates both the document and the file name', () => {
+    const meetingDate = '2026-10-02T09:15:00';
+
+    // The row was created on 18 November; the meeting happened on 2 October.
+    // Both surfaces read one value, so they cannot name different days.
+    const document = buildSummaryDocument({
+      markdown: summaryMarkdown,
+      meetingTitle: 'Release planning',
+      meetingId: 'meeting-42',
+      meetingDate,
+      label: 'Exported',
+      timestamp: copiedAt,
+    });
+    const fileName = buildExportFileName({
+      date: meetingDate,
+      title: 'Release planning',
+      kind: 'summary',
+    });
+
+    expect(dateLine(document)).toBe('**Date:** October 2, 2026 at 09:15 AM');
+    expect(fileName).toBe('20261002-Release_planning-summary.md');
+  });
+
+  test('a date-only meeting date dates both the document and the file name', () => {
+    const meetingDate = '2026-10-02';
+
+    const document = buildSummaryDocument({
+      markdown: summaryMarkdown,
+      meetingTitle: 'Release planning',
+      meetingId: 'meeting-42',
+      meetingDate,
+      label: 'Exported',
+      timestamp: copiedAt,
+    });
+    const fileName = buildExportFileName({
+      date: meetingDate,
+      title: 'Release planning',
+      kind: 'summary',
+    });
+
+    // A date-only value has no time of day; the metadata block's accepted
+    // format still prints the midnight it resolves to. The date must not change.
+    expect(dateLine(document)).toBe('**Date:** October 2, 2026 at 12:00 AM');
+    expect(fileName).toBe('20261002-Release_planning-summary.md');
+  });
+
+  test('a meeting without a date falls back to the same current moment in both', () => {
+    setSystemTime(new Date(2026, 10, 18, 10, 30));
+
+    const document = buildSummaryDocument({
+      markdown: summaryMarkdown,
+      meetingTitle: 'Release planning',
+      meetingId: 'meeting-42',
+      label: 'Exported',
+      timestamp: copiedAt,
+    });
+    const fileName = buildExportFileName({
+      date: undefined,
+      title: 'Release planning',
+      kind: 'summary',
+    });
+
+    expect(dateLine(document)).toBe('**Date:** November 18, 2026 at 10:30 AM');
+    expect(fileName).toBe('20261118-Release_planning-summary.md');
   });
 });
 
