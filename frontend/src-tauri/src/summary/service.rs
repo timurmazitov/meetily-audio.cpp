@@ -568,9 +568,16 @@ impl SummaryService {
         let base_system_prompt = load_base_system_prompt(&pool).await;
 
         let meeting_date = read_meeting_date(&pool, &meeting_id).await;
-        if let Some(date) = &meeting_date {
-            info!("📅 Meeting date for the summary prompt: {}", date);
-        }
+        // Presence only: the meeting's date is meeting content and must not be
+        // written to the log.
+        info!(
+            "📅 Summary prompt: meeting date {}",
+            if meeting_date.is_some() {
+                "included"
+            } else {
+                "absent"
+            }
+        );
 
         let template = match templates::get_template(&template_id) {
             Ok(template) => template,
