@@ -8,8 +8,7 @@
  * would look exactly like a meeting that just happened.
  */
 
-/** A date-only value: year, month and day with no time or zone. */
-const DATE_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/;
+import { parseDateOnly } from '@/lib/meeting-date';
 
 /**
  * `18/11/2026, 14:32` in local time, with zero-padded 24-hour parts.
@@ -68,25 +67,4 @@ function formatDate(moment: Date): string {
 
 function pad(value: number): string {
   return String(value).padStart(2, '0');
-}
-
-/** Parsed local day, or null when the value is not a real calendar day. */
-function parseDateOnly(value: string): Date | null {
-  const match = DATE_ONLY.exec(value);
-  if (!match) return null;
-
-  const [, year, month, day] = match;
-  const local = new Date(Number(year), Number(month) - 1, Number(day));
-
-  // `new Date(2026, 1, 31)` rolls over to March 3, so a mismatching round trip
-  // means the input named a day that does not exist.
-  if (
-    local.getFullYear() !== Number(year)
-    || local.getMonth() !== Number(month) - 1
-    || local.getDate() !== Number(day)
-  ) {
-    return null;
-  }
-
-  return local;
 }
