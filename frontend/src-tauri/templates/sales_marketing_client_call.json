@@ -4,7 +4,7 @@
       "sections": [
         {
           "title": "Meeting Metadata",
-          "instruction": "Date, time, location/modality, account manager",
+          "instruction": "Date and time taken verbatim from the <meeting_date> block in the user message (if the block is absent, do not invent a date or time and write that they are unknown), location/modality, account manager",
           "format": "string"
         },
         {

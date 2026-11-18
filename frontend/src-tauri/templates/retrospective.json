@@ -4,7 +4,7 @@
       "sections": [
         {
           "title": "Sprint",
-          "instruction": "Sprint name/number and date range",
+          "instruction": "Sprint name/number and sprint date range as stated in the transcript; the <meeting_date> block is the meeting's own date, not a substitute for the sprint range, so never fill the range from it; if the range is not stated, do not invent it and write that it is unknown",
           "format": "string"
         },
         {

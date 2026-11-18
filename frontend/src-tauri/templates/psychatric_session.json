@@ -4,7 +4,7 @@
       "sections": [
         {
           "title": "Session Metadata",
-          "instruction": "Patient initials/ID, session date, provider, session type, duration (HIPAA-sensitive)",
+          "instruction": "Patient initials/ID, session date taken verbatim from the <meeting_date> block in the user message (if the block is absent, do not invent a date and write that it is unknown), provider, session type, duration (HIPAA-sensitive)",
           "format": "string"
         },
         {
