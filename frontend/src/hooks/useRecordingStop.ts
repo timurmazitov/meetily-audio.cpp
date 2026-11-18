@@ -6,9 +6,13 @@ import { useTranscripts } from '@/contexts/TranscriptContext';
 import { useSidebar } from '@/components/Sidebar/SidebarProvider';
 import { useRecordingState, RecordingStatus } from '@/contexts/RecordingStateContext';
 import { storageService } from '@/services/storageService';
-import { configService } from '@/services/configService';import { transcriptService } from '@/services/transcriptService';
+import { transcriptService } from '@/services/transcriptService';
 import { diarizationClient } from '@/lib/diarizationClient';
-import { DIARIZATION_UNAVAILABLE_HINT, diarizeIfAudioCpp } from '@/lib/diarization';
+import {
+  diarizeSavedMeeting,
+  shouldToastDiarizationStatus,
+  DIARIZATION_FAILED_MESSAGE,
+} from '@/lib/diarization';
 import {
   applyPinnedSummaryLanguageToMeeting,
   detectAndCacheSummaryLanguage,
@@ -70,35 +74,24 @@ export function useRecordingStop(
   const router = useRouter();
 
   // Diarization of a just-saved live recording: a post-transcription pass over
-  // the saved audio (audioCpp only). Fire-and-forget so the stop flow and
-  // navigation never wait for it; failures are non-fatal because the meeting
-  // and its transcript are already saved.
+  // the saved audio, independent of the transcription provider. Fire-and-forget
+  // so the stop flow and navigation never wait for it; failures are non-fatal
+  // because the meeting and its transcript are already saved.
+  //
+  // Native code decides whether the pass can run and refreshes the open meeting
+  // through the `transcript-updated` event. Only an actual failure is worth a
+  // toast: a missing model, a missing runtime or a deferred pass were not
+  // requested by the user.
   const applyLiveDiarization = useCallback((meetingId: string) => {
     void (async () => {
-      let provider: string | undefined;
-      try {
-        provider = (await configService.getTranscriptConfig()).provider;
-      } catch (error) {
-        console.warn('Could not read the transcript provider for diarization:', error);
-        return;
-      }
-
-      const result = await diarizeIfAudioCpp(diarizationClient, provider, meetingId);
+      const result = await diarizeSavedMeeting(diarizationClient, meetingId);
       if (result === null) {
-        // The provider is not audioCpp (Whisper/Parakeet) or the pass failed
-        // outright; the meeting stays saved without speaker labels.
+        // The command itself failed; the meeting stays saved without labels.
         return;
       }
-      if (result.speakers_available) {
-        // The transcript detail view refetches on this event; nothing else
-        // needs to know that the labels changed.
-        window.dispatchEvent(
-          new CustomEvent('transcripts-updated', { detail: { meetingId } })
-        );
-      } else {
-        // The meeting is saved and complete; only the labels are missing.
-        toast.info('Speaker labels not assigned', {
-          description: DIARIZATION_UNAVAILABLE_HINT,
+      if (shouldToastDiarizationStatus(result.status)) {
+        toast.error('Diarization failed', {
+          description: DIARIZATION_FAILED_MESSAGE,
         });
       }
     })();
