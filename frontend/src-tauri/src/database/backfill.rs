@@ -101,11 +101,13 @@ pub(crate) async fn backfill_meeting_facts(
     // Step 3: transcripts are the last place a length can come from. The end of
     // the furthest segment is the best available approximation of the meeting's
     // end. Step 4 falls out of the same query: a meeting with no timed segments
-    // has no row here, so its length stays NULL.
+    // has no row here, so its length stays NULL. A degenerate zero is "unknown"
+    // too, exactly as `meeting_facts` treats a zero folder duration.
     let segment_ends: Vec<(String, f64)> = sqlx::query_as(
         "SELECT meeting_id, MAX(audio_end_time) FROM transcripts
          WHERE audio_end_time IS NOT NULL
-         GROUP BY meeting_id",
+         GROUP BY meeting_id
+         HAVING MAX(audio_end_time) > 0",
     )
     .fetch_all(pool)
     .await?;
@@ -370,6 +372,21 @@ mod tests {
 
         let (_, _, duration) = meeting_row(&pool, "untimed").await;
         assert_eq!(duration, None, "no segment knows its end, so NULL it is");
+    }
+
+    #[tokio::test]
+    async fn a_zero_length_transcript_end_is_unknown_not_a_zero_length_meeting() {
+        let pool = migrated_pool().await;
+        seed_meeting(&pool, "zero", "2024-05-06T07:08:09Z", None).await;
+        seed_transcript(&pool, "z-1", "zero", Some(0.0)).await;
+
+        backfill_meeting_facts(&pool).await.unwrap();
+
+        let (_, _, duration) = meeting_row(&pool, "zero").await;
+        assert_eq!(
+            duration, None,
+            "a true zero reads as an untimed row: NULL means unknown, zero would be a lie"
+        );
     }
 
     #[tokio::test]
