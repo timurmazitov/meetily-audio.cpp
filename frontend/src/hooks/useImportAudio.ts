@@ -3,8 +3,8 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import { applyPinnedSummaryLanguageToMeeting } from '@/lib/summary-language-preferences';
 import {
-  DIARIZATION_FAILED_MESSAGE,
   shouldToastDiarizationUnavailable,
+  showDiarizationFailure,
   type DiarizationUnavailablePayload,
 } from '@/lib/diarization';
 import { toast } from 'sonner';
@@ -79,6 +79,12 @@ export function useImportAudio({
   // Cancellation guard: prevents late events from updating state after cancel
   const isCancelledRef = useRef(false);
 
+  // The meeting this dialog's import produced. The diarization listener is
+  // process-wide, so without it a failed pass for any other meeting would toast
+  // inside the open dialog. Filled by `import-complete`, which is the first
+  // moment the id exists.
+  const importedMeetingIdRef = useRef<string | null>(null);
+
   // Set up event listeners (registered once, use refs for callbacks)
   useEffect(() => {
     const unlisteners: UnlistenFn[] = [];
@@ -108,6 +114,9 @@ export function useImportAudio({
 
           setStatus('complete');
           setProgress(null);
+          // The diarization listener now knows which meeting belongs to this
+          // dialog; the pass for it runs right after the save.
+          importedMeetingIdRef.current = event.payload.meeting_id;
           try {
             await applyPinnedSummaryLanguageToMeeting(event.payload.meeting_id);
           } catch (error) {
@@ -147,15 +156,21 @@ export function useImportAudio({
       // A diarization pass that was attempted and failed. Native code emits
       // this event only for `failed`; the status check keeps the hook silent
       // for configuration reasons if that contract is ever widened. The
-      // transcript is already complete, so this is never an error state.
+      // transcript is already complete, so this is never an error state. Only
+      // this import's meeting speaks: the event is process-wide, and a failure
+      // from another meeting must not surface in the open dialog.
       const unlistenDiarization = await listen<DiarizationUnavailablePayload>(
         'diarization-unavailable',
         (event) => {
           if (isCancelledRef.current) return;
+          if (
+            importedMeetingIdRef.current === null ||
+            event.payload.meeting_id !== importedMeetingIdRef.current
+          ) {
+            return;
+          }
           if (!shouldToastDiarizationUnavailable(event.payload.status)) return;
-          toast.error('Diarization failed', {
-            description: event.payload.message ?? DIARIZATION_FAILED_MESSAGE,
-          });
+          showDiarizationFailure(toast, event.payload.message);
         }
       );
       if (cleanedUpRef.current) {
@@ -228,6 +243,9 @@ export function useImportAudio({
       provider?: string | null
     ) => {
       isCancelledRef.current = false;
+      // A new import starts before its meeting id exists; the previous
+      // import's meeting must not claim a failure from this one.
+      importedMeetingIdRef.current = null;
       setStatus('processing');
       setError(null);
       setProgress(null);
@@ -266,6 +284,7 @@ export function useImportAudio({
   // Reset all state
   const reset = useCallback(() => {
     isCancelledRef.current = false;
+    importedMeetingIdRef.current = null;
     setStatus('idle');
     setFileInfo(null);
     setProgress(null);

@@ -12,6 +12,7 @@
  */
 
 import { describe, expect, mock, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
 import {
   AUDIOCPP_DIARIZE_COMMAND,
   DIARIZATION_DEFERRED_MESSAGE,
@@ -19,14 +20,15 @@ import {
   DIARIZATION_NO_MODEL_MESSAGE,
   DIARIZATION_NO_RUNTIME_MESSAGE,
   DIARIZATION_UNAVAILABLE_HINT,
+  SPEAKER_NAMES_RESET_EVENT,
   SPEAKER_NAMES_RESET_HINT,
   TRANSCRIPT_UPDATED_EVENT,
   TauriDiarizationClient,
   diarizationStatusMessage,
-  diarizeSavedMeeting,
   hasInstalledDiarizationModel,
   shouldToastDiarizationStatus,
   shouldToastDiarizationUnavailable,
+  showDiarizationFailure,
   startLiveDiarization,
   type DiarizationClient,
   type DiarizationResult,
@@ -53,49 +55,6 @@ function resultFor(status: DiarizationStatus): DiarizationResult {
   };
 }
 
-describe('diarizeSavedMeeting', () => {
-  test('calls the same command with the same arguments for every transcription provider', async () => {
-    // The seam takes no provider at all; the loop documents that the three
-    // providers a meeting can originate from now behave identically.
-    for (const _provider of ['localWhisper', 'parakeet', 'audioCpp']) {
-      const calls: Array<[string, Record<string, unknown>]> = [];
-      const client = new TauriDiarizationClient(async (command, args) => {
-        calls.push([command, args]);
-        return resultFor('ran');
-      });
-
-      const result = await diarizeSavedMeeting(client, 'meeting-42');
-
-      expect(AUDIOCPP_DIARIZE_COMMAND).toBe('audiocpp_diarize_meeting');
-      expect(calls).toEqual([[AUDIOCPP_DIARIZE_COMMAND, { meetingId: 'meeting-42' }]]);
-      expect(result).toEqual(resultFor('ran'));
-    }
-  });
-
-  test('returns the native status untouched so the caller can switch on it', async () => {
-    for (const status of [
-      'ran',
-      'no_model',
-      'no_runtime',
-      'deferred',
-      'failed',
-    ] as DiarizationStatus[]) {
-      const { instance } = client(resultFor(status));
-
-      const result = await diarizeSavedMeeting(instance, 'meeting-42');
-
-      expect(result?.status).toBe(status);
-    }
-  });
-
-  test('stays non-fatal when the native command rejects', async () => {
-    const { instance, diarizeMeeting } = client(new Error('native library missing'));
-
-    expect(await diarizeSavedMeeting(instance, 'meeting-1')).toBeNull();
-    expect(diarizeMeeting).toHaveBeenCalledTimes(1);
-  });
-});
-
 describe('startLiveDiarization', () => {
   /** Minimal toast seam: only `error` is reachable from an automatic pass. */
   function recorder() {
@@ -105,6 +64,24 @@ describe('startLiveDiarization', () => {
       error,
     };
   }
+
+  test('calls the same command with the same arguments for every transcription provider', async () => {
+    // The seam takes no provider at all; the loop documents that the three
+    // providers a meeting can originate from now behave identically.
+    for (const _provider of ['localWhisper', 'parakeet', 'audioCpp']) {
+      const calls: Array<[string, Record<string, unknown>]> = [];
+      const client = new TauriDiarizationClient(async (command, args) => {
+        calls.push([command, args]);
+        return resultFor('ran');
+      });
+      const { toast } = recorder();
+
+      await startLiveDiarization(client, 'meeting-42', toast);
+
+      expect(AUDIOCPP_DIARIZE_COMMAND).toBe('audiocpp_diarize_meeting');
+      expect(calls).toEqual([[AUDIOCPP_DIARIZE_COMMAND, { meetingId: 'meeting-42' }]]);
+    }
+  });
 
   test('runs the pass once for the saved meeting and stays quiet', async () => {
     const { instance, diarizeMeeting } = client(resultFor('ran'));
@@ -154,7 +131,31 @@ describe('startLiveDiarization', () => {
     expect(diarizeMeeting).toHaveBeenCalledTimes(1);
     expect(error).not.toHaveBeenCalled();
   });
+});
 
+describe('showDiarizationFailure', () => {
+  test('words a failed pass the same way for every caller', () => {
+    const error = mock((_message: string, _options?: { description?: string }) => {});
+
+    showDiarizationFailure({ error });
+
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(error.mock.calls[0]).toEqual([
+      'Diarization failed',
+      { description: DIARIZATION_FAILED_MESSAGE },
+    ]);
+  });
+
+  test('keeps a native explanation when the event carries one', () => {
+    const error = mock((_message: string, _options?: { description?: string }) => {});
+
+    showDiarizationFailure({ error }, DIARIZATION_NO_RUNTIME_MESSAGE);
+
+    expect(error.mock.calls[0]).toEqual([
+      'Diarization failed',
+      { description: DIARIZATION_NO_RUNTIME_MESSAGE },
+    ]);
+  });
 });
 
 describe('shouldToastDiarizationStatus', () => {
@@ -241,29 +242,38 @@ describe('diarizationStatusMessage', () => {
 describe('mirrored native texts', () => {
   // The native constants in
   // `src-tauri/src/audio/transcription/diarization_service.rs` are the source
-  // of truth; the frontend duplicates them for direct command answers.
-  test('match the native message strings verbatim', () => {
+  // of truth; the frontend duplicates them for direct command answers. The
+  // test reads that file and extracts each constant by name, so a third
+  // hand-written copy can no longer stand in for the real strings.
+  const NATIVE_SOURCE = new URL(
+    '../../src-tauri/src/audio/transcription/diarization_service.rs',
+    import.meta.url,
+  );
+
+  /** Reads a `pub const NAME: &str = "…";` literal out of the native source. */
+  function nativeConstant(name: string): string {
+    const source = readFileSync(NATIVE_SOURCE, 'utf8');
+    const pattern = new RegExp(
+      `pub const ${name}: &str =\\s*"((?:[^"\\\\]|\\\\.)*)"`,
+    );
+    const match = pattern.exec(source);
+    if (!match) {
+      throw new Error(`No string constant ${name} in ${NATIVE_SOURCE.pathname}`);
+    }
+    // Only the escapes the native texts actually use, so a silent mismatch in
+    // escaping cannot hide behind `JSON.parse`.
+    return match[1].replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+  }
+
+  test('mirror the native message strings verbatim', () => {
     const expected: Array<[string, string]> = [
-      [
-        DIARIZATION_NO_MODEL_MESSAGE,
-        'Speaker labels were skipped. Download the Nemotron-3-Diarization model in Settings to see who said what.',
-      ],
+      [DIARIZATION_NO_MODEL_MESSAGE, nativeConstant('DIARIZATION_UNAVAILABLE_MESSAGE')],
       [
         DIARIZATION_NO_RUNTIME_MESSAGE,
-        'Speaker labels were skipped. The audio.cpp engine is unavailable on this system.',
+        nativeConstant('DIARIZATION_RUNTIME_UNAVAILABLE_MESSAGE'),
       ],
-      [
-        DIARIZATION_FAILED_MESSAGE,
-        'Speaker labels were skipped because diarization failed.',
-      ],
-      [
-        DIARIZATION_UNAVAILABLE_HINT,
-        'Download the Nemotron-3-Diarization model in Settings to see who said what.',
-      ],
-      [
-        SPEAKER_NAMES_RESET_HINT,
-        'Speaker names were reset because the voices were recomputed.',
-      ],
+      [DIARIZATION_FAILED_MESSAGE, nativeConstant('DIARIZATION_FAILED_MESSAGE')],
+      [SPEAKER_NAMES_RESET_HINT, nativeConstant('SPEAKER_NAMES_RESET_MESSAGE')],
     ];
 
     for (const [actual, expectedText] of expected) {
@@ -271,8 +281,18 @@ describe('mirrored native texts', () => {
     }
   });
 
-  test('names the native transcript update event', () => {
-    expect(TRANSCRIPT_UPDATED_EVENT).toBe('transcript-updated');
+  test('the panel hint is the native no-model sentence, not a new wording', () => {
+    // The hint is the part of the native message the panel shows; deriving it
+    // here keeps the two from drifting without demanding a second native
+    // constant for a substring.
+    expect(nativeConstant('DIARIZATION_UNAVAILABLE_MESSAGE')).toContain(
+      DIARIZATION_UNAVAILABLE_HINT,
+    );
+  });
+
+  test('name the native event constants', () => {
+    expect(TRANSCRIPT_UPDATED_EVENT).toBe(nativeConstant('TRANSCRIPT_UPDATED_EVENT'));
+    expect(SPEAKER_NAMES_RESET_EVENT).toBe(nativeConstant('SPEAKER_NAMES_RESET_EVENT'));
   });
 });
 

@@ -147,25 +147,6 @@ export interface TranscriptUpdatedPayload {
 }
 
 /**
- * Diarize a saved meeting, whatever provider transcribed it.
- *
- * Non-fatal by design: the meeting is already saved and a missing model, a
- * missing runtime or a failed pass only leaves the speaker labels out. A
- * rejected native call resolves to `null` so the caller never has to guard the
- * stop flow against it.
- */
-export async function diarizeSavedMeeting(
-  client: DiarizationClient,
-  meetingId: string,
-): Promise<DiarizationResult | null> {
-  try {
-    return await client.diarizeMeeting(meetingId);
-  } catch {
-    return null;
-  }
-}
-
-/**
  * Whether an automatic pass should interrupt the user with a toast.
  *
  * Only `failed` does: the three configuration statuses were not requested by
@@ -175,9 +156,27 @@ export function shouldToastDiarizationStatus(status: DiarizationStatus): boolean
   return status === 'failed';
 }
 
-/** What an automatic pass needs from the toast library (only `error`). */
+/** What a diarization failure toast needs from the toast library. */
 export interface DiarizationToast {
   error(message: string, options?: { description?: string }): void;
+}
+
+/**
+ * The one place that words a failed diarization pass.
+ *
+ * The live stop flow, the import dialog and the retranscription dialog all
+ * announce the same event, and a second wording would make the same failure
+ * read differently depending on which screen noticed it. The description stays
+ * the native text when the event carries one, so native code remains the source
+ * of truth for the explanation.
+ */
+export function showDiarizationFailure(
+  toast: DiarizationToast,
+  message?: string,
+): void {
+  toast.error('Diarization failed', {
+    description: message ?? DIARIZATION_FAILED_MESSAGE,
+  });
 }
 
 /**
@@ -194,12 +193,16 @@ export async function startLiveDiarization(
   meetingId: string,
   toast: DiarizationToast,
 ): Promise<void> {
-  const result = await diarizeSavedMeeting(client, meetingId);
-  // `null` means the native command itself failed: the meeting stays saved
-  // without labels, and there is no status to explain.
-  if (result === null) return;
+  let result: DiarizationResult;
+  try {
+    result = await client.diarizeMeeting(meetingId);
+  } catch {
+    // The native command itself failed: the meeting stays saved without
+    // labels, and there is no status to explain.
+    return;
+  }
   if (!shouldToastDiarizationStatus(result.status)) return;
-  toast.error('Diarization failed', { description: DIARIZATION_FAILED_MESSAGE });
+  showDiarizationFailure(toast);
 }
 
 /** Payload of the native `diarization-unavailable` event. */
