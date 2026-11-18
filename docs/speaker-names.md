@@ -32,15 +32,17 @@ Successful assignments bump `meetings.updated_at`, like a title change; re-savin
 
 ## Recount rules
 
-Speaker labels are rewritten in three places: audio import ([import.rs](../frontend/src-tauri/src/audio/import.rs)), retranscription ([retranscription.rs](../frontend/src-tauri/src/audio/retranscription.rs), which deletes the transcripts first), and post-recording diarization ([diarization_commands.rs](../frontend/src-tauri/src/audio/diarization_commands.rs)). Each of them runs `reconcile_meeting_speaker_assignments` inside the same transaction that writes the labels:
+Labels are written in three places, all on a saved meeting: audio import ([import.rs](../frontend/src-tauri/src/audio/import.rs), `create_meeting_with_transcripts`), retranscription ([retranscription.rs](../frontend/src-tauri/src/audio/retranscription.rs), which deletes the transcripts first), and the shared diarization pass ([diarization_run.rs](../frontend/src-tauri/src/audio/transcription/diarization_run.rs), `persist_speaker_labels`). Each of them runs `reconcile_meeting_speaker_assignments` inside the same transaction that writes the labels:
 
 - Labels that still exist keep their names, even when their segment counts changed.
 - Bindings of labels that disappeared are deleted, and so are the people left unreferenced.
 - If the label set changed such that none of the old labels survived, every binding of the meeting is gone and the backend emits [`speaker-names-reset`](#speaker-names-reset). Names are never guessed by order of appearance — the project has no voice embeddings.
 
+Import and retranscription no longer diarize inline: they commit the meeting with unlabelled segments (`speaker = null`) and then schedule the saved-meeting diarization pass, which re-decodes the meeting's audio file and writes the labels through `persist_speaker_labels`. In retranscription the first recount is real — the rewritten transcript can lose labels whose names must go with them. In import it is a formality: a brand-new meeting has no bindings to lose, but it runs anyway so all three paths stay uniform. The pass's recount then aligns the names with the labels it just produced, in the same transaction as the label write.
+
 ## `speaker-names-reset`
 
-Emitted (payload `{ meeting_id, message }`) by the three recount paths above when names were lost. `message` is the user-facing explanation ("Speaker names were reset because the voices were recomputed."). [useSpeakerNamesResetListener.ts](../frontend/src/hooks/useSpeakerNamesResetListener.ts) shows it as a toast and refetches the open meeting's transcripts and speaker list. `meeting_id` is absent for an import, which has no saved meeting yet, and such an event matches whatever page is open.
+Emitted (payload `{ meeting_id, message }`) by the recount paths above when names were lost. `message` is the user-facing explanation ("Speaker names were reset because the voices were recomputed."). [useSpeakerNamesResetListener.ts](../frontend/src/hooks/useSpeakerNamesResetListener.ts) shows it as a toast and refetches the open meeting's transcripts and speaker list. The event always names a meeting: an import saves the meeting before the diarization pass runs, so by the time a recount can drop names there is an id to report, and the page only reacts to its own meeting.
 
 ## Where names appear
 
