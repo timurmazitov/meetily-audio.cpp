@@ -12,19 +12,75 @@
 
 **Blocked by:** 01 (единый сборщик имени файла), 02 (общий текст саммари)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Кнопка Export видна на вкладке Summary при наличии сгенерированного саммари и отсутствии генерации
-- [ ] Диалог предлагает `<YYYYMMDD>-<название>-summary.md` и фильтр «Markdown Files»
-- [ ] Файл содержит шапку, метаданные со строкой `**Exported on:**`, разделитель и markdown саммари
-- [ ] Текст в файле совпадает с текстом кнопки Copy за вычетом слова в строке метки
-- [ ] Несохранённые правки редактора попадают в файл
-- [ ] Экспорт работает для саммари в форматах BlockNote-JSON, markdown и legacy
-- [ ] После сохранения путь файла оказывается в буфере обмена и показан тост `Summary exported`
-- [ ] Отмена диалога не показывает тост и не меняет буфер обмена
-- [ ] Ошибка сохраняется как тост об ошибке, буфер обмена не меняется
-- [ ] Экспорт транскрипции продолжает работать с фильтром «Text Files» и расширением `.txt`
-- [ ] Rust-юнит-тест покрывает дефолты, нормализацию расширения и дозапись расширения к пути без расширения
-- [ ] `bun test` покрывает аргументы команды для саммари и для транскрипции, попадание пути в буфер и отсутствие изменений буфера при отмене
+- [x] Кнопка Export видна на вкладке Summary при наличии сгенерированного саммари и отсутствии генерации
+- [x] Диалог предлагает `<YYYYMMDD>-<название>-summary.md` и фильтр «Markdown Files»
+- [x] Файл содержит шапку, метаданные со строкой `**Exported on:**`, разделитель и markdown саммари
+- [x] Текст в файле совпадает с текстом кнопки Copy за вычетом слова в строке метки
+- [x] Несохранённые правки редактора попадают в файл
+- [x] Экспорт работает для саммари в форматах BlockNote-JSON, markdown и legacy
+- [x] После сохранения путь файла оказывается в буфере обмена и показан тост `Summary exported`
+- [x] Отмена диалога не показывает тост и не меняет буфер обмена
+- [x] Ошибка сохраняется как тост об ошибке, буфер обмена не меняется
+- [x] Экспорт транскрипции продолжает работать с фильтром «Text Files» и расширением `.txt`
+- [x] Rust-юнит-тест покрывает дефолты, нормализацию расширения и дозапись расширения к пути без расширения
+- [x] `bun test` покрывает аргументы команды для саммари и для транскрипции, попадание пути в буфер и отсутствие изменений буфера при отмене
 - [ ] Ручная проверка в Tauri-приложении: сохранение, отмена, встреча с кириллическим и с пустым названием
-- [ ] В глоссарии появился термин «экспорт саммари» с правилом имени файла
+- [x] В глоссарии появился термин «экспорт саммари» с правилом имени файла
+
+## Comments
+
+Реализовано в `11a520a` «Экспорт саммари: кнопка, диалог и глоссарий».
+
+- **Rust** (`frontend/src-tauri/src/export.rs`): у `export_transcript_file_command` появились два опциональных
+  параметра — `extension: Option<String>` и `filter_label: Option<String>`. Итоговая сигнатура:
+  `pub async fn export_transcript_file_command<R: Runtime>(app: AppHandle<R>, content: String, default_file_name: String, extension: Option<String>, filter_label: Option<String>) -> Result<Option<String>, String>`.
+  Нормализация вынесена в `resolve_export_params(...)` (trim, обрезка ведущих точек, фолбэк `txt` / `Text Files`),
+  дозапись расширения — в `with_extension_if_missing(path, extension)`. Имя команды, регистрация в `lib.rs` и тип
+  возврата не менялись; прежний двухключевой вызов продолжает работать, потому что Tauri заполняет отсутствующие
+  `Option`-аргументы как `None` (см. `deserialize_option` в крейте `tauri`: при отсутствии ключа вызывается
+  `visit_none`). Запись осталась `std::fs::write` над `content.as_bytes()` — UTF-8 без BOM.
+- **Хук** (`useCopyOperations.ts`): markdown резолвится один раз в `resolveSummaryMarkdown` (ref редактора →
+  `aiSummary.markdown` → legacy-конвертация), документ собирает общий `buildSummaryText(action, label)`, поэтому
+  Copy и Export не могут разойтись. `handleExportSummary` собирает документ с `label: 'Exported'` и зовёт
+  `exportFileWithDialog` с `md` / `Markdown Files` / `Summary exported` / `Failed to export summary`;
+  имя по умолчанию — `buildExportFileName({ date: meeting.created_at, title: meetingTitle, suffix: 'summary', extension: 'md' })`.
+  Автосохранения нет: экспортируется текущее состояние редактора, даже несохранённое.
+- **UI**: в `SummaryUpdaterButtonGroup` добавлена кнопка Export (`Download`) сразу после Copy, подпись скрывается
+  так же (`hidden @[40rem]:inline`), проброшена через `SummaryPanel` (`onExportSummary`) и
+  `app/meeting-details/page-content.tsx`. Группа, а значит и кнопка, видна при `hasSummary && !isSummaryLoading`;
+  дополнительных условий не добавлено. Панель живой записи и legacy-вьюер не тронуты.
+- **Глоссарий**: добавлен термин «Экспорт саммари (summary export)» и уточнено имя файла у экспорта транскрипции
+  (`<YYYYMMDD>-<название>-transcript.txt`), которое появилось в тикете 01.
+- Поведение Save/Copy не менялось; текст Copy байт-в-байт прежний (его проверяет тест «file text equals the copied
+  text except for the label word»).
+
+Проверено:
+
+- `bun test tests/hooks/copy-export-operations.test.tsx` — 10 pass, 0 fail (аргументы диалога `md`/`Markdown Files`
+  и `txt`/`Text Files`, совпадение текста файла с копией, unsaved-правки, saved-markdown и legacy-фолбэки,
+  путь в буфере, отмена без тостов и без буфера, ошибка → тост `Failed to export summary` без буфера).
+- `bun test` по каждому затронутому/смежному файлу отдельно: `tests/lib/export-file.test.ts` (24),
+  `tests/lib/summary-document.test.ts` (5), `tests/lib/summary-content.test.ts` (3),
+  `tests/lib/transcript-format.test.ts` (17), `tests/lib/empty-state-summary.test.tsx` (1),
+  `tests/hooks/meeting-details-refresh.test.tsx` (3), `tests/hooks/summary-generation.test.tsx` (16),
+  `tests/hooks/paginated-transcripts.test.tsx` (10) — все pass.
+- `./node_modules/.bin/tsc --noEmit` — чисто.
+- `cargo test --lib export` (общий `CARGO_TARGET_DIR=/tmp/opencode/cargo-shared`) — 9 новых тестов, все ok,
+  614 отфильтровано.
+- `rustfmt --check --edition 2021 src/export.rs` — чисто.
+
+Не проверено в этой среде:
+
+- **Сам нативный диалог**: фильтры «Markdown Files» / «Text Files», отмена, дозапись расширения после стирания
+  его пользователем, сохранение в реальную файловую систему. `pnpm tauri:dev`/`tauri:build` здесь не запускаются
+  (нет sidecars/GPU/дисплея), так что ручная проверка из чек-листа остаётся за оркестратором/ревьюером.
+- Встречи с кириллическим и с пустым названием в живом приложении: имя собирается `buildExportFileName`, и это
+  покрыто тестами тикета 01, но сам диалог с такими именами руками не открывался.
+- Итоговый `bun test` без фильтра в этом worktree даёт 34 fail (например, model manager, audiocpp, system prompt),
+  но ровно те же 34 падения воспроизводятся на чистом `84fbd79` без моих изменений; мой файл добавляет только
+  проходящие тесты (178 pass / 34 fail без него → 188 pass / 34 fail с ним). Пофайловый прогон всех `tests/`
+  зелёный. Причина — известное протекание `mock.module` между файлами, не регрессия тикета.
+- Для оркестратора: бинарник `binaries/llama-helper-x86_64-unknown-linux-gnu` пришлось скопировать из основного
+  чекаута (`.gitignore`-нутый build-артефакт), иначе build-скрипт падал; в коммит он не попал.
