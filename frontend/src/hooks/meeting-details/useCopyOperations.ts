@@ -114,52 +114,80 @@ export function useCopyOperations({
     });
   }, [buildTranscriptText, meeting, meetingTitle]);
 
-  // Copy summary to clipboard
-  const handleCopySummary = useCallback(async () => {
-    if (!hasVisibleSummaryContent(aiSummary)) {
-      toast.error('No summary content available to copy');
-      return;
+  // Resolve the summary markdown the user is looking at: the live BlockNote
+  // editor first (so unsaved edits count), then a saved markdown body, then the
+  // legacy section format. Shared by Copy and Export so the two can never
+  // diverge. Returns null when there is nothing worth copying or saving.
+  const resolveSummaryMarkdown = useCallback(async (): Promise<string | null> => {
+    let summaryMarkdown = '';
+
+    console.log('🔍 Resolving summary markdown...');
+
+    // Try to get markdown from BlockNote editor first
+    if (blockNoteSummaryRef.current?.getMarkdown) {
+      console.log('📝 Trying to get markdown from ref...');
+      summaryMarkdown = await blockNoteSummaryRef.current.getMarkdown();
+      console.log('📝 Got markdown from ref, length:', summaryMarkdown.length);
     }
+
+    // Fallback: Check if aiSummary has markdown property
+    if (!summaryMarkdown && aiSummary && typeof aiSummary.markdown === 'string') {
+      console.log('📝 Using markdown from aiSummary');
+      summaryMarkdown = aiSummary.markdown;
+      console.log('📝 Markdown from aiSummary, length:', summaryMarkdown.length);
+    }
+
+    // Fallback: Check for legacy format
+    if (!summaryMarkdown && aiSummary) {
+      console.log('📝 Converting legacy format to markdown');
+      summaryMarkdown = convertLegacySummaryToMarkdown(aiSummary);
+      console.log('📝 Converted legacy format, length:', summaryMarkdown.length);
+    }
+
+    return summaryMarkdown.trim() ? summaryMarkdown : null;
+  }, [aiSummary, blockNoteSummaryRef]);
+
+  // Build the complete summary document for an action; Copy and Export differ
+  // only in the label word, so the clipboard and the file stay identical.
+  const buildSummaryText = useCallback(async (
+    action: 'Copy' | 'Export',
+    label: 'Copied' | 'Exported',
+  ): Promise<string | null> => {
+    const verb = action.toLowerCase();
+
+    if (!hasVisibleSummaryContent(aiSummary)) {
+      toast.error(`No summary content available to ${verb}`);
+      return null;
+    }
+
     try {
-      let summaryMarkdown = '';
-
-      console.log('🔍 Copy Summary - Starting...');
-
-      // Try to get markdown from BlockNote editor first
-      if (blockNoteSummaryRef.current?.getMarkdown) {
-        console.log('📝 Trying to get markdown from ref...');
-        summaryMarkdown = await blockNoteSummaryRef.current.getMarkdown();
-        console.log('📝 Got markdown from ref, length:', summaryMarkdown.length);
+      const summaryMarkdown = await resolveSummaryMarkdown();
+      if (!summaryMarkdown) {
+        console.error(`❌ No summary content available to ${verb}`);
+        toast.error(`No summary content available to ${verb}`);
+        return null;
       }
 
-      // Fallback: Check if aiSummary has markdown property
-      if (!summaryMarkdown && aiSummary && typeof aiSummary.markdown === 'string') {
-        console.log('📝 Using markdown from aiSummary');
-        summaryMarkdown = aiSummary.markdown;
-        console.log('📝 Markdown from aiSummary, length:', summaryMarkdown.length);
-      }
-
-      // Fallback: Check for legacy format
-      if (!summaryMarkdown && aiSummary) {
-        console.log('📝 Converting legacy format to markdown');
-        summaryMarkdown = convertLegacySummaryToMarkdown(aiSummary);
-        console.log('📝 Converted legacy format, length:', summaryMarkdown.length);
-      }
-
-      // If still no summary content, show message
-      if (!summaryMarkdown.trim()) {
-        console.error('❌ No summary content available to copy');
-        toast.error('No summary content available to copy');
-        return;
-      }
-
-      const fullMarkdown = buildSummaryDocument({
+      return buildSummaryDocument({
         markdown: summaryMarkdown,
         meetingTitle,
         meetingId: meeting.id,
         meetingDate: meeting.created_at,
-        label: 'Copied',
+        label,
       });
+    } catch (error) {
+      console.error(`❌ Failed to ${verb} summary:`, error);
+      toast.error(`Failed to ${verb} summary`);
+      return null;
+    }
+  }, [aiSummary, meetingTitle, meeting, resolveSummaryMarkdown]);
+
+  // Copy summary to clipboard
+  const handleCopySummary = useCallback(async () => {
+    const fullMarkdown = await buildSummaryText('Copy', 'Copied');
+    if (!fullMarkdown) return;
+
+    try {
       await navigator.clipboard.writeText(fullMarkdown);
 
       console.log('✅ Successfully copied to clipboard!');
@@ -168,11 +196,34 @@ export function useCopyOperations({
       console.error('❌ Failed to copy summary:', error);
       toast.error("Failed to copy summary");
     }
-  }, [aiSummary, meetingTitle, meeting, blockNoteSummaryRef]);
+  }, [buildSummaryText]);
+
+  // Export summary to a markdown file via the native save dialog.
+  // The file content is identical to what Copy puts on the clipboard, apart
+  // from the `Exported on:` label line, and it includes unsaved edits.
+  const handleExportSummary = useCallback(async () => {
+    const fullMarkdown = await buildSummaryText('Export', 'Exported');
+    if (!fullMarkdown) return;
+
+    await exportFileWithDialog({
+      content: fullMarkdown,
+      defaultFileName: buildExportFileName({
+        date: meeting.created_at,
+        title: meetingTitle,
+        suffix: 'summary',
+        extension: 'md',
+      }),
+      extension: 'md',
+      filterLabel: 'Markdown Files',
+      successMessage: 'Summary exported',
+      errorMessage: 'Failed to export summary',
+    });
+  }, [buildSummaryText, meeting, meetingTitle]);
 
   return {
     handleCopyTranscript,
     handleExportTranscript,
     handleCopySummary,
+    handleExportSummary,
   };
 }
