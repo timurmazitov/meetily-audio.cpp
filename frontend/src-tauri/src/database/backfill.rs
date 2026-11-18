@@ -42,7 +42,7 @@ pub(crate) async fn backfill_meeting_facts(
     // folder costs its own two fields, never the pass.
     let pending: Vec<(String, Option<String>, Option<String>, Option<f64>)> = sqlx::query_as(
         "SELECT id, folder_path, recorded_at, duration_seconds FROM meetings
-             WHERE recorded_at IS NULL OR duration_seconds IS NULL",
+         WHERE recorded_at IS NULL OR duration_seconds IS NULL",
     )
     .fetch_all(pool)
     .await?;
