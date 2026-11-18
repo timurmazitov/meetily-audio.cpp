@@ -13,11 +13,17 @@ export interface SidebarItem {
   title: string;
   type: 'folder' | 'file';
   children?: SidebarItem[];
+  /** RFC3339 moment of the meeting itself (start of the recording); absent while unknown. */
+  recordedAt?: string;
+  /** Meeting length in seconds; absent while unknown. */
+  durationSeconds?: number;
 }
 
 export interface CurrentMeeting {
   id: string;
   title: string;
+  recordedAt?: string;
+  durationSeconds?: number;
 }
 
 // Search result type for transcript search
@@ -113,10 +119,20 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
   const fetchMeetings = React.useCallback(async () => {
     if (serverAddress) {
       try {
-        const meetings = await invoke('api_get_meetings') as Array<{ id: string, title: string }>;
-        const transformedMeetings = meetings.map((meeting: any) => ({
+        const meetings = await invoke('api_get_meetings') as Array<{
+          id: string;
+          title: string;
+          recorded_at?: string | null;
+          duration_seconds?: number | null;
+        }>;
+        // The meeting's own date and length are carried through as they come:
+        // an absent value must stay absent so the row can omit it instead of
+        // showing a substituted date or a zero.
+        const transformedMeetings = meetings.map((meeting) => ({
           id: meeting.id,
-          title: meeting.title
+          title: meeting.title,
+          recordedAt: meeting.recorded_at ?? undefined,
+          durationSeconds: meeting.duration_seconds ?? undefined,
         }));
         setMeetings(transformedMeetings);
       } catch (error) {
@@ -144,7 +160,13 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
       title: 'Meeting Notes',
       type: 'folder' as const,
       children: [
-        ...meetings.map(meeting => ({ id: meeting.id, title: meeting.title, type: 'file' as const }))
+        ...meetings.map(meeting => ({
+          id: meeting.id,
+          title: meeting.title,
+          type: 'file' as const,
+          recordedAt: meeting.recordedAt,
+          durationSeconds: meeting.durationSeconds,
+        }))
       ]
     },
   ];
