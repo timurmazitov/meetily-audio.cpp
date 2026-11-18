@@ -715,6 +715,14 @@ pub fn run() {
             })
             .expect("Failed to initialize database");
 
+            // Give meetings created before the meeting date and duration
+            // existed their values. Detached on purpose: reading recording
+            // folders can be slow, and startup must not wait for it. On first
+            // launch there is no database yet, so there is nothing to backfill.
+            if let Some(state) = _app.try_state::<state::AppState>() {
+                database::backfill::spawn_backfill_at_startup(state.db_manager.pool().clone());
+            }
+
             // Initialize bundled templates directory for dynamic template discovery
             log::info!("Initializing bundled templates directory...");
             if let Ok(resource_path) = _app.handle().path().resource_dir() {
