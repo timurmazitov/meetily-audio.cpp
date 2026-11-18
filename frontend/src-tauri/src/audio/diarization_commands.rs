@@ -1,42 +1,60 @@
 // audio/diarization_commands.rs
 //
-// Post-transcription diarization for recordings that were saved before the
-// diarization model was downloaded, and the explicit entry point the stop
-// flow does not need to call in the common case.
+// The manual entry point for diarizing a saved meeting: recordings made before
+// the diarization model was downloaded, meetings imported without a model, and
+// any meeting the user explicitly asks to label.
 //
-// The overlay logic lives in `transcription::diarization_service`; this module
-// only exposes the Tauri command and writes the labels back to the database.
+// The name keeps the audio.cpp prefix on purpose: it names the executor (the
+// audio.cpp engine), not the user's transcription provider. See ADR 0004.
+//
+// Everything else lives in `transcription::diarization_run`: the run decision,
+// the global pass lock, the label write with the speaker-name recount, and the
+// native events. This module only adapts the operation to the Tauri command
+// shape.
 
-use std::path::PathBuf;
-
-use log::{info, warn};
+use log::info;
 use serde::Serialize;
-use tauri::{command, AppHandle, Emitter, Runtime};
+use tauri::{command, AppHandle, Runtime};
 
-use crate::audio::transcription::diarization_service::{
-    diarize_recording_folder, DIARIZATION_UNAVAILABLE_MESSAGE, SPEAKER_NAMES_RESET_EVENT,
-    SPEAKER_NAMES_RESET_MESSAGE,
-};
-use crate::database::repositories::speaker;
+use crate::audio::transcription::diarization_run::{diarize_saved_meeting, SavedMeetingDiarization};
+use crate::audio::transcription::diarization_service::DiarizationStatus;
 use crate::state::AppState;
 
 /// Result of diarizing a saved meeting.
 #[derive(Debug, Clone, Serialize)]
 pub struct DiarizationResult {
     pub meeting_id: String,
+    /// Why the pass did or did not run. The UI switches on this instead of
+    /// parsing `error`.
+    pub status: DiarizationStatus,
     /// Number of transcript segments that received a speaker label.
     pub labeled_segments: usize,
     pub total_segments: usize,
-    /// False when no diarization model is installed or the pass failed.
+    /// Historical availability flag, always derived from `status == ran`.
     pub speakers_available: bool,
+    /// Diagnostic detail when `status` is `failed`.
     pub error: Option<String>,
+}
+
+impl From<SavedMeetingDiarization> for DiarizationResult {
+    fn from(result: SavedMeetingDiarization) -> Self {
+        DiarizationResult {
+            speakers_available: result.speakers_available(),
+            meeting_id: result.meeting_id,
+            status: result.status,
+            labeled_segments: result.labeled_segments,
+            total_segments: result.total_segments,
+            error: result.error,
+        }
+    }
 }
 
 /// Diarize a saved meeting's recording and persist speaker labels.
 ///
-/// The command is idempotent: re-running it replaces the previous labels.
-/// A missing Nemotron model or a failed pass returns `speakers_available:
-/// false` with the transcript untouched.
+/// The command is idempotent: re-running it replaces the previous labels. An
+/// absent model, an unavailable native runtime or an active recording are
+/// reported in `status`, not as a command failure — the transcript is
+/// untouched. Only a missing meeting or a database failure is `Err`.
 #[command]
 pub async fn audiocpp_diarize_meeting<R: Runtime>(
     app: AppHandle<R>,
@@ -44,97 +62,10 @@ pub async fn audiocpp_diarize_meeting<R: Runtime>(
     meeting_id: String,
 ) -> Result<DiarizationResult, String> {
     let pool = state.db_manager.pool();
-
-    let meeting =
-        crate::database::repositories::meeting::MeetingsRepository::get_meeting(pool, &meeting_id)
-            .await
-            .map_err(|error| format!("Failed to load meeting: {error}"))?
-            .ok_or_else(|| format!("Meeting not found: {meeting_id}"))?;
-
-    let folder = meeting
-        .folder_path
-        .as_deref()
-        .map(PathBuf::from)
-        .ok_or_else(|| "Meeting has no recording folder; nothing to diarize".to_string())?;
-
-    // Build the segment list in the same shape the repository stores.
-    let mut segments: Vec<crate::api::TranscriptSegment> = meeting
-        .transcripts
-        .iter()
-        .map(|segment| crate::api::TranscriptSegment {
-            id: segment.id.clone(),
-            text: segment.text.clone(),
-            timestamp: segment.timestamp.clone(),
-            audio_start_time: segment.audio_start_time,
-            audio_end_time: segment.audio_end_time,
-            duration: segment.duration,
-            speaker: segment.speaker.clone(),
-        })
-        .collect();
-
-    let total_segments = segments.len();
-    let outcome = diarize_recording_folder(&folder, &mut segments).await;
-
-    if outcome.speakers_available {
-        let mut conn = pool
-            .acquire()
-            .await
-            .map_err(|error| format!("Database error: {error}"))?;
-        let mut tx = sqlx::Connection::begin(&mut *conn)
-            .await
-            .map_err(|error| format!("Failed to start transaction: {error}"))?;
-        for segment in &segments {
-            sqlx::query("UPDATE transcripts SET speaker = ? WHERE id = ?")
-                .bind(&segment.speaker)
-                .bind(&segment.id)
-                .execute(&mut *tx)
-                .await
-                .map_err(|error| format!("Failed to update speaker label: {error}"))?;
-        }
-        // The labels were replaced wholesale, so drop the names whose labels
-        // no longer exist before the change becomes visible.
-        let reconcile = speaker::reconcile_meeting_speaker_assignments(&mut tx, &meeting_id)
-            .await
-            .map_err(|error| format!("Failed to reconcile speaker names: {error}"))?;
-        tx.commit()
-            .await
-            .map_err(|error| format!("Failed to commit speaker labels: {error}"))?;
-        if reconcile.names_reset {
-            let _ = app.emit(
-                SPEAKER_NAMES_RESET_EVENT,
-                serde_json::json!({
-                    "meeting_id": meeting_id,
-                    "message": SPEAKER_NAMES_RESET_MESSAGE,
-                }),
-            );
-        }
-        info!(
-            "Diarized meeting {}: {} transcript segments labeled",
-            meeting_id, total_segments
-        );
-    } else {
-        warn!(
-            "Diarization unavailable for meeting {}: {:?}",
-            meeting_id, outcome.error
-        );
-        let _ = app.emit(
-            "diarization-unavailable",
-            serde_json::json!({
-                "meeting_id": meeting_id,
-                "reason": outcome.error,
-                "message": DIARIZATION_UNAVAILABLE_MESSAGE,
-            }),
-        );
-    }
-
-    Ok(DiarizationResult {
-        meeting_id,
-        labeled_segments: segments
-            .iter()
-            .filter(|segment| segment.speaker.is_some())
-            .count(),
-        total_segments,
-        speakers_available: outcome.speakers_available,
-        error: outcome.error,
-    })
+    let result = diarize_saved_meeting(&app, pool, &meeting_id).await?;
+    info!(
+        "Diarization of meeting {} finished with status {:?}",
+        meeting_id, result.status
+    );
+    Ok(result.into())
 }

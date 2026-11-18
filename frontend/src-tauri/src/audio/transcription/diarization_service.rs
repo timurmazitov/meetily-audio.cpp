@@ -14,6 +14,7 @@ use std::path::Path;
 use std::time::Instant;
 
 use log::{info, warn};
+use serde::Serialize;
 
 use super::audio_cpp_diarizer::{AudioCppDiarizer, DiarizerLoadError};
 use super::diarization::{attribute_segments_to_speakers, SpeakerTurnInterval};
@@ -21,11 +22,21 @@ use crate::audio_cpp_engine::catalog::{ModelInfo, ModelStatus, ModelTask};
 use crate::audio_cpp_engine::engine::SAMPLE_RATE;
 use crate::audio_cpp_engine::transcription::load_native_engine;
 
-/// Hint emitted (and shown to the user) when speaker labels were skipped.
-/// One constant so the import, retranscription and saved-recording paths
-/// cannot drift apart.
+/// Hint emitted (and shown to the user) when speaker labels were skipped
+/// because the diarization model is not installed. One constant so the import,
+/// retranscription and saved-meeting paths cannot drift apart, and so the
+/// frontend has a single native text to mirror.
 pub const DIARIZATION_UNAVAILABLE_MESSAGE: &str =
     "Speaker labels were skipped. Download the Nemotron-3-Diarization model in Settings to see who said what.";
+
+/// Hint shown when the diarization model is installed but the audio.cpp
+/// native library is not available on this machine.
+pub const DIARIZATION_RUNTIME_UNAVAILABLE_MESSAGE: &str =
+    "Speaker labels were skipped. The audio.cpp engine is unavailable on this system.";
+
+/// Hint shown when diarization was attempted and the pass itself failed.
+pub const DIARIZATION_FAILED_MESSAGE: &str =
+    "Speaker labels were skipped because diarization failed.";
 
 /// Event emitted (and shown to the user) when a recount of the speaker labels
 /// removed every name the meeting had, so the names look lost on purpose.
@@ -37,18 +48,146 @@ pub const SPEAKER_NAMES_RESET_EVENT: &str = "speaker-names-reset";
 pub const SPEAKER_NAMES_RESET_MESSAGE: &str =
     "Speaker names were reset because the voices were recomputed.";
 
+/// Native event announcing that a saved meeting's transcript gained speaker
+/// labels. The meeting page subscribes to it instead of the old window event,
+/// so a background pass can refresh an open meeting on its own.
+pub const TRANSCRIPT_UPDATED_EVENT: &str = "transcript-updated";
+
+/// Payload of [`TRANSCRIPT_UPDATED_EVENT`].
+///
+/// Pure so the shape is unit-tested without an `AppHandle`. `meeting_id`
+/// is the only field the page matches on; `labeled_segments`/
+/// `total_segments` let it show progress-free context and keep the event
+/// self-describing for future listeners.
+pub fn transcript_updated_payload(
+    meeting_id: &str,
+    labeled_segments: usize,
+    total_segments: usize,
+) -> serde_json::Value {
+    serde_json::json!({
+        "meeting_id": meeting_id,
+        "labeled_segments": labeled_segments,
+        "total_segments": total_segments,
+    })
+}
+
+/// Why a diarization pass did or did not happen, as the UI sees it.
+///
+/// The five values are the whole contract: the UI no longer parses an error
+/// text to tell "not configured" from "broken". `Ran` with zero labeled
+/// segments is a successful pass over a recording with no distinguishable
+/// voices, not a failure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DiarizationStatus {
+    /// The pass ran to completion; speaker labels reflect its output.
+    Ran,
+    /// No installed model for the diarization task.
+    NoModel,
+    /// The model is installed but the audio.cpp native library cannot load.
+    NoRuntime,
+    /// A recording is in progress; the pass would compete for memory.
+    Deferred,
+    /// The pass was attempted and failed (decode, load or engine error).
+    Failed,
+}
+
+impl DiarizationStatus {
+    /// Whether speaker labels are the output of a completed pass.
+    ///
+    /// This is the historical `speakers_available` flag: derived, never
+    /// stored independently, so the two can never disagree.
+    pub fn speakers_available(self) -> bool {
+        matches!(self, Self::Ran)
+    }
+}
+
+/// Outcome of the pure run decision.
+#[derive(Debug, Clone)]
+pub enum DiarizationDecision {
+    /// Run one pass with this model.
+    Run { model: ModelInfo },
+    /// Do not run, for the given reason.
+    DoNotRun(DiarizationStatus),
+}
+
+impl DiarizationDecision {
+    /// Status this decision will report: `Ran` when the pass will run.
+    pub fn status(&self) -> DiarizationStatus {
+        match self {
+            Self::Run { .. } => DiarizationStatus::Ran,
+            Self::DoNotRun(status) => *status,
+        }
+    }
+}
+
+/// The single place that decides whether a diarization pass runs.
+///
+/// Inputs are the catalogued models, whether the native runtime is available,
+/// and whether a recording is currently active. The priority is fixed by
+/// tests and mirrors the spec: a missing model outranks an unavailable
+/// runtime, and both outrank "a recording is active". Recording is only
+/// checked before the pass loads the model, never after it started.
+pub fn decide_diarization(
+    models: &[ModelInfo],
+    runtime_available: bool,
+    recording_active: bool,
+) -> DiarizationDecision {
+    let Some(model) = select_diarization_model(models) else {
+        return DiarizationDecision::DoNotRun(DiarizationStatus::NoModel);
+    };
+    if !runtime_available {
+        return DiarizationDecision::DoNotRun(DiarizationStatus::NoRuntime);
+    }
+    if recording_active {
+        return DiarizationDecision::DoNotRun(DiarizationStatus::Deferred);
+    }
+    DiarizationDecision::Run {
+        model: model.clone(),
+    }
+}
+
 /// Outcome of an optional diarization pass over a finished transcript.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DiarizationOutcome {
     /// Speaker label per segment, aligned with the input segment order.
     /// `None` when diarization did not run for that segment.
     pub speakers: Vec<Option<String>>,
+    /// Why the pass did or did not run.
+    pub status: DiarizationStatus,
     /// True when a diarization model was installed and ran, so the UI can
     /// distinguish "no speakers found" from "diarization unavailable".
+    /// Always equal to `status == Ran`; kept as a field for the call sites
+    /// that still read the historical flag.
     pub speakers_available: bool,
     /// Diagnostic detail when diarization was attempted and failed. The
     /// transcript is still usable; this is for logs and the hint text.
     pub error: Option<String>,
+}
+
+impl DiarizationOutcome {
+    fn new(
+        speakers: Vec<Option<String>>,
+        status: DiarizationStatus,
+        error: Option<String>,
+    ) -> Self {
+        DiarizationOutcome {
+            speakers,
+            status,
+            speakers_available: status.speakers_available(),
+            error,
+        }
+    }
+
+    /// Number of segments that received a speaker label.
+    pub fn labeled_segments(&self) -> usize {
+        self.speakers.iter().filter(|speaker| speaker.is_some()).count()
+    }
+}
+
+/// An outcome for a pass that ran but attributed no speakers.
+pub fn ran_segments(speakers: Vec<Option<String>>) -> DiarizationOutcome {
+    DiarizationOutcome::new(speakers, DiarizationStatus::Ran, None)
 }
 
 /// Picks the installed diarization model, if any.
@@ -82,13 +221,27 @@ pub fn apply_speaker_labels(
     }
 }
 
-/// An outcome with no labels, for a pass that could not run at all.
+/// An outcome with no labels for a pass that could not run.
+///
+/// Kept with its historical two-argument shape for the inline import and
+/// retranscription paths (rewired separately): an attached error means the
+/// pass was attempted and failed, no error means it never started.
 pub fn unavailable_segments(count: usize, error: Option<String>) -> DiarizationOutcome {
-    DiarizationOutcome {
-        speakers: vec![None; count],
-        speakers_available: false,
-        error,
-    }
+    let status = if error.is_some() {
+        DiarizationStatus::Failed
+    } else {
+        DiarizationStatus::NoModel
+    };
+    unavailable_for(count, status, error)
+}
+
+/// An outcome with no labels for the given non-`Ran` status.
+pub fn unavailable_for(
+    count: usize,
+    status: DiarizationStatus,
+    error: Option<String>,
+) -> DiarizationOutcome {
+    DiarizationOutcome::new(vec![None; count], status, error)
 }
 
 /// Diarizes `audio` (16 kHz mono f32) and applies the labels to `segments`.
@@ -115,18 +268,37 @@ pub async fn diarize_segments(
 
 /// Diarizes a saved recording folder and applies the labels to `segments`.
 ///
-/// Decoding and the engine run happen off the async runtime.
+/// Decoding and the engine run happen off the async runtime. This resolves the
+/// installed model itself; [`diarize_recording_folder_with_model`] takes the
+/// model the run decision already picked.
 pub async fn diarize_recording_folder(
     folder: &Path,
     segments: &mut [crate::api::TranscriptSegment],
+) -> DiarizationOutcome {
+    let Some(model) = installed_diarization_model().await else {
+        return unavailable_for(segments.len(), DiarizationStatus::NoModel, None);
+    };
+    diarize_recording_folder_with_model(folder, segments, &model).await
+}
+
+/// Diarizes a saved recording folder with an explicitly chosen model.
+///
+/// The caller owns the decision (see [`decide_diarization`]), so this never
+/// re-resolves the catalog and therefore never turns a `no_model` decision
+/// into a second, racing lookup.
+pub async fn diarize_recording_folder_with_model(
+    folder: &Path,
+    segments: &mut [crate::api::TranscriptSegment],
+    model: &ModelInfo,
 ) -> DiarizationOutcome {
     let Some(audio_path) = crate::audio::common::find_audio_file(folder) else {
         warn!(
             "No audio file in {}; skipping diarization",
             folder.display()
         );
-        return unavailable_segments(
+        return unavailable_for(
             segments.len(),
+            DiarizationStatus::Failed,
             Some("recording audio not found".to_string()),
         );
     };
@@ -140,18 +312,34 @@ pub async fn diarize_recording_folder(
         Ok(Ok(audio)) => audio,
         Ok(Err(error)) => {
             warn!("Failed to decode recording for diarization: {}", error);
-            return unavailable_segments(segments.len(), Some(error.to_string()));
+            return unavailable_for(
+                segments.len(),
+                DiarizationStatus::Failed,
+                Some(error.to_string()),
+            );
         }
         Err(error) => {
             warn!("Diarization decode task failed: {}", error);
-            return unavailable_segments(
+            return unavailable_for(
                 segments.len(),
+                DiarizationStatus::Failed,
                 Some(format!("decode task failed: {error}")),
             );
         }
     };
 
-    diarize_segments(segments, audio).await
+    let bounds: Vec<(f64, f64)> = segments
+        .iter()
+        .map(|segment| {
+            (
+                segment.audio_start_time.unwrap_or(0.0),
+                segment.audio_end_time.unwrap_or(0.0),
+            )
+        })
+        .collect();
+    let outcome = run_and_overlay(&model.path, audio, &bounds).await;
+    apply_speaker_labels(segments, &outcome);
+    outcome
 }
 
 /// Runs diarization for `audio` (16 kHz mono f32) and overlays the resulting
@@ -165,10 +353,20 @@ pub async fn diarize_transcript(
     segment_bounds: &[(f64, f64)],
 ) -> DiarizationOutcome {
     let Some(model) = installed_diarization_model().await else {
-        return unavailable_segments(segment_bounds.len(), None);
+        return unavailable_for(segment_bounds.len(), DiarizationStatus::NoModel, None);
     };
 
-    match run_diarization(&model.path, audio).await {
+    run_and_overlay(&model.path, audio, segment_bounds).await
+}
+
+/// Runs the pass with an already resolved model and overlays the turns onto
+/// `segment_bounds`.
+async fn run_and_overlay(
+    model_path: &Path,
+    audio: Vec<f32>,
+    segment_bounds: &[(f64, f64)],
+) -> DiarizationOutcome {
+    match run_diarization(model_path, audio).await {
         Ok(turns) => {
             let turns: Vec<SpeakerTurnInterval> = turns
                 .into_iter()
@@ -180,18 +378,18 @@ pub async fn diarize_transcript(
                     )
                 })
                 .collect();
-            DiarizationOutcome {
-                speakers: attribute_segments_to_speakers(segment_bounds, &turns),
-                speakers_available: true,
-                error: None,
-            }
+            ran_segments(attribute_segments_to_speakers(segment_bounds, &turns))
         }
         Err(error) => {
             warn!(
                 "audioCpp diarization failed; transcript keeps no speaker labels: {}",
                 error
             );
-            unavailable_segments(segment_bounds.len(), Some(error))
+            unavailable_for(
+                segment_bounds.len(),
+                DiarizationStatus::Failed,
+                Some(error),
+            )
         }
     }
 }
@@ -287,6 +485,74 @@ mod tests {
         assert!(select_diarization_model(&models).is_none());
     }
 
+    #[test]
+    fn a_downloading_diarization_model_is_not_selected() {
+        let models = vec![model(
+            "nemotron-3-diarization-bf16",
+            ModelStatus::Downloading { progress: 42 },
+        )];
+
+        assert!(select_diarization_model(&models).is_none());
+    }
+
+    fn installed_diarization_model_for_test() -> ModelInfo {
+        model("nemotron-3-diarization-bf16", ModelStatus::Available)
+    }
+
+    #[test]
+    fn an_installed_model_and_runtime_while_idle_runs_the_pass() {
+        let models = vec![installed_diarization_model_for_test()];
+
+        let decision = decide_diarization(&models, true, false);
+
+        match decision {
+            DiarizationDecision::Run { model } => {
+                assert_eq!(model.name, "nemotron-3-diarization-bf16")
+            }
+            other => panic!("expected a pass, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_missing_model_outranks_an_unavailable_runtime() {
+        let models = vec![model("nemotron-3-diarization-bf16", ModelStatus::Missing)];
+
+        assert_eq!(
+            decide_diarization(&models, false, false).status(),
+            DiarizationStatus::NoModel
+        );
+    }
+
+    #[test]
+    fn a_missing_model_outranks_an_active_recording() {
+        let models: Vec<ModelInfo> = Vec::new();
+
+        assert_eq!(
+            decide_diarization(&models, false, true).status(),
+            DiarizationStatus::NoModel
+        );
+    }
+
+    #[test]
+    fn an_unavailable_runtime_outranks_an_active_recording() {
+        let models = vec![installed_diarization_model_for_test()];
+
+        assert_eq!(
+            decide_diarization(&models, false, true).status(),
+            DiarizationStatus::NoRuntime
+        );
+    }
+
+    #[test]
+    fn an_active_recording_defers_the_pass() {
+        let models = vec![installed_diarization_model_for_test()];
+
+        assert_eq!(
+            decide_diarization(&models, true, true).status(),
+            DiarizationStatus::Deferred
+        );
+    }
+
     #[tokio::test]
     async fn no_installed_model_leaves_every_segment_without_a_speaker_and_is_unavailable() {
         // The catalog manager is uninitialized in unit tests, exactly like a
@@ -295,7 +561,62 @@ mod tests {
 
         assert_eq!(outcome.speakers, vec![None, None]);
         assert!(!outcome.speakers_available);
+        assert_eq!(outcome.status, DiarizationStatus::NoModel);
         assert!(outcome.error.is_none());
+    }
+
+    #[test]
+    fn a_ran_pass_with_no_speakers_is_success_not_a_failure() {
+        // "The pass ran, no voices were found" is a complete result, not an
+        // error: the UI must not report a failure for a silent recording.
+        let outcome = ran_segments(vec![None, None]);
+
+        assert_eq!(outcome.status, DiarizationStatus::Ran);
+        assert!(outcome.speakers_available);
+        assert!(outcome.error.is_none());
+        assert_eq!(outcome.labeled_segments(), 0);
+    }
+
+    #[test]
+    fn speakers_available_is_derived_from_the_ran_status() {
+        for (status, expected) in [
+            (DiarizationStatus::Ran, true),
+            (DiarizationStatus::NoModel, false),
+            (DiarizationStatus::NoRuntime, false),
+            (DiarizationStatus::Deferred, false),
+            (DiarizationStatus::Failed, false),
+        ] {
+            assert_eq!(
+                status.speakers_available(),
+                expected,
+                "status: {status:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn transcript_updated_payload_carries_the_meeting_id_and_segment_counts() {
+        let payload = transcript_updated_payload("meeting-42", 7, 9);
+
+        assert_eq!(payload["meeting_id"], "meeting-42");
+        assert_eq!(payload["labeled_segments"], 7);
+        assert_eq!(payload["total_segments"], 9);
+        // The page matches on the id alone; no extra keys are invented that a
+        // listener could mistake for a different contract.
+        assert_eq!(
+            payload.as_object().map(|object| object.len()),
+            Some(3),
+            "payload: {payload}"
+        );
+    }
+
+    #[test]
+    fn transcript_updated_payload_covers_a_ran_pass_with_no_labels() {
+        let payload = transcript_updated_payload("meeting-7", 0, 4);
+
+        assert_eq!(payload["meeting_id"], "meeting-7");
+        assert_eq!(payload["labeled_segments"], 0);
+        assert_eq!(payload["total_segments"], 4);
     }
 
     #[test]
