@@ -32,7 +32,7 @@ Successful assignments bump `meetings.updated_at`, like a title change; re-savin
 
 ## Recount rules
 
-Labels are written in three places, all on a saved meeting: audio import ([import.rs](../frontend/src-tauri/src/audio/import.rs), `create_meeting_with_transcripts`), retranscription ([retranscription.rs](../frontend/src-tauri/src/audio/retranscription.rs), which deletes the transcripts first), and the shared diarization pass ([diarization_run.rs](../frontend/src-tauri/src/audio/transcription/diarization_run.rs), `persist_speaker_labels`). Each of them runs `reconcile_meeting_speaker_assignments` inside the same transaction that writes the labels:
+Diarization labels reach a saved meeting in three places: audio import ([import.rs](../frontend/src-tauri/src/audio/import.rs)), retranscription ([retranscription.rs](../frontend/src-tauri/src/audio/retranscription.rs), which deletes the transcripts first), and the shared diarization pass ([diarization_run.rs](../frontend/src-tauri/src/audio/transcription/diarization_run.rs), `persist_speaker_labels`). Import and retranscription commit unlabelled segments (`speaker = null`) and leave the populated labels to the pass; the transcript chip's manual speaker change is the only other writer, one segment at a time. Each of the three runs `reconcile_meeting_speaker_assignments` inside the same transaction as its own transcript write:
 
 - Labels that still exist keep their names, even when their segment counts changed.
 - Bindings of labels that disappeared are deleted, and so are the people left unreferenced.
