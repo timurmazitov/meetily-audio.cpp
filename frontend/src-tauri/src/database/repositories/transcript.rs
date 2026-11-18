@@ -1,4 +1,5 @@
 use crate::api::{TranscriptSearchResult, TranscriptSegment};
+use crate::database::meeting_facts::usable_duration_seconds;
 use chrono::Utc;
 use sqlx::{Connection, Error as SqlxError, SqlitePool};
 use log::{error, info};
@@ -18,22 +19,42 @@ impl TranscriptsRepository {
     ) -> Result<String, SqlxError> {
         let meeting_id = format!("meeting-{}", Uuid::new_v4());
 
+        // The folder read is blocking file I/O, so it happens off the async
+        // worker and before the connection is checked out: no transaction is
+        // held open while the disk is asked.
+        let folder_path_for_facts = folder_path.clone();
+        let folder_facts = match tokio::task::spawn_blocking(move || {
+            crate::database::meeting_facts::read_folder_meeting_facts(
+                folder_path_for_facts.as_deref(),
+            )
+        })
+        .await
+        {
+            Ok(facts) => facts,
+            Err(error) => {
+                // The read task itself died (panic/cancel): treat the folder as
+                // unreadable and let the honest fallbacks below fill the row.
+                log::warn!("Recording folder facts could not be read: {}", error);
+                Default::default()
+            }
+        };
+
         let mut conn = pool.acquire().await?;
         let mut transaction = conn.begin().await?;
 
         let now = Utc::now();
-        let folder_facts = crate::database::meeting_facts::read_folder_meeting_facts(
-            folder_path.as_deref(),
-        );
 
         // The meeting's own moment and length: the folder is authoritative
         // because it knows when the recording started. Without a usable folder
         // the row still gets the honest approximations the spec allows — the
         // save moment and the end of the last segment — and otherwise NULL.
-        let fallback_duration = transcripts
-            .iter()
-            .filter_map(|segment| segment.audio_end_time)
-            .reduce(f64::max);
+        // A last end that is not a real positive measurement is "unknown".
+        let fallback_duration = usable_duration_seconds(
+            transcripts
+                .iter()
+                .filter_map(|segment| segment.audio_end_time)
+                .reduce(f64::max),
+        );
         let recorded_at = folder_facts
             .recorded_at_ms
             .map(chrono::DateTime::<Utc>::from_timestamp_millis)
@@ -294,6 +315,75 @@ mod tests {
             "an unreadable length does not discard the file's moment"
         );
     }
+
+    #[tokio::test]
+    async fn a_missing_folder_still_saves_with_the_honest_fallbacks() {
+        let pool = migrated_pool().await;
+        let before = chrono::Utc::now();
+
+        // The path is not a folder on disk at all. The save must behave exactly
+        // as it does for a folder without `metadata.json`: never fail, never
+        // leave the row dateless when the save moment is honest.
+        let meeting_id = TranscriptsRepository::save_transcript(
+            &pool,
+            "Folderless call",
+            &[segment("only", 42.5)],
+            Some("/nonexistent/samobranka/meeting-folder".to_string()),
+        )
+        .await
+        .unwrap();
+
+        let meeting = listed_meeting(&pool, &meeting_id).await;
+        let recorded_at = meeting
+            .recorded_at
+            .as_ref()
+            .map(|moment| moment.0)
+            .expect("the save moment stands in for a missing folder");
+        assert!(recorded_at >= before && recorded_at <= chrono::Utc::now());
+        assert_eq!(meeting.duration_seconds, Some(42.5));
+    }
+
+    #[tokio::test]
+    async fn a_last_segment_ending_at_zero_keeps_the_length_unknown() {
+        let pool = migrated_pool().await;
+
+        // A segment may carry a degenerate end time (a zero-length VAD chunk).
+        // That is "nothing measured", not a real 0.0-second meeting — exactly
+        // how the import path and the backfill read the same value.
+        let meeting_id = TranscriptsRepository::save_transcript(
+            &pool,
+            "Zero-length chunk",
+            &[segment("nothing", 0.0)],
+            None,
+        )
+        .await
+        .unwrap();
+
+        let meeting = listed_meeting(&pool, &meeting_id).await;
+        assert_eq!(
+            meeting.duration_seconds, None,
+            "a zero end is unknown, never a stored 0.0"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_negative_last_segment_end_keeps_the_length_unknown() {
+        let pool = migrated_pool().await;
+        let mut broken = segment("negative", -4.0);
+        broken.audio_end_time = Some(-4.0);
+
+        let meeting_id =
+            TranscriptsRepository::save_transcript(&pool, "Negative chunk", &[broken], None)
+                .await
+                .unwrap();
+
+        let meeting = listed_meeting(&pool, &meeting_id).await;
+        assert_eq!(
+            meeting.duration_seconds, None,
+            "a negative end is unknown, never a stored negative length"
+        );
+    }
+
     #[tokio::test]
     async fn a_meeting_with_nothing_to_measure_keeps_an_unknown_length() {
         let pool = migrated_pool().await;
