@@ -33,6 +33,17 @@ export function useCopyOperations({
   // the saved file always agree on what the meeting is called.
   const exportTitle: string = meetingTitle ?? meeting.title;
 
+  // The meeting's own moment (GLOSSARY: «дата встречи»), read from the row's
+  // `recorded_at`. The row's `created_at` is the audit field describing when the
+  // row appeared in the database — for a recording that is after the meeting
+  // ended — so it must never date a document. Both documents and both file names
+  // read this one value, so the copied text, the saved file and the panel header
+  // name the same day. A meeting without a date falls through to
+  // `resolveMeetingDate`'s "now", the long-standing export fallback: an export
+  // needs *a* date, and it is only reached for rows stocked before the date was
+  // recorded at all.
+  const meetingDate: string | undefined = meeting.recorded_at ?? undefined;
+
   // Helper function to fetch ALL transcripts for copying (not just paginated data)
   const fetchAllTranscripts = useCallback(async (meetingId: string): Promise<Transcript[]> => {
     try {
@@ -84,14 +95,14 @@ export function useCopyOperations({
     console.log(`✅ Formatting ${allTranscripts.length} transcripts`);
 
     const header = `# Transcript of the Meeting: ${meeting.id} - ${exportTitle}\n\n`;
-    const date = `## Date: ${resolveMeetingDate(meeting.created_at).toLocaleDateString()}\n\n`;
+    const date = `## Date: ${resolveMeetingDate(meetingDate).toLocaleDateString()}\n\n`;
 
     return formatTranscriptText(allTranscripts, {
       header: header + date,
       fallbackTimestamp: t => t.timestamp,
       markdownLineBreaks: true,
     });
-  }, [meeting, exportTitle, fetchAllTranscripts]);
+  }, [meeting.id, meetingDate, exportTitle, fetchAllTranscripts]);
 
   // Copy transcript to clipboard
   const handleCopyTranscript = useCallback(async () => {
@@ -111,13 +122,13 @@ export function useCopyOperations({
     await exportFileWithDialog({
       content: text,
       defaultFileName: buildExportFileName({
-        date: meeting.created_at,
+        date: meetingDate,
         title: exportTitle,
         kind: 'transcript',
       }),
       kind: 'transcript',
     });
-  }, [buildTranscriptText, meeting, exportTitle]);
+  }, [buildTranscriptText, meetingDate, exportTitle]);
 
   // Resolve the summary markdown the user is looking at. The live editor wins
   // over the saved body on purpose: unsaved edits are what the user sees on
@@ -174,7 +185,7 @@ export function useCopyOperations({
         markdown: summaryMarkdown,
         meetingTitle: exportTitle,
         meetingId: meeting.id,
-        meetingDate: meeting.created_at,
+        meetingDate,
         label,
       });
     } catch (error) {
@@ -182,7 +193,7 @@ export function useCopyOperations({
       toast.error(`Failed to ${verb} summary`);
       return null;
     }
-  }, [aiSummary, exportTitle, meeting, resolveSummaryMarkdown]);
+  }, [aiSummary, exportTitle, meeting.id, meetingDate, resolveSummaryMarkdown]);
 
   // Copy summary to clipboard
   const handleCopySummary = useCallback(async () => {
@@ -210,13 +221,13 @@ export function useCopyOperations({
     await exportFileWithDialog({
       content: fullMarkdown,
       defaultFileName: buildExportFileName({
-        date: meeting.created_at,
+        date: meetingDate,
         title: exportTitle,
         kind: 'summary',
       }),
       kind: 'summary',
     });
-  }, [buildSummaryText, meeting, exportTitle]);
+  }, [buildSummaryText, meetingDate, exportTitle]);
 
   return {
     handleCopyTranscript,

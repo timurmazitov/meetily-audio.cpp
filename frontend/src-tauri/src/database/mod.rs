@@ -1,3 +1,4 @@
+pub mod backfill;
 pub mod commands;
 pub mod manager;
 pub mod meeting_facts;

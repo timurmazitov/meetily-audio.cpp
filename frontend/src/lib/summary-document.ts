@@ -10,8 +10,14 @@ export interface SummaryDocumentInput {
   meetingTitle: string;
   /** Meeting ID shown in the metadata block. */
   meetingId: string;
-  /** Meeting moment; an ISO string or `Date` (as stored for `created_at`). */
-  meetingDate: string | Date | number;
+  /**
+   * Meeting's own moment (GLOSSARY: «дата встречи»), as stored for
+   * `recorded_at`: an RFC3339 string, a date-only `YYYY-MM-DD`, or a `Date`.
+   * An absent or unparsable value falls back to the current moment, the
+   * long-standing export behaviour, so the file name and the document still
+   * name the same day.
+   */
+  meetingDate?: string | Date | number | null;
   /** Action word of the label line — the only difference between copy and export. */
   label: SummaryDocumentLabel;
   /** Moment written next to the label; defaults to now. */
@@ -39,7 +45,7 @@ function formatMetadataDate(value: string | Date | number): string {
  * Format the meeting date in the metadata block, reading it through the same
  * helper as the export file name so the two can never name different days.
  */
-function formatMeetingDate(value: string | Date | number): string {
+function formatMeetingDate(value: string | Date | number | null | undefined): string {
   return formatMetadataDate(resolveMeetingDate(value));
 }
 

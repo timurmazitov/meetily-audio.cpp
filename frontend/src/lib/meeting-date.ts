@@ -1,14 +1,17 @@
 /**
- * Reading a meeting's `created_at` value, shared by the export file name, the
- * summary metadata block and the transcript header.
+ * Reading a meeting's date, shared by the export file name, the summary
+ * metadata block and the transcript header.
  *
  * The file name and the document must always name the same day, so all three go
- * through `resolveMeetingDate`. A bare `YYYY-MM-DD` value is a calendar day, not
- * an instant: it is read as that *local* day so the time zone cannot shift it.
- * Anything else is a normal `Date`-parsable instant.
+ * through `resolveMeetingDate`. The value read is the meeting's own moment
+ * (GLOSSARY: «дата встречи», `recorded_at`), never the row's `created_at`: that
+ * is an audit field naming when the row appeared in the database — for a
+ * recording, after the meeting had already ended. A bare `YYYY-MM-DD` value is a
+ * calendar day, not an instant: it is read as that *local* day so the time zone
+ * cannot shift it. Anything else is a normal `Date`-parsable instant.
  */
 
-/** A date-only `created_at`: year, month and day with no time or zone. */
+/** A date-only value: year, month and day with no time or zone. */
 const DATE_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 /**
