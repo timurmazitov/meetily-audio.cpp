@@ -4,7 +4,7 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { ChevronDown, ChevronRight, File, Settings, ChevronLeftCircle, ChevronRightCircle, Calendar, StickyNote, Home, Trash2, Mic, Square, Plus, Search, Pencil, NotebookPen, SearchIcon, X, Upload } from 'lucide-react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useSidebar } from './SidebarProvider';
-import type { CurrentMeeting } from '@/components/Sidebar/SidebarProvider';
+import type { CurrentMeeting, SidebarItem } from '@/components/Sidebar/SidebarProvider';
 import { ConfirmationModal } from '../ConfirmationModel/confirmation-modal';
 import { ModelConfig } from '@/components/ModelSettingsModal';
 import { SettingTabs } from '../SettingTabs';
@@ -28,13 +28,6 @@ import FeedbackLink from '../FeedbackLink';
 import { ComplianceNotification } from '../ComplianceNotification';
 import { Input } from '../ui/input';
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '../ui/input-group';
-
-interface SidebarItem {
-  id: string;
-  title: string;
-  type: 'folder' | 'file';
-  children?: SidebarItem[];
-}
 
 const Sidebar: React.FC = () => {
   const router = useRouter();
