@@ -60,6 +60,22 @@ export interface AudioCppDownloadErrorEvent {
 }
 
 /**
+ * Diagnostic report on the native audio.cpp library: whether it loaded, its
+ * ABI/build version, and the model families and tasks it supports. A missing
+ * or ABI-incompatible library is reported in-band (`available: false` with an
+ * explanatory `error`), never as a command failure.
+ */
+export interface AudioCppDiagnostics {
+  available: boolean;
+  library_path: string | null;
+  abi_version: string | null;
+  build_version: string | null;
+  families: string[];
+  tasks: string[];
+  error: string | null;
+}
+
+/**
  * Tauri command names of the native audio.cpp model manager. The Rust side
  * registers exactly these in `lib.rs`; keeping them in one place makes the
  * contract testable without importing the Tauri bridge.
@@ -74,6 +90,7 @@ export const AUDIOCPP_COMMANDS = {
   cancelDownload: 'audiocpp_cancel_download',
   deleteModel: 'audiocpp_delete_model',
   openModelsFolder: 'open_audiocpp_models_folder',
+  diagnostics: 'audiocpp_diagnostics',
 } as const;
 
 /** Event names emitted by the native audio.cpp model manager. */
@@ -151,6 +168,8 @@ export interface AudioCppModelClient {
   /** Whether an installed model can transcribe (asr), not just diarize. */
   hasTranscriptionModel(): Promise<boolean>;
   getModelsDirectory(): Promise<string>;
+  /** Runtime report: whether the native library loaded, and why not. */
+  getDiagnostics(): Promise<AudioCppDiagnostics>;
   downloadModel(modelName: string): Promise<void>;
   cancelDownload(modelName: string): Promise<AudioCppCancelDownloadOutcome>;
   deleteModel(modelName: string): Promise<string>;

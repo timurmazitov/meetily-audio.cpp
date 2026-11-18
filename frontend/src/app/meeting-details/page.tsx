@@ -9,6 +9,7 @@ import { LoaderIcon } from "lucide-react";
 import { useConfig } from "@/contexts/ConfigContext";
 import { usePaginatedTranscripts } from "@/hooks/usePaginatedTranscripts";
 import { useSpeakerNamesResetListener } from "@/hooks/useSpeakerNamesResetListener";
+import { useTranscriptUpdatedListener } from "@/hooks/useTranscriptUpdatedListener";
 import { parseSummaryContent } from "@/lib/summary-content";
 
 interface MeetingDetailsResponse {
@@ -189,21 +190,12 @@ function MeetingDetailsContent() {
     }
   }, [transcriptError]);
 
-  // Live diarization finishes after the meeting is saved (audioCpp only).
-  // The labels are written straight to the database, so refetch when the stop
-  // flow reports the pass is done, unless the user already navigated away.
-  useEffect(() => {
-    if (!meetingId) return;
-
-    const onTranscriptsUpdated = (event: Event) => {
-      const updatedMeetingId = (event as CustomEvent<{ meetingId?: string }>).detail?.meetingId;
-      if (updatedMeetingId && updatedMeetingId !== meetingId) return;
-      void refetchTranscriptsAndSpeakers();
-    };
-
-    window.addEventListener('transcripts-updated', onTranscriptsUpdated);
-    return () => window.removeEventListener('transcripts-updated', onTranscriptsUpdated);
-  }, [meetingId, refetchTranscriptsAndSpeakers]);
+  // A background diarization pass refreshes the open meeting through the native
+  // `transcript-updated` event: the labels are written straight to the database,
+  // so the page reloads them unless the user already navigated away.
+  useTranscriptUpdatedListener(meetingId, () => {
+    void refetchTranscriptsAndSpeakers();
+  });
 
   // A recount of the labels (retranscription, post-recording diarization) can
   // wipe every name; the backend says why and we reload so the names vanish.

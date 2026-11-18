@@ -19,6 +19,11 @@ import {
 import { invoke } from '@tauri-apps/api/core';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import { toast } from 'sonner';
+import {
+  shouldToastDiarizationUnavailable,
+  showDiarizationFailure,
+  type DiarizationUnavailablePayload,
+} from '@/lib/diarization';
 import { useConfig } from '@/contexts/ConfigContext';
 import { LANGUAGES } from '@/constants/languages';
 import { useTranscriptionModels, ModelOption } from '@/hooks/useTranscriptionModels';
@@ -182,16 +187,15 @@ export function RetranscribeDialog({
       }
       unlisteners.push(unlistenError);
 
-      // Speaker labels were skipped: the transcript is fine, this is a hint.
-      const unlistenDiarization = await listen<{ meeting_id?: string; message?: string }>(
+      // A diarization pass that was attempted and failed. Native code emits
+      // this event only for `failed`, and the status check keeps the dialog
+      // silent for configuration reasons if that contract is ever widened.
+      const unlistenDiarization = await listen<DiarizationUnavailablePayload>(
         'diarization-unavailable',
         (event) => {
           if (event.payload.meeting_id && event.payload.meeting_id !== meetingId) return;
-          toast.info('Speaker labels not assigned', {
-            description:
-              event.payload.message ??
-              'Download the Nemotron-3-Diarization model in Settings to see who said what.',
-          });
+          if (!shouldToastDiarizationUnavailable(event.payload.status)) return;
+          showDiarizationFailure(toast, event.payload.message);
         }
       );
       if (cleanedUpRef.current) {

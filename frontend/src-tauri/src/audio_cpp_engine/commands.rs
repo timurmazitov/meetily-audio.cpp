@@ -84,6 +84,18 @@ fn collect_diagnostics() -> AudioCppDiagnostics {
     }
 }
 
+/// Detects native-runtime availability through the same probe the diagnostics
+/// command uses, off the async runtime.
+///
+/// The probe loads the library and drops it again; diarization still loads it
+/// for the pass itself. Sharing [`collect_diagnostics`] keeps one definition
+/// of "available" instead of a second ad-hoc load path.
+pub async fn detect_runtime_available() -> bool {
+    tokio::task::spawn_blocking(|| collect_diagnostics().available)
+        .await
+        .unwrap_or(false)
+}
+
 // Model management commands.
 //
 // They only touch files under the app-data models directory and never load

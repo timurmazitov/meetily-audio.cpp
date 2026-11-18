@@ -5,6 +5,7 @@ import {
   AUDIOCPP_COMMANDS,
   AUDIOCPP_EVENTS,
   type AudioCppCancelDownloadOutcome,
+  type AudioCppDiagnostics,
   type AudioCppDownloadCompleteEvent,
   type AudioCppDownloadErrorEvent,
   type AudioCppDownloadProgressEvent,
@@ -41,6 +42,10 @@ export class AudioCppAPI {
     return await invoke(AUDIOCPP_COMMANDS.getModelsDirectory);
   }
 
+  static async getDiagnostics(): Promise<AudioCppDiagnostics> {
+    return await invoke(AUDIOCPP_COMMANDS.diagnostics);
+  }
+
   static async downloadModel(modelName: string): Promise<void> {
     await invoke(AUDIOCPP_COMMANDS.downloadModel, { modelName });
   }
@@ -65,6 +70,7 @@ class TauriAudioCppModelClient implements AudioCppModelClient {
   hasAvailableModels = () => AudioCppAPI.hasAvailableModels();
   hasTranscriptionModel = () => AudioCppAPI.hasTranscriptionModel();
   getModelsDirectory = () => AudioCppAPI.getModelsDirectory();
+  getDiagnostics = () => AudioCppAPI.getDiagnostics();
   downloadModel = (modelName: string) => AudioCppAPI.downloadModel(modelName);
   cancelDownload = (modelName: string) => AudioCppAPI.cancelDownload(modelName);
   deleteModel = (modelName: string) => AudioCppAPI.deleteModel(modelName);
