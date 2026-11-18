@@ -8,7 +8,7 @@ import type { SummaryProcessResponse } from '@/types';
 
 
 
-interface SidebarItem {
+export interface SidebarItem {
   id: string;
   title: string;
   type: 'folder' | 'file';
