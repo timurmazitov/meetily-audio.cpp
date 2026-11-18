@@ -130,6 +130,11 @@ export interface MeetingMetadata {
   created_at: string;
   updated_at: string;
   folder_path?: string;
+  /**
+   * The meeting's own moment (GLOSSARY: «дата встречи»), additive. Absent while
+   * unknown — the interface omits the date instead of substituting "now".
+   */
+  recorded_at?: string | null;
 }
 
 export interface PaginatedTranscriptsResponse {

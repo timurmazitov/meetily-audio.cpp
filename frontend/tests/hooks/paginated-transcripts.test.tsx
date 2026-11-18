@@ -179,4 +179,17 @@ describe('paginated transcript request ownership', () => {
     await act(async () => { state.setTranscriptSpeaker('A', null); });
     expect(state.segments[0]).toMatchObject({ speaker: undefined, speaker_name: undefined });
   });
+
+  test('the metadata keeps the meeting moment the header renders', async () => {
+    // The open meeting's date reaches the page through this hook, so a lost
+    // field here would silently drop the header date even though the backend
+    // sends it.
+    await show('A');
+    await resolve(request('metadata', 'A'), {
+      ...metadata('A'),
+      recorded_at: '2026-11-18T07:32:05+00:00',
+    });
+    await resolve(request('transcripts', 'A'), page('A'));
+    expect(state.metadata?.recorded_at).toBe('2026-11-18T07:32:05+00:00');
+  });
 });
