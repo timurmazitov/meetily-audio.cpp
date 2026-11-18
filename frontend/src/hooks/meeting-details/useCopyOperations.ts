@@ -4,6 +4,7 @@ import { BlockNoteSummaryViewRef } from '@/components/AISummary/BlockNoteSummary
 import { toast } from 'sonner';
 import { invoke as invokeTauri } from '@tauri-apps/api/core';
 import { hasVisibleSummaryContent } from '@/lib/summary-content';
+import { buildSummaryDocument, convertLegacySummaryToMarkdown } from '@/lib/summary-document';
 import { formatTranscriptText } from '@/lib/transcript-format';
 import { buildExportFileName, exportFileWithDialog } from '@/lib/export-file';
 
@@ -141,24 +142,7 @@ export function useCopyOperations({
       // Fallback: Check for legacy format
       if (!summaryMarkdown && aiSummary) {
         console.log('📝 Converting legacy format to markdown');
-        const sections = Object.entries(aiSummary)
-          .filter(([key]) => {
-            // Skip non-section keys
-            return key !== 'markdown' && key !== 'summary_json' && key !== '_section_order' && key !== 'MeetingName';
-          })
-          .map(([, section]) => {
-            if (section && typeof section === 'object' && 'title' in section && 'blocks' in section) {
-              const sectionTitle = `## ${section.title}\n\n`;
-              const sectionContent = section.blocks
-                .map((block: any) => `- ${block.content}`)
-                .join('\n');
-              return sectionTitle + sectionContent;
-            }
-            return '';
-          })
-          .filter(s => s.trim())
-          .join('\n\n');
-        summaryMarkdown = sections;
+        summaryMarkdown = convertLegacySummaryToMarkdown(aiSummary);
         console.log('📝 Converted legacy format, length:', summaryMarkdown.length);
       }
 
@@ -169,23 +153,13 @@ export function useCopyOperations({
         return;
       }
 
-      // Build metadata header
-      const header = `# Meeting Summary: ${meetingTitle}\n\n`;
-      const metadata = `**Meeting ID:** ${meeting.id}\n**Date:** ${new Date(meeting.created_at).toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-      })}\n**Copied on:** ${new Date().toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-      })}\n\n---\n\n`;
-
-      const fullMarkdown = header + metadata + summaryMarkdown;
+      const fullMarkdown = buildSummaryDocument({
+        markdown: summaryMarkdown,
+        meetingTitle,
+        meetingId: meeting.id,
+        meetingDate: meeting.created_at,
+        label: 'Copied',
+      });
       await navigator.clipboard.writeText(fullMarkdown);
 
       console.log('✅ Successfully copied to clipboard!');

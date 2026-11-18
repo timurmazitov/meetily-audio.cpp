@@ -8,11 +8,38 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Copy выдаёт тот же текст, что и до изменения: шапка `# Meeting Summary: <название>`, `**Meeting ID:**`, `**Date:**`, `**Copied on:**`, `---`, markdown саммари
-- [ ] Вариант для файла отличается от варианта для буфера только словом в строке метки
-- [ ] Legacy-саммари превращается в markdown той же чистой функцией, что и раньше по смыслу
-- [ ] Пустой результат резолва по-прежнему не копируется и даёт тост об отсутствии содержимого
-- [ ] `bun test` проверяет совпадение двух вариантов за вычетом строки метки и корректность legacy-конвертации
-- [ ] Хук копирования не содержит собственной сборки шапки и метаданных
+- [x] Copy выдаёт тот же текст, что и до изменения: шапка `# Meeting Summary: <название>`, `**Meeting ID:**`, `**Date:**`, `**Copied on:**`, `---`, markdown саммари
+- [x] Вариант для файла отличается от варианта для буфера только словом в строке метки
+- [x] Legacy-саммари превращается в markdown той же чистой функцией, что и раньше по смыслу
+- [x] Пустой результат резолва по-прежнему не копируется и даёт тост об отсутствии содержимого
+- [x] `bun test` проверяет совпадение двух вариантов за вычетом строки метки и корректность legacy-конвертации
+- [x] Хук копирования не содержит собственной сборки шапки и метаданных
+
+## Comments
+
+Реализовано в ветке `ticket/summary-export-02`.
+
+Коммиты:
+
+- `492d377` — Саммари: общий сборщик текста для Copy и Export (модуль, тест, перевод хука).
+
+Новый модуль `frontend/src/lib/summary-document.ts`:
+
+- `buildSummaryDocument({ markdown, meetingTitle, meetingId, meetingDate, label, timestamp? }): string` — собирает шапку, блок метаданных (`**Meeting ID:**`, `**Date:**`, `**<label> on:**`), `\n\n---\n\n` и markdown саммари. `label` — `'Copied' | 'Exported'`, `timestamp` по умолчанию `new Date()`. Форматирование обеих дат — прежнее `toLocaleDateString('en-US', { year, month, day, hour: '2-digit', minute: '2-digit' })`.
+- `convertLegacySummaryToMarkdown(summary: unknown): string` — прежняя конвертация секций `{ title, blocks }` в `## <title>` + `- <content>`, с тем же набором пропускаемых ключей (`markdown`, `summary_json`, `_section_order`, `MeetingName`) и тем же отбрасыванием пустых секций.
+
+Хук `useCopyOperations.ts` (`handleCopySummary`): собственной сборки шапки и метаданных больше нет; резолв markdown (ref BlockNote → `aiSummary.markdown` → legacy-конвертация), проверка `hasVisibleSummaryContent`, проверка пустого результата и тосты остались на месте. Изменения локальны для summary-колбэка; transcript-часть не тронута.
+
+Проверено:
+
+- `bun test tests/lib/summary-document.test.ts` — 5 pass / 0 fail.
+- `./node_modules/.bin/tsc --noEmit` — чисто.
+- `bun test tests/lib/summary-content.test.ts` (3 pass), `tests/lib/transcript-format.test.ts` (17 pass), `tests/hooks/meeting-details-refresh.test.tsx` (3 pass) — соседние тесты не задеты.
+- Побайтовое совпадение с прежней реализацией проверено разовым скриптом (не коммитился): старый inline-код против новой функции на 8 legacy-фикстурах (включая кириллицу, пустые секции, не-секции, `markdown`/`summary_json`/`_section_order`/`MeetingName`, многострочный контент) и полный документ с фиксированным `copiedAt` — совпадение полное.
+
+Не проверено:
+
+- Поведение в живом Tauri-приложении (реальный ref BlockNote, реальный буфер обмена, тосты) — по контексту спеки это ручная проверка оркестратора/ревьюера.
+- Полный `bun test` не гонялся целиком: в нём 12 предсуществующих падений из-за утечки `mock.module` между файлами (см. контекст спеки).
