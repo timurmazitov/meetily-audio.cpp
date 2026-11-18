@@ -134,7 +134,11 @@ let diarizationStep: () => Promise<DiarizationResult> = async () => diarizationR
 const diarizeMeeting = mock(async (_meetingId: string) => diarizationStep());
 const diarizationClient = { diarizeMeeting };
 let availableModels: AudioCppModelInfo[] = [];
-const getAvailableModels = mock(async () => availableModels);
+let modelListError: string | null = null;
+const getAvailableModels = mock(async () => {
+  if (modelListError) throw new Error(modelListError);
+  return availableModels;
+});
 const modelClient = { getAvailableModels };
 
 const invoke = mock(async (command: string, args?: Record<string, unknown>): Promise<unknown> => {
@@ -181,6 +185,7 @@ beforeEach(() => {
   getAvailableModels.mockClear();
   diarizationStep = async () => diarizationResult('ran');
   availableModels = [];
+  modelListError = null;
   sheetOnOpenChange = null;
   assignError = null;
   speakers = [];
@@ -551,6 +556,23 @@ test('without a diarization model the button is disabled and explains why', asyn
 
   await act(async () => button.props.onClick());
   expect(diarizeMeeting).not.toHaveBeenCalled();
+});
+
+test('a catalog that cannot be read keeps the button usable and says why it is unknown', async () => {
+  // A failed catalog read is not knowledge: the panel must not pretend the
+  // model is missing and lock the button forever. The manual run is the user's
+  // way to find out, and native code reports the real reason.
+  speakers = [];
+  modelListError = 'catalog unavailable';
+
+  const instance = await renderPanel();
+
+  const button = diarizeButton(instance);
+  expect(button.props.disabled).toBeFalse();
+  expect(text(instance)).toContain('Could not read the diarization model list');
+
+  await act(async () => button.props.onClick());
+  expect(diarizeMeeting.mock.calls).toEqual([['meeting-a']]);
 });
 
 test('with an installed model the button is enabled and runs the pass', async () => {

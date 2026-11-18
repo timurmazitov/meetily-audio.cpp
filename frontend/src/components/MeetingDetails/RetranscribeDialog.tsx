@@ -20,8 +20,8 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import { toast } from 'sonner';
 import {
-  DIARIZATION_FAILED_MESSAGE,
   shouldToastDiarizationUnavailable,
+  showDiarizationFailure,
   type DiarizationUnavailablePayload,
 } from '@/lib/diarization';
 import { useConfig } from '@/contexts/ConfigContext';
@@ -195,9 +195,7 @@ export function RetranscribeDialog({
         (event) => {
           if (event.payload.meeting_id && event.payload.meeting_id !== meetingId) return;
           if (!shouldToastDiarizationUnavailable(event.payload.status)) return;
-          toast.error('Diarization failed', {
-            description: event.payload.message ?? DIARIZATION_FAILED_MESSAGE,
-          });
+          showDiarizationFailure(toast, event.payload.message);
         }
       );
       if (cleanedUpRef.current) {

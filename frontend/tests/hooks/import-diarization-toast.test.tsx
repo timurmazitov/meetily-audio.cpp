@@ -87,6 +87,27 @@ async function emitDiarizationUnavailable(payload: Record<string, unknown>) {
   });
 }
 
+/** Completes an import, which is when the hook learns the meeting id. */
+async function emitImportComplete(meetingId: string) {
+  for (let attempt = 0; attempt < 50 && !registered.has('import-complete'); attempt += 1) {
+    await act(async () => {
+      await Promise.resolve();
+    });
+  }
+  const handler = registered.get('import-complete');
+  expect(handler).toBeDefined();
+  await act(async () => {
+    handler!({
+      payload: {
+        meeting_id: meetingId,
+        title: 'Imported',
+        segments_count: 1,
+        duration_seconds: 1,
+      },
+    });
+  });
+}
+
 beforeEach(() => {
   registered.clear();
   toastError.mockClear();
@@ -106,6 +127,7 @@ afterEach(async () => {
 
 test('a failed pass is reported because the user should know labels are missing', async () => {
   await show();
+  await emitImportComplete('meeting-a');
 
   await emitDiarizationUnavailable({
     meeting_id: 'meeting-a',
@@ -123,8 +145,36 @@ test('a failed pass is reported because the user should know labels are missing'
   expect(options.description).toBe(DIARIZATION_FAILED_MESSAGE);
 });
 
+test('a failed pass for another meeting does not toast inside the import dialog', async () => {
+  // The listener is process-wide: a background pass for some other meeting
+  // must not surface in a dialog that is waiting for its own import.
+  await show();
+  await emitImportComplete('meeting-a');
+
+  await emitDiarizationUnavailable({
+    meeting_id: 'meeting-b',
+    status: 'failed',
+    message: DIARIZATION_FAILED_MESSAGE,
+  });
+
+  expect(toastError).not.toHaveBeenCalled();
+});
+
+test('a failure that arrives before this import has an id is ignored', async () => {
+  await show();
+
+  await emitDiarizationUnavailable({
+    meeting_id: 'meeting-b',
+    status: 'failed',
+    message: DIARIZATION_FAILED_MESSAGE,
+  });
+
+  expect(toastError).not.toHaveBeenCalled();
+});
+
 test('configuration reasons stay silent: the user did not request the pass', async () => {
   await show();
+  await emitImportComplete('meeting-a');
 
   for (const status of ['no_model', 'no_runtime', 'deferred', 'ran']) {
     await emitDiarizationUnavailable({ meeting_id: 'meeting-a', status });
@@ -136,6 +186,7 @@ test('configuration reasons stay silent: the user did not request the pass', asy
 
 test('an event without a status cannot be attributed and stays silent', async () => {
   await show();
+  await emitImportComplete('meeting-a');
 
   await emitDiarizationUnavailable({ meeting_id: 'meeting-a', reason: 'old caller' });
 

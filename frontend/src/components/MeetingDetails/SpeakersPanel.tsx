@@ -219,9 +219,11 @@ export function SpeakersPanel({
   const [isSaving, setIsSaving] = useState(false);
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
   const [panelError, setPanelError] = useState<string | null>(null);
-  // Starts disabled until the catalog answers, so a click can never start a
-  // pass that is known to answer `no_model`.
-  const [hasDiarizationModel, setHasDiarizationModel] = useState(false);
+  // Whether a manual run can start: `true` for an installed model, `false`
+  // for a catalog that answered without one, and `null` when the catalog could
+  // not be read. `null` is deliberately not `false`: an unreadable list is not
+  // knowledge of a missing model, so it must not disable the button forever.
+  const [hasDiarizationModel, setHasDiarizationModel] = useState<boolean | null>(false);
   const [isDiarizing, setIsDiarizing] = useState(false);
   const [diarizationReason, setDiarizationReason] = useState<string | null>(null);
   // Guards against a second click landing before the disabled state renders.
@@ -270,10 +272,11 @@ export function SpeakersPanel({
         const models = await modelClient.getAvailableModels();
         if (!cancelled) setHasDiarizationModel(hasInstalledDiarizationModel(models));
       } catch (error) {
-        // An unreachable catalog is not a reason to hide the button; a run will
-        // report the reason instead.
+        // An unreadable catalog stays a warning, never a verdict: the panel
+        // cannot know there is no model, so it keeps the run available and
+        // says the list could not be read. A run then reports the real status.
         console.warn('Failed to read the audio.cpp model list:', error);
-        if (!cancelled) setHasDiarizationModel(false);
+        if (!cancelled) setHasDiarizationModel(null);
       }
     };
 
@@ -292,7 +295,14 @@ export function SpeakersPanel({
     // A ref guards against a second click landing before the disabled state
     // renders: two concurrent passes are exactly what native code serializes,
     // and the panel must not queue them either.
-    if (!meetingId || isDiarizing || !hasDiarizationModel || diarizingRef.current) return;
+    if (
+      !meetingId ||
+      isDiarizing ||
+      hasDiarizationModel === false ||
+      diarizingRef.current
+    ) {
+      return;
+    }
 
     diarizingRef.current = true;
     setIsDiarizing(true);
@@ -307,23 +317,24 @@ export function SpeakersPanel({
         return;
       }
 
-      const reason = diarizationStatusMessage(result.status);
-      // A failed pass carries diagnostic detail; the panel shows it next to the
-      // generic message so a support report can quote something concrete.
-      const detail = result.status === 'failed' ? result.error : null;
-      setDiarizationReason(detail ? `${reason} (${detail})` : reason);
-
       if (result.status === 'ran') {
         // Labels (and possibly names) changed: reload both the panel's own list
         // and the transcript behind the sheet.
         await loadSpeakers();
         await onRefetchTranscripts?.();
+        if (result.labeled_segments === 0) {
+          // A pass that found no distinct voices is a success, but an empty
+          // list right after a click needs an explanation.
+          setDiarizationReason(DIARIZATION_NO_SPEAKERS_FOUND_MESSAGE);
+        }
+        return;
       }
-      if (result.status === 'ran' && result.labeled_segments === 0) {
-        // A pass that found no distinct voices is a success, but an empty list
-        // right after a click needs an explanation.
-        setDiarizationReason(DIARIZATION_NO_SPEAKERS_FOUND_MESSAGE);
-      }
+
+      const reason = diarizationStatusMessage(result.status);
+      // A failed pass carries diagnostic detail; the panel shows it next to the
+      // generic message so a support report can quote something concrete.
+      const detail = result.status === 'failed' ? result.error : null;
+      setDiarizationReason(detail ? `${reason} (${detail})` : reason);
     } finally {
       diarizingRef.current = false;
       setIsDiarizing(false);
@@ -465,11 +476,11 @@ export function SpeakersPanel({
                   size="sm"
                   data-testid="diarize-meeting-button"
                   onClick={handleDiarize}
-                  disabled={isDiarizing || !hasDiarizationModel}
+                  disabled={isDiarizing || hasDiarizationModel === false}
                   title={
-                    hasDiarizationModel
-                      ? 'Run speaker diarization for this meeting'
-                      : DIARIZATION_UNAVAILABLE_HINT
+                    hasDiarizationModel === false
+                      ? DIARIZATION_UNAVAILABLE_HINT
+                      : 'Run speaker diarization for this meeting'
                   }
                 >
                   {isDiarizing ? (
@@ -480,6 +491,15 @@ export function SpeakersPanel({
                   {isDiarizing ? 'Running diarization…' : 'Run diarization'}
                 </Button>
               </div>
+              {hasDiarizationModel === null && (
+                <p
+                  data-testid="diarization-catalog-warning"
+                  className="text-xs text-muted-foreground"
+                >
+                  Could not read the diarization model list. A run will report the
+                  real status.
+                </p>
+              )}
               {diarizationReason && (
                 <p
                   data-testid="diarization-reason"

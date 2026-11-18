@@ -84,14 +84,6 @@ fn collect_diagnostics() -> AudioCppDiagnostics {
     }
 }
 
-/// Whether a diagnostics report means the native runtime usable.
-///
-/// One predicate so the settings warning and the diarization decision cannot
-/// disagree about what "runtime available" means.
-pub fn runtime_available(report: &AudioCppDiagnostics) -> bool {
-    report.available
-}
-
 /// Detects native-runtime availability through the same probe the diagnostics
 /// command uses, off the async runtime.
 ///
@@ -99,7 +91,7 @@ pub fn runtime_available(report: &AudioCppDiagnostics) -> bool {
 /// for the pass itself. Sharing [`collect_diagnostics`] keeps one definition
 /// of "available" instead of a second ad-hoc load path.
 pub async fn detect_runtime_available() -> bool {
-    tokio::task::spawn_blocking(|| runtime_available(&collect_diagnostics()))
+    tokio::task::spawn_blocking(|| collect_diagnostics().available)
         .await
         .unwrap_or(false)
 }
