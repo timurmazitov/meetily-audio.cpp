@@ -94,6 +94,49 @@ let speakers: MeetingSpeaker[] = [];
 let directory: SpeakerNameEntry[] = [];
 let assignError: string | null = null;
 
+// --- Diarization seams, injected so no Tauri module mocks are needed here ---
+type DiarizationResult = import('../../src/lib/diarization').DiarizationResult;
+type AudioCppModelInfo = import('../../src/lib/audiocpp').AudioCppModelInfo;
+
+function diarizationResult(
+  status: DiarizationResult['status'],
+  overrides: Partial<DiarizationResult> = {},
+): DiarizationResult {
+  return {
+    meeting_id: 'meeting-a',
+    status,
+    labeled_segments: status === 'ran' ? 2 : 0,
+    total_segments: 2,
+    speakers_available: status === 'ran',
+    error: status === 'failed' ? 'engine exploded' : null,
+    ...overrides,
+  };
+}
+
+function diarizationModel(overrides: Partial<AudioCppModelInfo> = {}): AudioCppModelInfo {
+  return {
+    name: 'nemotron-3-diarization-bf16',
+    display_name: 'Nemotron-3 Diarization',
+    family: 'nemotron_3_diar',
+    task: 'diar',
+    quantization: 'BF16',
+    filename: 'nemotron-3-diarization-bf16.gguf',
+    path: '/models/audiocpp/nemotron-3-diarization-bf16.gguf',
+    size_mb: 190,
+    size_bytes: 198_720_928,
+    description: 'Speaker diarization',
+    status: 'Available',
+    ...overrides,
+  };
+}
+
+let diarizationStep: () => Promise<DiarizationResult> = async () => diarizationResult('ran');
+const diarizeMeeting = mock(async (_meetingId: string) => diarizationStep());
+const diarizationClient = { diarizeMeeting };
+let availableModels: AudioCppModelInfo[] = [];
+const getAvailableModels = mock(async () => availableModels);
+const modelClient = { getAvailableModels };
+
 const invoke = mock(async (command: string, args?: Record<string, unknown>): Promise<unknown> => {
   if (command === 'api_get_meeting_speakers') return speakers;
   if (command === 'api_get_speaker_names') {
@@ -119,6 +162,9 @@ mock.module('@tauri-apps/api/core', coreMock);
 const { TranscriptButtonGroup } = await import(
   '../../src/components/MeetingDetails/TranscriptButtonGroup'
 );
+const { SpeakersPanel } = await import(
+  '../../src/components/MeetingDetails/SpeakersPanel'
+);
 
 let renderer: ReactTestRenderer | undefined;
 
@@ -131,6 +177,10 @@ beforeEach(() => {
   invoke.mockClear();
   notify.mockClear();
   onRefetchTranscripts.mockClear();
+  diarizeMeeting.mockClear();
+  getAvailableModels.mockClear();
+  diarizationStep = async () => diarizationResult('ran');
+  availableModels = [];
   sheetOnOpenChange = null;
   assignError = null;
   speakers = [];
@@ -155,6 +205,25 @@ async function render() {
         meetingId="meeting-a"
         meetingFolderPath="/tmp/meeting-a"
         onRefetchTranscripts={onRefetchTranscripts}
+        diarizationClient={diarizationClient}
+        diarizationModelClient={modelClient}
+      />
+    );
+  });
+  return renderer!;
+}
+
+/** Renders the panel itself so the diarization seams can be injected. */
+async function renderPanel() {
+  await act(async () => {
+    renderer = create(
+      <SpeakersPanel
+        open
+        onOpenChange={() => {}}
+        meetingId="meeting-a"
+        onRefetchTranscripts={onRefetchTranscripts}
+        diarizationClient={diarizationClient}
+        modelClient={modelClient}
       />
     );
   });
@@ -449,6 +518,182 @@ test('empty panel shows the diarization hint', async () => {
 
   const { DIARIZATION_UNAVAILABLE_HINT } = await import('../../src/lib/diarization');
   expect(text(instance)).toContain(DIARIZATION_UNAVAILABLE_HINT);
+});
+
+// --- Manual diarization from the panel ------------------------------------
+
+function diarizeButton(instance: ReactTestRenderer) {
+  return instance.root.find(
+    (n) => n.props?.['data-testid'] === 'diarize-meeting-button',
+  );
+}
+
+test('the empty state keeps the hint and offers a manual run button', async () => {
+  speakers = [];
+  availableModels = [diarizationModel()];
+
+  const instance = await renderPanel();
+
+  const { DIARIZATION_UNAVAILABLE_HINT } = await import('../../src/lib/diarization');
+  expect(text(instance)).toContain(DIARIZATION_UNAVAILABLE_HINT);
+  expect(diarizeButton(instance)).toBeDefined();
+});
+
+test('without a diarization model the button is disabled and explains why', async () => {
+  speakers = [];
+  availableModels = [diarizationModel({ name: 'gigaam', task: 'asr' })];
+
+  const instance = await renderPanel();
+
+  const button = diarizeButton(instance);
+  expect(button.props.disabled).toBeTrue();
+  expect(String(button.props.title)).toContain('Download the Nemotron-3-Diarization model');
+
+  await act(async () => button.props.onClick());
+  expect(diarizeMeeting).not.toHaveBeenCalled();
+});
+
+test('with an installed model the button is enabled and runs the pass', async () => {
+  speakers = [];
+  availableModels = [diarizationModel()];
+  diarizationStep = async () => diarizationResult('ran');
+
+  const instance = await renderPanel();
+
+  const button = diarizeButton(instance);
+  expect(button.props.disabled).toBeFalse();
+
+  await act(async () => button.props.onClick());
+  expect(diarizeMeeting.mock.calls).toEqual([['meeting-a']]);
+});
+
+test('a running pass shows progress and refuses a second concurrent run', async () => {
+  speakers = [];
+  availableModels = [diarizationModel()];
+  let finish!: (result: DiarizationResult) => void;
+  diarizationStep = () => new Promise<DiarizationResult>((resolve) => { finish = resolve; });
+
+  const instance = await renderPanel();
+  await act(async () => {
+    void diarizeButton(instance).props.onClick();
+  });
+
+  // In-panel progress instead of a toast the user may miss.
+  expect(text(instance)).toContain('Running diarization');
+
+  const during = diarizeButton(instance);
+  expect(during.props.disabled).toBeTrue();
+  await act(async () => {
+    void during.props.onClick();
+  });
+  expect(diarizeMeeting).toHaveBeenCalledTimes(1);
+
+  await act(async () => finish(diarizationResult('deferred')));
+  expect(diarizeMeeting).toHaveBeenCalledTimes(1);
+});
+
+test('a successful run reloads the speaker list', async () => {
+  speakers = [];
+  availableModels = [diarizationModel()];
+  diarizationStep = async () => {
+    // The pass writes labels to the database; the follow-up read returns them.
+    speakers = [
+      {
+        label: 'speaker_0',
+        speaker_name: null,
+        segment_count: 2,
+        first_start_time: 0,
+        top_speaker_names: [],
+      },
+    ];
+    return diarizationResult('ran');
+  };
+
+  const instance = await renderPanel();
+  invoke.mockClear();
+
+  await act(async () => diarizeButton(instance).props.onClick());
+
+  expect(
+    invoke.mock.calls.filter(([command]) => command === 'api_get_meeting_speakers'),
+  ).toHaveLength(1);
+  expect(text(instance)).toContain('Speaker 1');
+  expect(onRefetchTranscripts).toHaveBeenCalled();
+});
+
+test('a refused run explains the reason in the panel and keeps the button usable', async () => {
+  for (const [status, expected] of [
+    ['no_model', 'Download the Nemotron-3-Diarization model'],
+    ['no_runtime', 'The audio.cpp engine is unavailable'],
+    ['deferred', 'a recording is in progress'],
+    ['failed', 'because diarization failed'],
+  ] as const) {
+    speakers = [];
+    availableModels = [diarizationModel()];
+    diarizationStep = async () => diarizationResult(status);
+
+    if (renderer) await act(async () => renderer!.unmount());
+    const instance = await renderPanel();
+    await act(async () => diarizeButton(instance).props.onClick());
+
+    expect(text(instance)).toContain(expected);
+    expect(diarizeButton(instance).props.disabled).toBeFalse();
+    expect(text(instance)).not.toContain('Running diarization');
+  }
+});
+
+test('a rejected command reports the failure instead of leaving an empty panel', async () => {
+  speakers = [];
+  availableModels = [diarizationModel()];
+  diarizationStep = async () => { throw new Error('backend went away'); };
+
+  const instance = await renderPanel();
+  await act(async () => diarizeButton(instance).props.onClick());
+
+  expect(text(instance)).toContain('backend went away');
+  expect(diarizeButton(instance).props.disabled).toBeFalse();
+});
+
+test('a failed pass shows its diagnostic detail next to the reason', async () => {
+  speakers = [];
+  availableModels = [diarizationModel()];
+  diarizationStep = async () =>
+    diarizationResult('failed', { error: 'engine exploded' });
+
+  const instance = await renderPanel();
+  await act(async () => diarizeButton(instance).props.onClick());
+
+  const reason = instance.root.find(
+    (n) => n.props?.['data-testid'] === 'diarization-reason',
+  );
+  expect(instanceText(reason)).toContain('because diarization failed');
+  expect(instanceText(reason)).toContain('engine exploded');
+});
+
+test('a pass that labeled nothing explains the empty list', async () => {
+  speakers = [];
+  availableModels = [diarizationModel()];
+  diarizationStep = async () =>
+    diarizationResult('ran', { labeled_segments: 0, total_segments: 2 });
+
+  const instance = await renderPanel();
+  await act(async () => diarizeButton(instance).props.onClick());
+
+  expect(text(instance)).toContain('found no distinct speakers');
+});
+
+test('the manual run does not toast: the panel itself answers the action', async () => {
+  for (const status of ['ran', 'no_model', 'no_runtime', 'deferred', 'failed'] as const) {
+    speakers = [];
+    availableModels = [diarizationModel()];
+    diarizationStep = async () => diarizationResult(status);
+
+    if (renderer) await act(async () => renderer!.unmount());
+    const instance = await renderPanel();
+    await act(async () => diarizeButton(instance).props.onClick());
+  }
+
+  expect(notify).not.toHaveBeenCalled();
 });
 
 test('a conflict lands on the edited row, not on the speaker number from the message', async () => {
