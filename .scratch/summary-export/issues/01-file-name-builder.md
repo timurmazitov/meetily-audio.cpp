@@ -60,3 +60,25 @@
 Для оркестратора: `useCopyOperations.ts` изменён только в колбэке экспорта транскрипции (импорт,
 `handleExportTranscript`, зависимости), колбэк копирования саммари не тронут — конфликт с тикетом 02
 ожидается только в строке импортов.
+
+### Дополнение по ревью `review-fixes/summary-export` (2026-11-18)
+
+- **Правило «в имени уже есть расширение» приведено к Rust.** Прежняя регулярка
+  `/\.[A-Za-z0-9]{1,10}$/` считала расширением любой хвост до 10 символов и при этом не совпадала
+  с `Path::extension()` в `frontend/src-tauri/src/export.rs`. Теперь `ensureFileExtension`
+  считает расширением только хвост, перед которым есть символ: `plan.` → `plan.md`,
+  `.hidden` → `.hidden.md`, `plan.v2` / `plan.markdown` / `plan.verylongextension` остаются как есть.
+  Отличие от Rust одно и задокументировано в коде: хвост должен начинаться с латинской буквы,
+  иначе Rust принял бы `2-summary` в имени `20261118-Release_v1.2-summary` за расширение и файл
+  остался бы без `.md`. `buildExportFileName` эвристику не использует вовсе — дописывает
+  расширение безусловно, потому что суффикс точки не содержит.
+- **Дата встречи читается одним хелпером.** `resolveLocalDate` из этого тикета переехал в
+  `frontend/src/lib/meeting-date.ts` (`resolveMeetingDate`) и стал общим с `summary-document.ts`
+  и шапкой транскрипции; там же появилась проверка на несуществующие календарные дни
+  (`2026-02-31`, `2026-13-01`, `2026-00-10` → текущий момент).
+- **Сигнатура изменилась:** `buildExportFileName({ date, title, suffix, extension })` стала
+  `buildExportFileName({ date, title, kind })`, где `kind: 'transcript' | 'summary'` берёт суффикс
+  и расширение из общей карты `EXPORT_KINDS`. Поведение и формат имён те же.
+
+Проверено: `bun test tests/lib/export-file.test.ts` — 31 pass, 0 fail; весь набор из пяти файлов
+экспорта — 70 pass под `TZ=UTC`, `TZ=America/New_York`, `TZ=Asia/Kamchatka`; `tsc --noEmit` чисто.

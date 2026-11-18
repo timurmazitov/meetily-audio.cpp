@@ -61,6 +61,20 @@ describe('summary document', () => {
       timestamp: copiedAt,
     })).toContain('**Date:** January 15, 2026 at 02:05 PM\n');
   });
+
+  test('reads a date-only created_at as that local calendar day', () => {
+    // `created_at` is often stored as a bare `YYYY-MM-DD`. Parsing it as UTC
+    // midnight would make the metadata block name the previous day west of
+    // Greenwich while the file name uses the local day.
+    expect(buildSummaryDocument({
+      markdown: summaryMarkdown,
+      meetingTitle: 'Release planning',
+      meetingId: 'meeting-42',
+      meetingDate: '2026-11-18',
+      label: 'Exported',
+      timestamp: copiedAt,
+    })).toContain('**Date:** November 18, 2026');
+  });
 });
 
 describe('legacy summary conversion', () => {

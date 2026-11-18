@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
+import { resolveMeetingDate } from '@/lib/meeting-date';
 
 /** Longest meeting-title fragment kept in an export file name. */
 const MAX_TITLE_LENGTH = 60;
@@ -13,20 +14,55 @@ const NEW_CALL_TITLE = '+ New Call';
 /** Characters that are illegal in file names on at least one supported OS. */
 const FORBIDDEN_FILE_NAME_CHARS = /[\\/:*?"<>|\u0000-\u001f\u007f]/g;
 
-/** A trailing `.<word>` segment that already looks like a file extension. */
-const EXISTING_EXTENSION = /\.[A-Za-z0-9]{1,10}$/;
+/** The two exports the app offers. */
+export type ExportKind = 'transcript' | 'summary';
 
-const DATE_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/;
+/**
+ * Everything that differs between the two exports: the file name suffix, the
+ * save-dialog filter and the two toasts. One descriptor per kind keeps the five
+ * constants together, so no call site can pair a `md` file with a `txt` filter.
+ */
+export interface ExportKindDescriptor {
+  /** Suffix placed before the extension, always equal to the kind. */
+  suffix: ExportKind;
+  /** File extension without the leading dot, e.g. `txt`. */
+  extension: string;
+  /** Save-dialog filter caption, e.g. `Text Files`. */
+  filterLabel: string;
+  /** Toast shown after a successful save. */
+  successMessage: string;
+  /** Toast shown when the dialog or the write fails. */
+  errorMessage: string;
+}
+
+/** The single source of truth for each export kind. */
+export const EXPORT_KINDS: Record<ExportKind, ExportKindDescriptor> = {
+  transcript: {
+    suffix: 'transcript',
+    extension: 'txt',
+    filterLabel: 'Text Files',
+    successMessage: 'Transcript exported',
+    errorMessage: 'Failed to export transcript',
+  },
+  summary: {
+    suffix: 'summary',
+    extension: 'md',
+    filterLabel: 'Markdown Files',
+    successMessage: 'Summary exported',
+    errorMessage: 'Failed to export summary',
+  },
+};
+
+/** Toast shown when the file is saved but its path cannot be copied. */
+const CLIPBOARD_FAILURE_MESSAGE = 'Saved, but could not copy the path';
 
 export interface ExportFileNameOptions {
   /** Local meeting date: a created_at string, a Date, or nothing. */
   date?: string | Date | null;
   /** Meeting title as shown to the user. */
   title?: string | null;
-  /** Kind of export, e.g. `transcript` or `summary`. */
-  suffix: string;
-  /** File extension without the leading dot, e.g. `txt`. */
-  extension: string;
+  /** Which export the name is built for. */
+  kind: ExportKind;
 }
 
 export interface ExportFileOptions {
@@ -34,14 +70,8 @@ export interface ExportFileOptions {
   content: string;
   /** Name offered by the save dialog. */
   defaultFileName: string;
-  /** Extension appended when the name has none, e.g. `txt`. */
-  extension: string;
-  /** Save-dialog filter caption, e.g. `Text Files`. */
-  filterLabel: string;
-  /** Toast shown after a successful save. */
-  successMessage: string;
-  /** Toast shown when the dialog or the write fails. */
-  errorMessage?: string;
+  /** Which export this is; selects the extension, filter and toasts. */
+  kind: ExportKind;
 }
 
 /**
@@ -55,28 +85,27 @@ export interface ExportFileOptions {
 export function buildExportFileName({
   date,
   title,
-  suffix,
-  extension,
+  kind,
 }: ExportFileNameOptions): string {
-  const day = resolveLocalDate(date);
+  const { suffix, extension } = EXPORT_KINDS[kind];
+  const day = resolveMeetingDate(date);
   const baseName = `${formatDateStamp(day)}-${normalizeTitle(title)}-${suffix}`;
-  return ensureFileExtension(baseName, extension);
+  // The extension is appended unconditionally: `suffix` never contains a dot,
+  // so no extension detection is needed and a dotted title cannot interfere.
+  return `${baseName}.${normalizeExtension(extension)}`;
 }
 
 /**
- * Append `extension` to a default file name that has none. A file name that
- * already ends with an extension is returned unchanged, so a name typed by the
- * user (for example `.markdown`) is never rewritten.
+ * Append `extension` to a file name the user typed without one, so the dialog
+ * still offers a usable file. A name that already has an extension is returned
+ * unchanged, and a bare trailing dot (`plan.`) is replaced by the extension.
  */
 export function ensureFileExtension(fileName: string, extension: string): string {
-  const normalizedExtension = extension.trim().replace(/^\.+/, '');
-  if (!normalizedExtension) {
+  const normalizedExtension = normalizeExtension(extension);
+  if (!normalizedExtension || hasFileExtension(fileName)) {
     return fileName;
   }
-  if (EXISTING_EXTENSION.test(fileName)) {
-    return fileName;
-  }
-  return `${fileName}.${normalizedExtension}`;
+  return `${fileName.replace(/\.$/, '')}.${normalizedExtension}`;
 }
 
 /**
@@ -84,38 +113,47 @@ export function ensureFileExtension(fileName: string, extension: string): string
  * exactly the text passed in. After a successful save the full path is copied
  * to the clipboard and a toast names the file.
  *
- * Returns the saved path, or null when the user cancels the dialog.
+ * Returns the saved path, or null when the user cancels the dialog or the save
+ * fails.
  */
 export async function exportFileWithDialog({
   content,
   defaultFileName,
-  extension,
-  filterLabel,
-  successMessage,
-  errorMessage = 'Failed to export file',
+  kind,
 }: ExportFileOptions): Promise<string | null> {
+  const { extension, filterLabel, successMessage, errorMessage } = EXPORT_KINDS[kind];
   const fileName = ensureFileExtension(defaultFileName, extension);
 
+  let path: string | null;
   try {
-    const path = await invoke<string | null>('export_transcript_file_command', {
+    path = await invoke<string | null>('export_transcript_file_command', {
       content,
       defaultFileName: fileName,
       extension,
       filterLabel,
     });
-
-    if (!path) {
-      return null; // User cancelled the dialog
-    }
-
-    await navigator.clipboard.writeText(path);
-    toast.success(successMessage, { description: path });
-    return path;
   } catch (error) {
     console.error(`${errorMessage}:`, error);
     toast.error(errorMessage);
     return null;
   }
+
+  if (!path) {
+    return null;
+  }
+
+  // The file is already on disk at this point, so a clipboard problem must not
+  // be reported as a failed export.
+  toast.success(successMessage, { description: path });
+
+  try {
+    await navigator.clipboard.writeText(path);
+  } catch (error) {
+    console.error(`Failed to copy the export path to the clipboard:`, error);
+    toast.warning(CLIPBOARD_FAILURE_MESSAGE, { description: path });
+  }
+
+  return path;
 }
 
 /** Meeting title normalized for a file name, never empty. */
@@ -140,32 +178,28 @@ function normalizeTitle(title?: string | null): string {
   return truncated || FALLBACK_TITLE;
 }
 
-/** Local calendar day for a created_at value, or now when it is unusable. */
-function resolveLocalDate(date?: string | Date | null): Date {
-  if (date instanceof Date && !Number.isNaN(date.getTime())) {
-    return date;
-  }
+/**
+ * Whether the name already carries a file extension.
+ *
+ * Mirrors the spirit of Rust's `Path::extension()` in `export.rs`: something
+ * must precede the last dot and a non-empty run of characters must follow it.
+ * A bare trailing dot (`plan.`) and a leading-dot name (`.hidden`) are therefore
+ * not extensions and get one appended — `plan.md` / `.hidden.md`, exactly like
+ * Rust's `with_extension`.
+ *
+ * The alphabetic prefix is the one deliberate difference: a normalized title
+ * can contain a dot (`20261118-Release_v1.2-summary`), and Rust would read
+ * `2-summary` as the extension there and leave the name without `.md`. Only
+ * user-typed trailing dot-words reach this rule, and every real extension the
+ * app offers or a user is likely to type starts with a letter.
+ */
+function hasFileExtension(fileName: string): boolean {
+  return /[^.]\.[A-Za-z][A-Za-z0-9]*$/.test(fileName);
+}
 
-  if (typeof date === 'string') {
-    const value = date.trim();
-    // A date-only created_at names a calendar day, not an instant: read its
-    // parts directly so the local time zone cannot shift the day.
-    const dateOnly = DATE_ONLY.exec(value);
-    if (dateOnly) {
-      const [, year, month, day] = dateOnly;
-      const local = new Date(Number(year), Number(month) - 1, Number(day));
-      if (!Number.isNaN(local.getTime())) {
-        return local;
-      }
-    } else if (value) {
-      const parsed = new Date(value);
-      if (!Number.isNaN(parsed.getTime())) {
-        return parsed;
-      }
-    }
-  }
-
-  return new Date();
+/** Extension without leading dots or surrounding blanks. */
+function normalizeExtension(extension: string): string {
+  return extension.trim().replace(/^\.+/, '').trim();
 }
 
 /** `YYYYMMDD` for the given moment in the local time zone. */

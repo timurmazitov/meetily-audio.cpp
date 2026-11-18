@@ -4,8 +4,13 @@ import { BlockNoteSummaryViewRef } from '@/components/AISummary/BlockNoteSummary
 import { toast } from 'sonner';
 import { invoke as invokeTauri } from '@tauri-apps/api/core';
 import { hasVisibleSummaryContent } from '@/lib/summary-content';
-import { buildSummaryDocument, convertLegacySummaryToMarkdown } from '@/lib/summary-document';
+import {
+  buildSummaryDocument,
+  convertLegacySummaryToMarkdown,
+  type SummaryDocumentLabel,
+} from '@/lib/summary-document';
 import { formatTranscriptText } from '@/lib/transcript-format';
+import { resolveMeetingDate } from '@/lib/meeting-date';
 import { buildExportFileName, exportFileWithDialog } from '@/lib/export-file';
 
 interface UseCopyOperationsProps {
@@ -23,6 +28,10 @@ export function useCopyOperations({
   aiSummary,
   blockNoteSummaryRef,
 }: UseCopyOperationsProps) {
+  // The meeting title the user is looking at, falling back to the saved meeting
+  // name. Both exports and both file names go through it, so Copy, Export and
+  // the saved file always agree on what the meeting is called.
+  const exportTitle: string = meetingTitle ?? meeting.title;
 
   // Helper function to fetch ALL transcripts for copying (not just paginated data)
   const fetchAllTranscripts = useCallback(async (meetingId: string): Promise<Transcript[]> => {
@@ -74,15 +83,15 @@ export function useCopyOperations({
 
     console.log(`✅ Formatting ${allTranscripts.length} transcripts`);
 
-    const header = `# Transcript of the Meeting: ${meeting.id} - ${meetingTitle ?? meeting.title}\n\n`;
-    const date = `## Date: ${new Date(meeting.created_at).toLocaleDateString()}\n\n`;
+    const header = `# Transcript of the Meeting: ${meeting.id} - ${exportTitle}\n\n`;
+    const date = `## Date: ${resolveMeetingDate(meeting.created_at).toLocaleDateString()}\n\n`;
 
     return formatTranscriptText(allTranscripts, {
       header: header + date,
       fallbackTimestamp: t => t.timestamp,
       markdownLineBreaks: true,
     });
-  }, [meeting, meetingTitle, fetchAllTranscripts]);
+  }, [meeting, exportTitle, fetchAllTranscripts]);
 
   // Copy transcript to clipboard
   const handleCopyTranscript = useCallback(async () => {
@@ -103,41 +112,35 @@ export function useCopyOperations({
       content: text,
       defaultFileName: buildExportFileName({
         date: meeting.created_at,
-        title: meetingTitle ?? meeting.title,
-        suffix: 'transcript',
-        extension: 'txt',
+        title: exportTitle,
+        kind: 'transcript',
       }),
-      extension: 'txt',
-      filterLabel: 'Text Files',
-      successMessage: 'Transcript exported',
-      errorMessage: 'Failed to export transcript',
+      kind: 'transcript',
     });
-  }, [buildTranscriptText, meeting, meetingTitle]);
+  }, [buildTranscriptText, meeting, exportTitle]);
 
-  // Resolve the summary markdown the user is looking at: the live BlockNote
-  // editor first (so unsaved edits count), then a saved markdown body, then the
-  // legacy section format. Shared by Copy and Export so the two can never
-  // diverge. Returns null when there is nothing worth copying or saving.
+  // Resolve the summary markdown the user is looking at. The live editor wins
+  // over the saved body on purpose: unsaved edits are what the user sees on
+  // screen, so Copy and Export must not silently drop them. The saved
+  // `aiSummary.markdown` is only a fallback for when the editor is unmounted,
+  // and legacy sections are the last resort for old meetings.
   const resolveSummaryMarkdown = useCallback(async (): Promise<string | null> => {
     let summaryMarkdown = '';
 
     console.log('🔍 Resolving summary markdown...');
 
-    // Try to get markdown from BlockNote editor first
     if (blockNoteSummaryRef.current?.getMarkdown) {
       console.log('📝 Trying to get markdown from ref...');
       summaryMarkdown = await blockNoteSummaryRef.current.getMarkdown();
       console.log('📝 Got markdown from ref, length:', summaryMarkdown.length);
     }
 
-    // Fallback: Check if aiSummary has markdown property
     if (!summaryMarkdown && aiSummary && typeof aiSummary.markdown === 'string') {
       console.log('📝 Using markdown from aiSummary');
       summaryMarkdown = aiSummary.markdown;
       console.log('📝 Markdown from aiSummary, length:', summaryMarkdown.length);
     }
 
-    // Fallback: Check for legacy format
     if (!summaryMarkdown && aiSummary) {
       console.log('📝 Converting legacy format to markdown');
       summaryMarkdown = convertLegacySummaryToMarkdown(aiSummary);
@@ -150,10 +153,9 @@ export function useCopyOperations({
   // Build the complete summary document for an action; Copy and Export differ
   // only in the label word, so the clipboard and the file stay identical.
   const buildSummaryText = useCallback(async (
-    action: 'Copy' | 'Export',
-    label: 'Copied' | 'Exported',
+    label: SummaryDocumentLabel,
   ): Promise<string | null> => {
-    const verb = action.toLowerCase();
+    const verb = label === 'Copied' ? 'copy' : 'export';
 
     if (!hasVisibleSummaryContent(aiSummary)) {
       toast.error(`No summary content available to ${verb}`);
@@ -170,7 +172,7 @@ export function useCopyOperations({
 
       return buildSummaryDocument({
         markdown: summaryMarkdown,
-        meetingTitle,
+        meetingTitle: exportTitle,
         meetingId: meeting.id,
         meetingDate: meeting.created_at,
         label,
@@ -180,11 +182,11 @@ export function useCopyOperations({
       toast.error(`Failed to ${verb} summary`);
       return null;
     }
-  }, [aiSummary, meetingTitle, meeting, resolveSummaryMarkdown]);
+  }, [aiSummary, exportTitle, meeting, resolveSummaryMarkdown]);
 
   // Copy summary to clipboard
   const handleCopySummary = useCallback(async () => {
-    const fullMarkdown = await buildSummaryText('Copy', 'Copied');
+    const fullMarkdown = await buildSummaryText('Copied');
     if (!fullMarkdown) return;
 
     try {
@@ -202,23 +204,19 @@ export function useCopyOperations({
   // The file content is identical to what Copy puts on the clipboard, apart
   // from the `Exported on:` label line, and it includes unsaved edits.
   const handleExportSummary = useCallback(async () => {
-    const fullMarkdown = await buildSummaryText('Export', 'Exported');
+    const fullMarkdown = await buildSummaryText('Exported');
     if (!fullMarkdown) return;
 
     await exportFileWithDialog({
       content: fullMarkdown,
       defaultFileName: buildExportFileName({
         date: meeting.created_at,
-        title: meetingTitle,
-        suffix: 'summary',
-        extension: 'md',
+        title: exportTitle,
+        kind: 'summary',
       }),
-      extension: 'md',
-      filterLabel: 'Markdown Files',
-      successMessage: 'Summary exported',
-      errorMessage: 'Failed to export summary',
+      kind: 'summary',
     });
-  }, [buildSummaryText, meeting, meetingTitle]);
+  }, [buildSummaryText, meeting, exportTitle]);
 
   return {
     handleCopyTranscript,

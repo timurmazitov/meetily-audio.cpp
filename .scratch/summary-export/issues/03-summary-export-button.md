@@ -84,3 +84,77 @@
   зелёный. Причина — известное протекание `mock.module` между файлами, не регрессия тикета.
 - Для оркестратора: бинарник `binaries/llama-helper-x86_64-unknown-linux-gnu` пришлось скопировать из основного
   чекаута (`.gitignore`-нутый build-артефакт), иначе build-скрипт падал; в коммит он не попал.
+
+### Уборка по ревью `review-fixes/summary-export` (2026-11-18)
+
+Правки по результатам двухосевого ревью. Поведение, видимое пользователю, не менялось, кроме одного
+случая — пункт 6 (ошибка буфера при уже сохранённом файле). Ручную проверку в Tauri-приложении
+по-прежнему не делал, чек-бокс не отмечен.
+
+- **Единый разбор `created_at` (критично).** Раньше дата встречи читалась двумя разными способами:
+  `export-file.ts` трактовал `2026-11-18` как локальный календарный день, а `summary-document.ts`
+  (`new Date(value)`) — как UTC-полночь. В итоге файл `20261118-…-summary.md` мог содержать
+  `**Date:** November 17, 2026`. Общий хелпер вынесен в новый нейтральный модуль
+  `frontend/src/lib/meeting-date.ts` — `resolveMeetingDate(value)`; его используют `export-file.ts`
+  (имя файла), `summary-document.ts` (блок метаданных) и шапка копируемой транскрипции
+  (`useCopyOperations.ts`, строка `## Date:`). Модуль отдельный, потому что оба потребителя —
+  `lib/`-модули без знания друг о друге; складывать хелпер в один из них значило бы дать второму
+  зависимость от первого ради одной функции.
+- **Невалидные календарные даты.** `new Date(2026, 12, 1)` даёт 1 января 2027, `2026-02-31` — 3 марта.
+  `resolveMeetingDate` теперь сверяет год/месяц/день результата с входными частями и при расхождении
+  отдаёт текущий момент, как требует спецификация.
+- **Фолбэк названия в экспорте саммари.** В `useCopyOperations.ts` введено одно значение
+  `exportTitle = meetingTitle ?? meeting.title`, общее для копирования/экспорта транскрипции,
+  экспорта саммари и обоих имён файлов. При непустом `meetingTitle` результат байт-в-байт прежний.
+- **Дублирование аргументов экспорта.** Пять констант (`suffix` / `extension` / `filterLabel` /
+  `successMessage` / `errorMessage`) больше не копипастятся в трёх местах: в `export-file.ts`
+  появились `ExportKind = 'transcript' | 'summary'` и карта `EXPORT_KINDS: Record<ExportKind, ExportKindDescriptor>`.
+  `buildExportFileName` и `exportFileWithDialog` принимают `kind`, а не разрозненные поля, поэтому
+  рассогласовать `md`-файл с `txt`-фильтром больше нельзя (это проверяет `tsc`). Свободный
+  `suffix: string` заменён типизированным `kind`, так что невалидный суффикс — ошибка типов.
+  Обновлены три точки вызова: `useCopyOperations.ts` (транскрипция и саммари) и `TranscriptContext.tsx`.
+- **Два аргумента `buildSummaryText`.** Вместо `action: 'Copy' | 'Export'` + `label: 'Copied' | 'Exported'`
+  теперь один `label: SummaryDocumentLabel` (тип уже экспортирован из `summary-document.ts`),
+  а глагол выводится из него.
+- **Тост при сбое только буфера обмена.** Раньше исключение из `navigator.clipboard.writeText(path)`
+  после успешной записи файла показывало `Failed to export summary` / `Failed to export transcript`,
+  хотя файл на диске есть. Теперь успешный тост показывается сразу после сохранения, а сбой
+  копирования пути сообщается отдельно: `toast.warning('Saved, but could not copy the path', { description: path })`.
+  Ошибка диалога/записи по-прежнему даёт прежний тост об ошибке и не трогает буфер.
+- **Комментарии.** В `resolveSummaryMarkdown` удалены комментарии, пересказывающие `if`-ы; шапка
+  функции теперь объясняет, *почему* порядок именно такой (состояние редактора важнее сохранённых
+  данных, потому что несохранённые правки — это то, что видит пользователь). Удалён и
+  `// User cancelled the dialog` в `export-file.ts`.
+- **Два правила «есть ли расширение».** Frontend-правило приведено к смыслу Rust-шного
+  `Path::extension()`: текст после последней точки считается расширением, только если перед точкой
+  есть символ и после неё непустой хвост. Поэтому `plan.` → `plan.md` и `.hidden` → `.hidden.md`
+  совпадают с Rust. Одно осознанное отличие задокументировано в коде: хвост обязан начинаться
+  с латинской буквы, иначе Rust принял бы `2-summary` в имени `20261118-Release_v1.2-summary`
+  за расширение и файл остался бы без `.md`. `buildExportFileName` от эвристики вообще не зависит —
+  он дописывает расширение безусловно (суффикс точки не содержит), так что точка в названии
+  встречи безопасна.
+
+Проверено:
+
+- `bun test tests/lib/export-file.test.ts tests/lib/summary-document.test.ts tests/hooks/copy-export-operations.test.tsx
+  tests/lib/summary-content.test.ts tests/lib/transcript-format.test.ts` — 70 pass, 0 fail; то же самое
+  под `TZ=UTC`, `TZ=America/New_York`, `TZ=Asia/Kamchatka` — 70 pass, 0 fail во всех трёх.
+  До правок репро из ревью падало: `TZ=America/New_York` давал `**Date:** November 17, 2026 at 07:00 PM`.
+- Новые тесты: дата-онли `created_at` в метаданных и в шапке транскрипции; `2026-02-31`, `2026-13-01`,
+  `2026-00-10` → текущий момент; общий фолбэк названия для обоих экспортов; сбой буфера после
+  сохранения → успешный тост + `Saved, but could not copy the path`; `plan.`, `plan.v2`,
+  `plan.markdown`, `plan.verylongextension`, `.hidden`, `Release_v1.2` для правила расширения.
+- `bun test tests/hooks/meeting-details-refresh.test.tsx` (3), `tests/hooks/summary-generation.test.tsx` (16),
+  `tests/hooks/paginated-transcripts.test.tsx` (10) — по отдельности зелёные.
+- Прогон каждого файла из `tests/` по отдельности — падений нет.
+- `./node_modules/.bin/tsc --noEmit` — чисто.
+
+Не проверено:
+
+- Ручная проверка в Tauri-приложении (диалог, фильтры, отмена, дозапись расширения) — как и раньше,
+  `tauri:dev` в этой среде не запускается; чек-бокс не отмечен.
+- Совместный прогон `meeting-details-refresh` + `summary-generation` + `paginated-transcripts` одним
+  вызовом даёт 1 fail (`SyntaxError: Export named 'useSearchParams' not found`), но ровно тот же
+  результат воспроизводится на `cf611a6` без этих правок — это известное протекание `mock.module`
+  между файлами, не регрессия.
+- Rust не менялся (`export.rs` не тронут), поэтому `cargo test` не запускался.

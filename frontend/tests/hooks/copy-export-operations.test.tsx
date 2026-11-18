@@ -21,6 +21,7 @@ afterAll(() => {
 
 const successToast = mock(() => {});
 const errorToast = mock(() => {});
+const warningToast = mock(() => {});
 
 const transcript: Transcript = { id: 'transcript-1', text: 'We shipped it', timestamp: '00:00' };
 let transcriptsPage: { transcripts: Transcript[]; total_count: number; has_more: boolean };
@@ -46,7 +47,7 @@ const invoke = mock(async (command: string, args?: Record<string, unknown>): Pro
  */
 function installTestDoubles() {
   mock.module('sonner', () => ({
-    toast: { success: successToast, error: errorToast, info: mock(() => {}), warning: mock(() => {}) },
+    toast: { success: successToast, error: errorToast, info: mock(() => {}), warning: warningToast },
   }));
   mock.module('@tauri-apps/api/core', () => ({ ...originalCore, invoke }));
   (globalThis as any).window ??= {};
@@ -73,6 +74,7 @@ function Harness(props: Parameters<typeof useCopyOperations>[0]) {
 let renderer: ReactTestRenderer | undefined;
 let editorMarkdown: string | null;
 let aiSummary: MeetingSummary | null;
+let titleFromProps: string;
 
 async function show() {
   const ref = {
@@ -88,7 +90,7 @@ async function show() {
       <Harness
         meeting={meeting}
         transcripts={[]}
-        meetingTitle={meeting.title}
+        meetingTitle={titleFromProps}
         aiSummary={aiSummary}
         blockNoteSummaryRef={ref}
       />,
@@ -106,6 +108,7 @@ beforeEach(() => {
   transcriptsPage = { transcripts: [transcript], total_count: 1, has_more: false };
   savedPath = '/home/user/exports/20261118-Release_planning-summary.md';
   saveError = null;
+  titleFromProps = meeting.title;
   editorMarkdown = '## Decisions\n\n- Ship on Friday';
   aiSummary = { markdown: '## Saved summary' } as MeetingSummary;
   clipboardWrites.length = 0;
@@ -113,6 +116,7 @@ beforeEach(() => {
   writeText.mockClear();
   successToast.mockClear();
   errorToast.mockClear();
+  warningToast.mockClear();
 });
 
 afterEach(async () => {
@@ -249,6 +253,26 @@ describe('summary export through the native dialog', () => {
     expect(errorToast).toHaveBeenCalledWith('Failed to export summary');
   });
 
+  test('a clipboard failure after saving still reports the saved file', async () => {
+    writeText.mockImplementationOnce(async () => {
+      throw new Error('clipboard unavailable');
+    });
+
+    await show();
+    await act(async () => {
+      await operations.handleExportSummary();
+    });
+
+    // The file exists, so the export must not be reported as failed.
+    expect(successToast).toHaveBeenCalledWith('Summary exported', {
+      description: '/home/user/exports/20261118-Release_planning-summary.md',
+    });
+    expect(errorToast).not.toHaveBeenCalledWith('Failed to export summary');
+    expect(warningToast).toHaveBeenCalledWith('Saved, but could not copy the path', {
+      description: '/home/user/exports/20261118-Release_planning-summary.md',
+    });
+  });
+
   test('refuses to export when the summary has no visible content', async () => {
     editorMarkdown = null;
     aiSummary = { markdown: '   ' } as MeetingSummary;
@@ -262,9 +286,36 @@ describe('summary export through the native dialog', () => {
     expect(errorToast).toHaveBeenCalledWith('No summary content available to export');
     expect(clipboardWrites).toEqual([]);
   });
+
+  test('falls back to the meeting title when the title prop is absent', async () => {
+    // Both exports name the meeting the same way; the summary must not lose its
+    // title just because the editable title prop is missing.
+    titleFromProps = undefined as unknown as string;
+
+    await show();
+    await act(async () => {
+      await operations.handleExportSummary();
+    });
+
+    const [, args] = exportCalls()[0] as [string, Record<string, unknown>];
+    expect(args.defaultFileName).toBe('20261118-Release_planning-summary.md');
+    expect(args.content).toContain('# Meeting Summary: Release planning');
+  });
 });
 
 describe('transcript export keeps its text file contract', () => {
+  test('copies the meeting date as its local calendar day', async () => {
+    // `created_at` is a bare `YYYY-MM-DD` in the meeting row; reading it as UTC
+    // midnight would print the previous day west of Greenwich.
+    await show();
+    await act(async () => {
+      await operations.handleCopyTranscript();
+    });
+
+    const expectedDay = new Date(2026, 10, 18).toLocaleDateString();
+    expect(clipboardWrites[0]).toContain(`## Date: ${expectedDay}`);
+  });
+
   test('sends txt and Text Files to the shared command', async () => {
     savedPath = '/home/user/exports/20261118-Release_planning-transcript.txt';
 
