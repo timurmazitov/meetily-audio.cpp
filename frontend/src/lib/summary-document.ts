@@ -1,3 +1,5 @@
+import { resolveMeetingDate } from '@/lib/meeting-date';
+
 /** The action word in the metadata label line (`**Copied on:**` / `**Exported on:**`). */
 export type SummaryDocumentLabel = 'Copied' | 'Exported';
 
@@ -34,6 +36,14 @@ function formatMetadataDate(value: string | Date | number): string {
 }
 
 /**
+ * Format the meeting date in the metadata block, reading it through the same
+ * helper as the export file name so the two can never name different days.
+ */
+function formatMeetingDate(value: string | Date | number): string {
+  return formatMetadataDate(resolveMeetingDate(value));
+}
+
+/**
  * Build the complete summary document shared by Copy and Export.
  *
  * Layout: `# Meeting Summary: <title>`, blank line, the `**Meeting ID:**`,
@@ -51,7 +61,7 @@ export function buildSummaryDocument({
 }: SummaryDocumentInput): string {
   const header = `# Meeting Summary: ${meetingTitle}\n\n`;
   const metadata = `**Meeting ID:** ${meetingId}\n`
-    + `**Date:** ${formatMetadataDate(meetingDate)}\n`
+    + `**Date:** ${formatMeetingDate(meetingDate)}\n`
     + `**${label} on:** ${formatMetadataDate(timestamp)}\n\n---\n\n`;
 
   return header + metadata + markdown;

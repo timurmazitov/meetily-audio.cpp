@@ -481,13 +481,9 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
         // supplies the date.
         date: new Date(),
         title: meetingTitle,
-        suffix: 'transcript',
-        extension: 'txt',
+        kind: 'transcript',
       }),
-      extension: 'txt',
-      filterLabel: 'Text Files',
-      successMessage: 'Transcript exported',
-      errorMessage: 'Failed to export transcript',
+      kind: 'transcript',
     });
   }, [transcripts, meetingTitle]);
 
