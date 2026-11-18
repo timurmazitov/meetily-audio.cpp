@@ -168,6 +168,11 @@ pub struct MeetingMetadata {
     pub updated_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub folder_path: Option<String>,
+    /// The meeting's own moment (GLOSSARY: «дата встречи»), additive. Absent
+    /// while unknown, so the panel header can omit the date instead of showing
+    /// the row's creation time or a substituted "now".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recorded_at: Option<String>,
 }
 
 /// Paginated transcripts response with total count
@@ -949,6 +954,7 @@ pub async fn api_get_meeting_metadata<R: Runtime>(
                 created_at: meeting.created_at.0.to_rfc3339(),
                 updated_at: meeting.updated_at.0.to_rfc3339(),
                 folder_path: meeting.folder_path,
+                recorded_at: meeting.recorded_at.map(|moment| moment.0.to_rfc3339()),
             })
         }
         Ok(None) => {
@@ -1613,6 +1619,48 @@ pub async fn api_test_custom_openai_connection<R: Runtime>(
                 Err(format!("Connection failed: {}", error))
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod meeting_metadata_contract_tests {
+    use super::MeetingMetadata;
+
+    /// The open meeting's header reads its date from this payload, so the
+    /// meeting's own moment must arrive here — not the row's `created_at`.
+    #[test]
+    fn the_open_meeting_metadata_carries_the_meeting_moment() {
+        let metadata = MeetingMetadata {
+            id: "meeting-1".into(),
+            title: "Planning call".into(),
+            created_at: "2026-11-18T21:00:00+07:00".into(),
+            updated_at: "2026-11-18T21:00:00+07:00".into(),
+            folder_path: None,
+            recorded_at: Some("2026-11-18T14:32:05+00:00".into()),
+        };
+
+        let json = serde_json::to_value(metadata).unwrap();
+
+        assert_eq!(json["recorded_at"], "2026-11-18T14:32:05+00:00");
+        assert_eq!(json["created_at"], "2026-11-18T21:00:00+07:00");
+    }
+
+    /// An unknown date is absent, never `null` and never a substituted moment:
+    /// the header must be able to tell "no date" from "a date".
+    #[test]
+    fn an_unknown_moment_is_left_out_of_the_metadata() {
+        let metadata = MeetingMetadata {
+            id: "meeting-1".into(),
+            title: "Old call".into(),
+            created_at: "2026-11-18T21:00:00+07:00".into(),
+            updated_at: "2026-11-18T21:00:00+07:00".into(),
+            folder_path: None,
+            recorded_at: None,
+        };
+
+        let json = serde_json::to_value(metadata).unwrap();
+
+        assert!(json.get("recorded_at").is_none(), "unknown is absent, not null");
     }
 }
 
