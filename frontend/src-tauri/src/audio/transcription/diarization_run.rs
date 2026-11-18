@@ -10,7 +10,7 @@
 // belong to a *saved* meeting: the process-wide serialization of passes, the
 // recording guard, and the native `transcript-updated` event.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use log::{info, warn};
@@ -25,6 +25,7 @@ use super::diarization_service::{
     DIARIZATION_UNAVAILABLE_MESSAGE, SPEAKER_NAMES_RESET_EVENT, SPEAKER_NAMES_RESET_MESSAGE,
     TRANSCRIPT_UPDATED_EVENT,
 };
+use crate::audio::common::BatchEngine;
 use crate::database::repositories::meeting::MeetingsRepository;
 use crate::database::repositories::speaker;
 
@@ -128,11 +129,137 @@ pub fn diarization_events(
             status: result.status,
             error: result.error.clone(),
         }),
-        DiarizationStatus::NoModel
-        | DiarizationStatus::NoRuntime
-        | DiarizationStatus::Deferred => {}
+        DiarizationStatus::NoModel | DiarizationStatus::NoRuntime | DiarizationStatus::Deferred => {
+        }
     }
     events
+}
+
+/// Whether a finished batch job (import or retranscription) hands the saved
+/// meeting to the background diarization pass.
+///
+/// It no longer depends on the transcription engine: diarization is a second
+/// stage over a finished transcript, and [`diarize_saved_meeting`] decides on
+/// its own whether a pass can run. The parameter is kept (and deliberately
+/// unused) so the call sites still name the engine: a future gate, if one ever
+/// returns, lands here once instead of in two batch jobs. `tests` pin the
+/// behaviour for all three engines.
+pub(crate) fn schedules_diarization(_engine: BatchEngine) -> bool {
+    true
+}
+
+/// Schedules the post-save pass when [`schedules_diarization`] says so.
+///
+/// Both batch jobs go through this instead of calling the scheduler directly,
+/// so the "does this path diarize?" question has one answer.
+pub(crate) fn schedule_after_batch<R: Runtime>(
+    engine: BatchEngine,
+    app: AppHandle<R>,
+    pool: SqlitePool,
+    meeting_id: String,
+) {
+    if schedules_diarization(engine) {
+        schedule_saved_meeting(app, pool, meeting_id);
+    }
+}
+
+/// What happened to a pass that ran after the batch job had already finished.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum BackgroundPassOutcome {
+    /// The pass reached a status; configuration reasons and failures all land
+    /// here, because the pass reports them in-band.
+    Finished(DiarizationStatus),
+    /// The pass could not even start (missing meeting, database failure).
+    CouldNotRun(String),
+}
+
+/// Collapses the result of a background pass into something the caller can log
+/// without ever turning it into a batch error.
+///
+/// An `Err` here means the meeting row or its audio could not be read — after
+/// `create_meeting_with_transcripts`/the transcript commit succeeded. Losing
+/// the import because diarization could not start would trade the transcript
+/// for an optional second stage, which the spec forbids.
+pub(crate) fn background_pass_outcome(
+    result: Result<SavedMeetingDiarization, String>,
+) -> BackgroundPassOutcome {
+    match result {
+        Ok(finished) => BackgroundPassOutcome::Finished(finished.status),
+        Err(error) => BackgroundPassOutcome::CouldNotRun(error),
+    }
+}
+
+/// Runs the shared pass in the background and logs its outcome.
+///
+/// `run` is the boundary that produces the real pass; injecting it keeps the
+/// "never fails the batch" rule testable without GGUF weights, a native
+/// library or a Tauri app handle.
+pub(crate) async fn run_scheduled_diarization<F, Fut>(
+    meeting_id: &str,
+    run: F,
+) -> BackgroundPassOutcome
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = Result<SavedMeetingDiarization, String>>,
+{
+    let outcome = background_pass_outcome(run().await);
+    match &outcome {
+        BackgroundPassOutcome::Finished(status) => {
+            info!("Background diarization of {meeting_id} finished: {status:?}");
+        }
+        BackgroundPassOutcome::CouldNotRun(error) => {
+            warn!("Background diarization of {meeting_id} could not start: {error}");
+        }
+    }
+    outcome
+}
+
+/// Schedules the post-save pass on Tauri's async runtime and returns at once.
+///
+/// Import and retranscription call this after the meeting row and its
+/// transcript are committed, so the user gets the meeting immediately instead
+/// of waiting for a pass they did not order. The task is detached on purpose:
+///
+/// * It does not hold `audio::common`'s engine-lifecycle lock, so
+///   `unload_engine_after_batch` can run while the pass runs; the pass loads
+///   the native library and the Nemotron model itself and releases them
+///   before it returns. The two paths touch no shared lock, so neither can
+///   wait on the other.
+/// * It does not read the import/retranscription cancellation flags, so
+///   releasing `ImportGuard`/`RetranscriptionGuard` cannot cancel it.
+/// * It never rejects the caller's future: [`run_scheduled_diarization`]
+///   resolves even when the pass cannot start.
+pub(crate) fn schedule_saved_meeting<R: Runtime>(
+    app: AppHandle<R>,
+    pool: SqlitePool,
+    meeting_id: String,
+) {
+    tauri::async_runtime::spawn(async move {
+        run_scheduled_diarization(&meeting_id, || async {
+            diarize_saved_meeting(&app, &pool, &meeting_id).await
+        })
+        .await;
+    });
+}
+
+/// The result of a pass whose labels could not be written.
+///
+/// The pass itself succeeded, so the status is `Failed` in-band — never an
+/// `Err`: the caller's transcript is already saved and losing the batch job
+/// because the label write broke would trade a transcript for an optional
+/// second stage.
+pub(crate) fn label_write_failure(
+    meeting_id: &str,
+    total_segments: usize,
+    error: String,
+) -> SavedMeetingDiarization {
+    SavedMeetingDiarization {
+        meeting_id: meeting_id.to_string(),
+        status: DiarizationStatus::Failed,
+        labeled_segments: 0,
+        total_segments,
+        error: Some(error),
+    }
 }
 
 /// Emits a planned event list. Failures only log: the meeting is already
@@ -216,6 +343,24 @@ async fn persist_speaker_labels(
         .await
         .map_err(|error| format!("Failed to commit speaker labels: {error}"))?;
     Ok(reconcile.names_reset)
+}
+
+/// Mirrors freshly committed speaker labels into the meeting's
+/// `transcripts.json`.
+///
+/// Both batch paths and the recording saver write that file before a pass
+/// runs, so without this the export would keep `speaker: null` for every
+/// segment while the database has the labels — the file would silently
+/// diverge from the meeting. A failure here only logs: the labels are already
+/// committed, and a stale export must not turn a successful pass into a
+/// failure.
+fn rewrite_transcripts_json(folder: &Path, segments: &[crate::api::TranscriptSegment]) {
+    if let Err(error) = crate::audio::common::write_transcripts_json(folder, segments) {
+        warn!(
+            "Failed to rewrite transcripts.json in {}: {error}",
+            folder.display()
+        );
+    }
 }
 
 /// Diarizes a saved meeting: decide, run one pass over the meeting's audio
@@ -332,17 +477,15 @@ pub async fn diarize_saved_meeting<R: Runtime>(
                 // The pass succeeded but the write did not; report it as a
                 // failure without losing the transcript.
                 warn!("Failed to persist diarization labels: {error}");
-                let result = SavedMeetingDiarization {
-                    meeting_id: meeting_id.to_string(),
-                    status: DiarizationStatus::Failed,
-                    labeled_segments: 0,
-                    total_segments,
-                    error: Some(error),
-                };
+                let result = label_write_failure(meeting_id, total_segments, error);
                 emit_events(app, &diarization_events(&result, false));
                 return Ok(result);
             }
         }
+        // The database is now the authority; bring the meeting's export with
+        // it so imports, retranscriptions and live recordings do not leave a
+        // `transcripts.json` whose speakers disagree with the transcript.
+        rewrite_transcripts_json(&folder, &segments);
         info!(
             "Diarized meeting {}: {} of {} transcript segments labeled",
             meeting_id, labeled, total_segments
@@ -372,6 +515,7 @@ pub async fn diarize_saved_meeting<R: Runtime>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::audio::common::BatchEngine;
     use crate::audio::transcription::diarization_service::DiarizationStatus;
 
     fn result(status: DiarizationStatus, labeled: usize, total: usize) -> SavedMeetingDiarization {
@@ -382,6 +526,101 @@ mod tests {
             total_segments: total,
             error: None,
         }
+    }
+
+    #[test]
+    fn every_transcription_engine_gets_a_post_save_pass() {
+        // The pass used to be gated on the audioCpp engine. It is now part of
+        // every save path, because `diarize_saved_meeting` decides on its own
+        // whether it can run (installed model, available runtime, no active
+        // recording) and knows nothing about the transcription engine.
+        for engine in [
+            BatchEngine::Whisper,
+            BatchEngine::Parakeet,
+            BatchEngine::AudioCpp,
+        ] {
+            assert!(schedules_diarization(engine), "engine: {engine:?}");
+        }
+    }
+
+    #[test]
+    fn a_pass_that_cannot_even_start_becomes_a_log_line_not_a_batch_error() {
+        // A missing meeting or a database failure must not turn into a failed
+        // import or retranscription: both have already succeeded by the time
+        // the background pass runs.
+        let outcome = background_pass_outcome(Err("Meeting not found: meeting-9".to_string()));
+
+        assert_eq!(
+            outcome,
+            BackgroundPassOutcome::CouldNotRun("Meeting not found: meeting-9".to_string())
+        );
+    }
+
+    #[test]
+    fn a_finished_pass_keeps_its_status_for_logging() {
+        let outcome = background_pass_outcome(Ok(result(DiarizationStatus::NoModel, 0, 0)));
+
+        assert_eq!(
+            outcome,
+            BackgroundPassOutcome::Finished(DiarizationStatus::NoModel)
+        );
+    }
+
+    #[tokio::test]
+    async fn a_pass_that_cannot_start_never_propagates_to_the_batch_job() {
+        // The import and retranscription call sites await this helper. It must
+        // resolve, not reject, so the batch job's `Result` cannot inherit the
+        // pass's `Err`.
+        let outcome = run_scheduled_diarization("meeting-9", || async {
+            Err("Failed to load meeting: database is locked".to_string())
+        })
+        .await;
+
+        assert_eq!(
+            outcome,
+            BackgroundPassOutcome::CouldNotRun(
+                "Failed to load meeting: database is locked".to_string()
+            )
+        );
+    }
+
+    #[tokio::test]
+    async fn a_failed_pass_status_is_reported_without_an_error() {
+        let outcome = run_scheduled_diarization("meeting-9", || async {
+            Ok(result(DiarizationStatus::Failed, 0, 3))
+        })
+        .await;
+
+        assert_eq!(
+            outcome,
+            BackgroundPassOutcome::Finished(DiarizationStatus::Failed)
+        );
+    }
+
+    #[test]
+    fn a_label_write_failure_is_reported_in_band_and_keeps_the_meeting() {
+        // The pass ran but the labels could not be committed. It must not
+        // become an `Err`: the retranscription/import already succeeded, and
+        // the transcript stays intact without labels.
+        let failed = label_write_failure(
+            "meeting-1",
+            7,
+            "Failed to commit speaker labels: database is locked".to_string(),
+        );
+
+        assert_eq!(failed.status, DiarizationStatus::Failed);
+        assert_eq!(failed.total_segments, 7);
+        assert_eq!(failed.labeled_segments, 0);
+        assert_eq!(
+            failed.error.as_deref(),
+            Some("Failed to commit speaker labels: database is locked")
+        );
+        // And a background caller sees a status, never an error it could
+        // propagate into the batch job's result.
+        assert_eq!(
+            background_pass_outcome(Ok(failed)),
+            BackgroundPassOutcome::Finished(DiarizationStatus::Failed)
+        );
     }
 
     #[test]
@@ -617,5 +856,88 @@ mod tests {
                 .await
                 .unwrap();
         assert_eq!(bindings, vec![("speaker_0".to_string(),)]);
+    }
+
+    /// Points a seeded meeting at a recording folder, the way every saved
+    /// meeting is laid out on disk.
+    async fn set_folder_path(pool: &SqlitePool, meeting_id: &str, folder: &std::path::Path) {
+        sqlx::query("UPDATE meetings SET folder_path = ? WHERE id = ?")
+            .bind(folder.to_string_lossy().to_string())
+            .bind(meeting_id)
+            .execute(pool)
+            .await
+            .unwrap();
+    }
+
+    fn read_written_speakers(folder: &std::path::Path) -> Vec<serde_json::Value> {
+        let written: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(folder.join("transcripts.json"))
+                .expect("transcripts.json exists"),
+        )
+        .expect("transcripts.json is valid json");
+        written["segments"]
+            .as_array()
+            .expect("segments array")
+            .iter()
+            .map(|segment| segment["speaker"].clone())
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn rewritten_transcripts_json_carries_the_new_speaker_labels() {
+        // Both batch paths write `transcripts.json` before the pass and then
+        // store labels only in the database. The shared rewrite must close
+        // that gap: the file a user exports has to agree with the transcript.
+        let pool = migrated_pool().await;
+        let folder = tempfile::tempdir().unwrap();
+        seed_meeting(&pool, "meeting-1").await;
+        set_folder_path(&pool, "meeting-1", folder.path()).await;
+
+        let labeled = [
+            segment("t-0", Some("speaker_2")),
+            segment("t-1", Some("speaker_2")),
+        ];
+
+        persist_speaker_labels(&pool, "meeting-1", &labeled)
+            .await
+            .expect("labels persist");
+        rewrite_transcripts_json(folder.path(), &labeled);
+
+        let file_speakers = read_written_speakers(folder.path());
+        assert_eq!(
+            file_speakers,
+            vec![
+                serde_json::json!("speaker_2"),
+                serde_json::json!("speaker_2")
+            ],
+            "the file must carry the labels the pass produced"
+        );
+
+        let db_speakers: Vec<(Option<String>,)> =
+            sqlx::query_as("SELECT speaker FROM transcripts WHERE meeting_id = ? ORDER BY id")
+                .bind("meeting-1")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        let db_speakers: Vec<serde_json::Value> = db_speakers
+            .into_iter()
+            .map(|(speaker,)| serde_json::json!(speaker))
+            .collect();
+        assert_eq!(
+            file_speakers, db_speakers,
+            "the export and the database must not diverge"
+        );
+    }
+
+    #[test]
+    fn a_missing_folder_only_logs_instead_of_inverting_the_result() {
+        // Rewriting the export is best effort: the labels are already in the
+        // database, so a folder that cannot be written keeps the pass's
+        // `ran` status and only warns.
+        let folder = tempfile::tempdir().unwrap();
+        let gone = folder.path().join("deleted");
+        rewrite_transcripts_json(&gone, &[segment("t-0", Some("speaker_2"))]);
+
+        assert!(!gone.join("transcripts.json").exists());
     }
 }
