@@ -18,6 +18,7 @@ import {
   type AudioCppModelClient,
   type AudioCppModelInfo,
   type AudioCppModelStatus,
+  type AudioCppModelTask,
 } from '../lib/audiocpp';
 
 /**
@@ -41,6 +42,12 @@ export interface AudioCppModelManagerProps {
    * this module (and its tests) do not pull in the Tauri bridge.
    */
   client?: AudioCppModelClient;
+  /**
+   * Restrict the list to models of this task. Omitted, the manager lists the
+   * whole catalog (the transcription settings section keeps that behaviour;
+   * the diarization section asks for `diar` only).
+   */
+  task?: AudioCppModelTask;
   /** Currently configured model id (the catalog name). */
   selectedModel?: string;
   /** Called when the user picks a transcription model. */
@@ -52,6 +59,7 @@ export interface AudioCppModelManagerProps {
 export function AudioCppModelManager({
   className = '',
   client: injectedClient,
+  task,
   selectedModel,
   onModelSelect,
   autoSave = false,
@@ -63,6 +71,8 @@ export function AudioCppModelManager({
   const [initialized, setInitialized] = useState(false);
   const [listenersReady, setListenersReady] = useState(false);
   const [cancellingModels, setCancellingModels] = useState<Set<string>>(new Set());
+  /** Native runtime report; `null` until asked or when the command failed. */
+  const [runtimeError, setRuntimeError] = useState<string | null>(null);
 
   // Progress updates arrive much faster than React should re-render.
   const progressThrottleRef = useRef<Map<string, { progress: number; timestamp: number }>>(new Map());
@@ -76,6 +86,23 @@ export function AudioCppModelManager({
   const nameOf = useCallback(
     (modelName: string) => displayName(modelName, modelsRef.current),
     [],
+  );
+
+  /**
+   * Whether this manager owns the model a native event is about.
+   *
+   * Two managers can be mounted at once (the `audioCpp` transcription list and
+   * the always-visible diarization section). Both receive every native download
+   * event, so without this check a Nemotron download would be announced twice
+   * and would appear in a list that does not contain it. The catalog itself is
+   * not filtered, so the task of an unknown name is simply not this manager's.
+   */
+  const ownsModel = useCallback(
+    (modelName: string) => {
+      if (!task) return true;
+      return modelsRef.current.find(model => model.name === modelName)?.task === task;
+    },
+    [task],
   );
 
   const clearCancellingModel = useCallback((modelName: string) => {
@@ -122,6 +149,7 @@ export function AudioCppModelManager({
       const registrations = await Promise.allSettled([
         client.listenProgress(event => {
           const { modelName, progress, status } = event;
+          if (!ownsModel(modelName)) return;
 
           if (status === 'cancelled') {
             latestStatusByModelRef.current.set(modelName, 'Missing');
@@ -154,6 +182,7 @@ export function AudioCppModelManager({
         }),
         client.listenComplete(event => {
           const { modelName } = event;
+          if (!ownsModel(modelName)) return;
           latestStatusByModelRef.current.set(modelName, 'Available');
           progressThrottleRef.current.delete(modelName);
           clearCancellingModel(modelName);
@@ -169,6 +198,7 @@ export function AudioCppModelManager({
         }),
         client.listenError(event => {
           const { modelName, error } = event;
+          if (!ownsModel(modelName)) return;
           latestStatusByModelRef.current.set(modelName, { Error: error });
           progressThrottleRef.current.delete(modelName);
           clearCancellingModel(modelName);
@@ -212,7 +242,7 @@ export function AudioCppModelManager({
       unlisteners.forEach(unlisten => unlisten());
     };
     // Listeners are registered once; callbacks read models through modelsRef.
-  }, [clearCancellingModel, nameOf, client]);
+  }, [clearCancellingModel, nameOf, ownsModel, client]);
 
   // Initialize the native manager and load the catalog once listeners exist.
   useEffect(() => {
@@ -241,6 +271,27 @@ export function AudioCppModelManager({
       disposed = true;
     };
   }, [initialized, listenersReady, client]);
+
+  // The diarization section explains an unusable native runtime up front. The
+  // model card stays downloadable: the warning explains why a pass would not
+  // run now, and the model can be prepared ahead of the library.
+  useEffect(() => {
+    if (!client || task !== 'diar') return;
+    let disposed = false;
+    void client.getDiagnostics()
+      .then(report => {
+        if (disposed) return;
+        setRuntimeError(report.available ? null : report.error ?? 'native library unavailable');
+      })
+      .catch(err => {
+        // Diagnostics are advisory: an unanswered report must not turn into a
+        // crash or a false claim that the engine is missing.
+        console.error('Failed to read audio.cpp diagnostics:', err);
+      });
+    return () => {
+      disposed = true;
+    };
+  }, [client, task]);
 
   const downloadModel = async (modelName: string) => {
     if (!client || cancellingModels.has(modelName)) return;
@@ -336,6 +387,8 @@ export function AudioCppModelManager({
   // transcription model. The diarization model is never selectable.
   const selectedTranscriptionModel = defaultSelectedTranscriptionModel(models, selectedModel);
   const selectionEnabled = typeof onModelSelect === 'function';
+  // Only the requested task is rendered; the caller decides which task it owns.
+  const visibleModels = task ? models.filter(model => model.task === task) : models;
 
   if (loading) {
     return (
@@ -359,7 +412,23 @@ export function AudioCppModelManager({
 
   return (
     <div className={`space-y-3 ${className}`} data-testid="audiocpp-model-manager">
-      {models.map(model => (
+      {runtimeError && (
+        <div
+          className="rounded-lg border border-amber-200 bg-amber-50 p-3"
+          data-testid="audiocpp-runtime-warning"
+          title={runtimeError}
+        >
+          <p className="text-sm font-medium text-amber-900">
+            Diarization engine is unavailable on this system
+          </p>
+          <p className="mt-1 text-xs text-amber-700">
+            The model can still be downloaded; speaker labels will start once the
+            native audio.cpp library is available.
+          </p>
+        </div>
+      )}
+
+      {visibleModels.map(model => (
         <AudioCppModelCard
           key={model.name}
           model={model}
