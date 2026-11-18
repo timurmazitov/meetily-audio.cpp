@@ -694,6 +694,7 @@ async fn run_import<R: Runtime>(
         &title,
         &segments,
         meeting_folder.to_string_lossy().to_string(),
+        Some(duration_seconds),
     )
     .await?;
 
@@ -756,15 +757,30 @@ fn emit_progress<R: Runtime>(app: &AppHandle<R>, stage: &str, progress: u32, mes
     );
 }
 
-/// Create a new meeting with transcripts in the database
+/// A decoded length that is worth storing: zero, negative or non-finite means
+/// "unknown" (the file was too short or could not be measured), and the spec
+/// forbids writing that as a real `0.0`.
+fn usable_duration_seconds(duration_seconds: Option<f64>) -> Option<f64> {
+    duration_seconds.filter(|seconds| seconds.is_finite() && *seconds > 0.0)
+}
+
+/// Create a new meeting with transcripts in the database.
+///
+/// `duration_seconds` is the length of the decoded source file. An import has
+/// no earlier start than itself, so the meeting's own moment is the moment of
+/// the import: the same value `created_at` gets, and the same moment the
+/// `metadata.json` written right after this commit records.
 async fn create_meeting_with_transcripts(
     pool: &sqlx::SqlitePool,
     title: &str,
     segments: &[TranscriptSegment],
     folder_path: String,
+    duration_seconds: Option<f64>,
 ) -> Result<(String, ReconcileOutcome)> {
     let meeting_id = format!("meeting-{}", Uuid::new_v4());
     let now = chrono::Utc::now();
+    let recorded_at = now;
+    let duration_seconds = usable_duration_seconds(duration_seconds);
 
     // Start transaction
     let mut conn = pool
@@ -777,14 +793,16 @@ async fn create_meeting_with_transcripts(
 
     // Insert meeting
     sqlx::query(
-        "INSERT INTO meetings (id, title, created_at, updated_at, folder_path)
-         VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO meetings (id, title, created_at, updated_at, folder_path, recorded_at, duration_seconds)
+         VALUES (?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&meeting_id)
     .bind(title)
     .bind(now)
     .bind(now)
     .bind(&folder_path)
+    .bind(recorded_at)
+    .bind(duration_seconds)
     .execute(&mut *tx)
     .await
     .map_err(|e| anyhow!("Failed to create meeting: {}", e))?;
@@ -1383,6 +1401,155 @@ mod tests {
         assert_eq!(parsed["audio_file"], "audio.mp4");
         assert_eq!(parsed["status"], "completed");
         assert_eq!(parsed["source"], "import");
+    }
+
+    /// The imported meeting's own moment and length travel into the row, so the
+    /// list can show when the import happened and how long the source file is
+    /// (which is longer than the last spoken segment).
+    #[tokio::test]
+    async fn imported_meeting_keeps_the_import_moment_and_the_file_length() {
+        let pool = migrated_test_pool().await;
+        let segments = vec![
+            transcript_segment("t-1", Some(0.0), Some(4.0)),
+            transcript_segment("t-2", Some(5.0), Some(9.0)),
+        ];
+
+        let before = chrono::Utc::now();
+        let (meeting_id, _) = create_meeting_with_transcripts(
+            &pool,
+            "Imported Meeting",
+            &segments,
+            "/tmp/imported-meeting".to_string(),
+            Some(600.0),
+        )
+        .await
+        .expect("import inserts the meeting");
+        let after = chrono::Utc::now();
+
+        let (created_at, recorded_at, duration_seconds) =
+            read_meeting_facts(&pool, &meeting_id).await;
+
+        assert_eq!(
+            recorded_at.as_deref(),
+            Some(created_at.as_str()),
+            "an import has no earlier start, so its own moment is the import moment"
+        );
+        let recorded_at = parse_test_moment(recorded_at.expect("recorded_at is set"));
+        assert!(
+            recorded_at >= before && recorded_at <= after,
+            "recorded_at {recorded_at} is not the moment of the import ({before}..{after})"
+        );
+        assert_eq!(
+            duration_seconds,
+            Some(600.0),
+            "the duration is the source file's, not the end of the last segment (9.0s)"
+        );
+    }
+
+    /// A very short file leaves the length unknown. The import still succeeds,
+    /// and the row gets NULL rather than a fake zero.
+    ///
+    /// A file that cannot be decoded at all never reaches this insert (it fails
+    /// during validation or decoding, so no meeting row is created at all), so
+    /// there is no other way for a broken file to leave a 0.0 behind.
+    #[tokio::test]
+    async fn a_meeting_without_a_usable_length_stores_null_instead_of_zero() {
+        let pool = migrated_test_pool().await;
+        let segments = vec![transcript_segment("t-1", Some(0.0), Some(0.2))];
+
+        let (meeting_id, _) = create_meeting_with_transcripts(
+            &pool,
+            "Almost Empty",
+            &segments,
+            "/tmp/almost-empty".to_string(),
+            Some(0.0),
+        )
+        .await
+        .expect("a zero-length file does not fail the import");
+
+        let (_, recorded_at, duration_seconds) = read_meeting_facts(&pool, &meeting_id).await;
+
+        assert_eq!(duration_seconds, None, "no length is NULL, never 0.0");
+        assert!(
+            recorded_at.is_some(),
+            "the import still happened, so its moment is known"
+        );
+    }
+
+    /// Segments may outlast a mis-measured file: the length is dropped instead
+    /// of being stored as an impossible value.
+    #[tokio::test]
+    async fn a_non_positive_or_non_finite_length_is_not_stored() {
+        let pool = migrated_test_pool().await;
+
+        for (index, unusable) in [None, Some(-3.0), Some(f64::NAN), Some(f64::INFINITY)]
+            .into_iter()
+            .enumerate()
+        {
+            let (meeting_id, _) = create_meeting_with_transcripts(
+                &pool,
+                "Broken Length",
+                &[transcript_segment(
+                    &format!("broken-{index}"),
+                    Some(0.0),
+                    Some(1.0),
+                )],
+                "/tmp/broken-length".to_string(),
+                unusable,
+            )
+            .await
+            .expect("an unusable length does not fail the import");
+
+            let (_, _, duration_seconds) = read_meeting_facts(&pool, &meeting_id).await;
+            assert_eq!(duration_seconds, None, "{unusable:?} must not be stored");
+        }
+    }
+
+    fn transcript_segment(id: &str, start: Option<f64>, end: Option<f64>) -> TranscriptSegment {
+        TranscriptSegment {
+            id: id.to_string(),
+            text: format!("text of {id}"),
+            timestamp: "2026-11-18T10:00:00Z".to_string(),
+            audio_start_time: start,
+            audio_end_time: end,
+            duration: end.zip(start).map(|(end, start)| end - start),
+            speaker: Some("speaker_0".to_string()),
+        }
+    }
+
+    async fn migrated_test_pool() -> sqlx::SqlitePool {
+        use sqlx::sqlite::SqlitePoolOptions;
+
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("in-memory sqlite");
+        sqlx::migrate!("./migrations")
+            .run(&pool)
+            .await
+            .expect("migrations apply");
+        pool
+    }
+
+    /// Reads the row back by id, exactly as the list sees it.
+    async fn read_meeting_facts(
+        pool: &sqlx::SqlitePool,
+        meeting_id: &str,
+    ) -> (String, Option<String>, Option<f64>) {
+        sqlx::query_as::<_, (String, Option<String>, Option<f64>)>(
+            "SELECT created_at, recorded_at, duration_seconds FROM meetings WHERE id = ?",
+        )
+        .bind(meeting_id)
+        .fetch_one(pool)
+        .await
+        .expect("the meeting row exists")
+    }
+
+    fn parse_test_moment(value: String) -> chrono::DateTime<chrono::Utc> {
+        chrono::DateTime::parse_from_rfc3339(&value)
+            .expect("recorded_at is RFC3339")
+            .with_timezone(&chrono::Utc)
     }
 
     /// Integration test that decodes a real audio file and runs VAD.
