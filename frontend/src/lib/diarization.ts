@@ -172,6 +172,33 @@ export function shouldToastDiarizationStatus(status: DiarizationStatus): boolean
   return status === 'failed';
 }
 
+/** Payload of the native `diarization-unavailable` event. */
+export interface DiarizationUnavailablePayload {
+  /** The meeting the pass ran for; absent on events from older callers. */
+  meeting_id?: string;
+  /** Why the pass did not produce labels. */
+  status?: DiarizationStatus;
+  /** Diagnostic detail; never user-facing prose. */
+  reason?: string | null;
+  /** User-facing explanation, owned by native code. */
+  message?: string;
+}
+
+/**
+ * Whether an incoming `diarization-unavailable` event is worth a toast.
+ *
+ * Native code emits this event only for `failed`, but the listeners check the
+ * payload status instead of assuming that: if the native contract is ever
+ * widened, automatic passes stay silent for configuration reasons and only a
+ * real failure speaks up. Kept as one helper so import and retranscription
+ * cannot drift from the automatic-pass rule.
+ */
+export function shouldToastDiarizationUnavailable(
+  status: DiarizationStatus | undefined,
+): boolean {
+  return status !== undefined && shouldToastDiarizationStatus(status);
+}
+
 /**
  * Explanation of a status for an explicit run, or `null` after a pass.
  *
