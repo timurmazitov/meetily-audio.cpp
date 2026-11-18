@@ -77,6 +77,42 @@ fn strip_title_if_present(markdown: &str) -> String {
 
 const ENGLISH_CACHE_FIELD: &str = "english_cache";
 
+/// The meeting date as the model and the interface both show it:
+/// `18/11/2026, 14:32` in local time, every part zero-padded.
+///
+/// This duplicates `formatMeetingDateTime` in `frontend/src/lib/meeting-datetime.ts`
+/// on purpose (spec, Further Notes): the two are pinned to the same literal by
+/// tests rather than by sharing code. The stored value is an instant, so the
+/// local zone is what the person who was in the room saw.
+fn format_meeting_date(recorded_at: DateTime<Utc>) -> String {
+    recorded_at
+        .with_timezone(&chrono::Local)
+        .format("%d/%m/%Y, %H:%M")
+        .to_string()
+}
+
+/// Reads the meeting date for the prompt, following the same fail-soft shape as
+/// `read_detected_summary_language`: a missing or unreadable meeting row means
+/// "no date", never an error and never the current moment.
+async fn read_meeting_date(pool: &SqlitePool, meeting_id: &str) -> Option<String> {
+    match MeetingsRepository::get_meeting_metadata(pool, meeting_id).await {
+        Ok(Some(meeting)) => {
+            meeting.recorded_at.map(|recorded_at| format_meeting_date(recorded_at.0))
+        }
+        Ok(None) => {
+            warn!("Meeting not found while reading the meeting date: {}", meeting_id);
+            None
+        }
+        Err(e) => {
+            warn!(
+                "Failed to read meeting metadata for the meeting date (meeting_id={}): {}",
+                meeting_id, e
+            );
+            None
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 struct SummaryCacheSource {
     transcript_fingerprint: String,
@@ -515,6 +551,11 @@ impl SummaryService {
 
         let base_system_prompt = load_base_system_prompt(&pool).await;
 
+        let meeting_date = read_meeting_date(&pool, &meeting_id).await;
+        if let Some(date) = &meeting_date {
+            info!("📅 Meeting date for the summary prompt: {}", date);
+        }
+
         let template = match templates::get_template(&template_id) {
             Ok(template) => template,
             Err(e) => {
@@ -589,6 +630,7 @@ impl SummaryService {
             detected_summary_language.as_deref(),
             cached_english.as_deref(),
             Some(&base_system_prompt),
+            meeting_date.as_deref(),
         )
         .await;
 
@@ -715,6 +757,7 @@ impl SummaryService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::TimeZone;
 
     #[tokio::test]
     async fn base_system_prompt_comes_from_settings_and_falls_back_to_default() {
@@ -1226,5 +1269,102 @@ mod tests {
     fn test_extract_cached_english_from_malformed_json_errors() {
         let raw = r#"{ not valid json"#;
         assert!(extract_cached_english_markdown(raw, &sample_cache_source(), Some("de")).is_err());
+    }
+
+    /// Pinned to the same literal the interface formatter produces
+    /// (`frontend/src/lib/meeting-datetime.ts`): `18/11/2026, 14:32`.
+    ///
+    /// Time-zone safe: the fixture is a *local* wall-clock moment converted to
+    /// UTC, so the expectation holds in any zone. 14:32 on 18 November is far
+    /// from a DST transition, so `.single()` cannot be ambiguous.
+    #[test]
+    fn meeting_date_matches_the_interface_format() {
+        let local_instant = chrono::Local
+            .with_ymd_and_hms(2026, 11, 18, 14, 32, 0)
+            .single()
+            .expect("18 Nov 2026 14:32 is an unambiguous local time");
+
+        assert_eq!(
+            format_meeting_date(local_instant.with_timezone(&Utc)),
+            "18/11/2026, 14:32"
+        );
+    }
+
+    #[test]
+    fn meeting_date_pads_every_part() {
+        let local_instant = chrono::Local
+            .with_ymd_and_hms(2026, 1, 2, 9, 5, 0)
+            .single()
+            .expect("2 Jan 2026 09:05 is an unambiguous local time");
+
+        assert_eq!(
+            format_meeting_date(local_instant.with_timezone(&Utc)),
+            "02/01/2026, 09:05"
+        );
+    }
+
+    #[tokio::test]
+    async fn meeting_date_is_read_from_the_meeting_row() {
+        let pool = migrated_pool().await;
+        seed_meeting(&pool, "meeting-dated", Some("2026-11-18T11:32:00Z")).await;
+
+        let recorded_at = DateTime::parse_from_rfc3339("2026-11-18T11:32:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+
+        assert_eq!(
+            read_meeting_date(&pool, "meeting-dated").await,
+            Some(format_meeting_date(recorded_at)),
+            "the prompt date comes from recorded_at, not the created_at audit field"
+        );
+    }
+
+    #[tokio::test]
+    async fn meeting_without_a_date_yields_no_date_at_all() {
+        let pool = migrated_pool().await;
+        seed_meeting(&pool, "meeting-undated", None).await;
+
+        assert_eq!(
+            read_meeting_date(&pool, "meeting-undated").await,
+            None,
+            "an unknown meeting date must never be replaced by the current moment"
+        );
+    }
+
+    #[tokio::test]
+    async fn unknown_meeting_yields_no_date_rather_than_failing_the_summary() {
+        let pool = migrated_pool().await;
+
+        assert_eq!(read_meeting_date(&pool, "no-such-meeting").await, None);
+    }
+
+    async fn migrated_pool() -> SqlitePool {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("in-memory sqlite");
+        sqlx::migrate!("./migrations")
+            .run(&pool)
+            .await
+            .expect("migrations apply");
+        pool
+    }
+
+    async fn seed_meeting(pool: &SqlitePool, meeting_id: &str, recorded_at: Option<&str>) {
+        // `created_at` deliberately differs from `recorded_at` so a reader that
+        // picks the wrong column cannot pass.
+        sqlx::query(
+            "INSERT INTO meetings (id, title, created_at, updated_at, recorded_at)
+             VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(meeting_id)
+        .bind("Meeting")
+        .bind("2020-01-01T00:00:00Z")
+        .bind("2020-01-01T00:00:00Z")
+        .bind(recorded_at)
+        .execute(pool)
+        .await
+        .expect("seed meeting");
     }
 }
