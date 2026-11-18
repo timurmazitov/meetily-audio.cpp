@@ -27,6 +27,8 @@ interface SummaryPanelProps {
     id: string;
     title: string;
     created_at: string;
+    /** The meeting's own moment (RFC3339), preferred over `created_at`. */
+    recorded_at?: string | null;
   };
   /**
    * The meeting's own moment (RFC3339), shown in the header. When absent or
@@ -327,7 +329,10 @@ export function SummaryPanel({
               meeting={{
                 id: meeting.id,
                 title: meetingTitle,
-                created_at: meeting.created_at
+                created_at: meeting.created_at,
+                // Passed through so the legacy export dates from the meeting
+                // itself, not from when the database row appeared.
+                recorded_at: meeting.recorded_at ?? meetingDate
               }}
             />
           </div>
