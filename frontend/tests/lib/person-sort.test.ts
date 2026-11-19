@@ -13,10 +13,14 @@ describe('comparePersonNames', () => {
     expect(sorted(['Zoe', 'Мария'])).toEqual(['Мария', 'Zoe']);
   });
 
-  test('names inside one group stay alphabetical', () => {
-    expect(sorted(['яна', 'Анна', 'Борис', 'elif', 'Aziz'])).toEqual([
+  test('names inside one group stay alphabetical, by the familiar alphabet', () => {
+    // `Ё` belongs after `Е` in the Russian alphabet, not at the end of the
+    // code-point range where `U+0451` sits.
+    expect(sorted(['яна', 'Анна', 'ёжик', 'Борис', 'Егор', 'elif', 'Aziz'])).toEqual([
       'Анна',
       'Борис',
+      'Егор',
+      'ёжик',
       'яна',
       'Aziz',
       'elif',

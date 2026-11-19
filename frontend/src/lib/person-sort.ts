@@ -30,17 +30,29 @@ function fold(name: string): string {
   return name.toLowerCase();
 }
 
-/** Code-point comparison: Cyrillic А-Я and Latin A-Z are already contiguous. */
+/**
+ * Russian collation, so the order is the familiar alphabet (`Ё` belongs after
+ * `Е`, not at the end of the code-point range where `U+0451` would put it).
+ * Only the folded keys of the two letter groups are collated this way.
+ */
+const collator = new Intl.Collator('ru');
+
+/** Code-point comparison: deterministic and collation-free. */
 function byCodePoint(a: string, b: string): number {
   if (a === b) return 0;
   return a < b ? -1 : 1;
 }
 
 export function comparePersonNames(a: string, b: string): number {
-  const group = groupOf(a) - groupOf(b);
-  if (group !== 0) return group;
+  const group = groupOf(a);
+  const otherGroup = groupOf(b);
+  if (group !== otherGroup) return group - otherGroup;
 
-  const folded = byCodePoint(fold(a), fold(b));
+  // Digits and other alphabets have no familiar order to preserve, so their
+  // code points keep the result deterministic without collation data.
+  const compare = group === 2 ? byCodePoint : collator.compare.bind(collator);
+
+  const folded = compare(fold(a), fold(b));
   if (folded !== 0) return folded;
 
   // The original spelling decides between names that differ only by case, so

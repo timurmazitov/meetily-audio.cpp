@@ -28,7 +28,7 @@ Names are trimmed and compared case-insensitively (including non-ASCII, which SQ
 
 A person nobody references any more is deleted in the same transaction: when an assignment is removed, when a meeting is deleted, and when a recount drops the last binding that used the person. This keeps `api_get_speaker_names` free of orphans.
 
-`api_get_speaker_names` deliberately returns the directory in no particular order. Sorting has exactly one implementation, a frontend comparator ([person-sort.ts](../frontend/src/lib/person-sort.ts)), used by both the panel's name list and the transcript chip's dropdown: Cyrillic А-Я first, then Latin A-Z, then everything else, case-insensitively, with the original spelling as the deterministic tie-breaker. The panel filters that list on the client as the user types, so no request is made per keystroke and a filtered subset keeps the full list's order.
+`api_get_speaker_names` deliberately returns the directory in no particular order. Sorting has exactly one implementation, a frontend comparator ([person-sort.ts](../frontend/src/lib/person-sort.ts)), used by both the panel's name list and the transcript chip's dropdown: Cyrillic А-Я first, then Latin A-Z, then everything else, case-insensitively and by the familiar Russian alphabet (`Ё` after `Е`), with the original spelling as the deterministic tie-breaker. The panel filters that list on the client as the user types, so no request is made per keystroke and a filtered subset keeps the full list's order.
 
 Successful assignments bump `meetings.updated_at`, like a title change; re-saving an unchanged panel is a no-op and does not.
 
