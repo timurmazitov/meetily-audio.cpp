@@ -12,7 +12,7 @@ import { toast } from 'sonner';
 
 export function About() {
     const { t } = useTranslation();
-    const [currentVersion, setCurrentVersion] = useState<string>('0.5.0');
+    const [currentVersion, setCurrentVersion] = useState<string>('');
     const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
     const [isChecking, setIsChecking] = useState(false);
     const [showUpdateDialog, setShowUpdateDialog] = useState(false);
@@ -63,7 +63,7 @@ export function About() {
                     />
                 </div>
                 {/* <h1 className="text-xl font-bold text-gray-900">Samobranka</h1> */}
-                <span className="text-sm text-gray-500"> v{currentVersion}</span>
+                {currentVersion && <span className="text-sm text-gray-500"> v{currentVersion}</span>}
                 <p className="text-medium text-gray-600 mt-1">
                     {t('misc.about.tagline')}
                 </p>
