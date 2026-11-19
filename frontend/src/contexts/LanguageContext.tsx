@@ -16,6 +16,7 @@ import i18n, {
   systemLocale,
   type AppLanguageCode,
 } from '@/i18n';
+import { applyWindowTitle } from '@/lib/app-window-title';
 import { loadAppLanguage, saveAppLanguage } from '@/lib/app-language';
 
 interface LanguageContextValue {
@@ -63,6 +64,14 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
     if (typeof document !== 'undefined') {
       document.documentElement.lang = language;
     }
+  }, [language]);
+
+  // Keep the window/document title in step with the interface language
+  // (spec decision 7). `src/app/metadata.ts` stays English as the
+  // build-time fallback; the live title is re-read from the catalog on
+  // every switch so future titles localize with no further wiring.
+  useEffect(() => {
+    void applyWindowTitle(i18n.t('app.title'));
   }, [language]);
 
   const setLanguage = useCallback(async (next: AppLanguageCode) => {

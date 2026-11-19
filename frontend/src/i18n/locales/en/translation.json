@@ -13,6 +13,9 @@
     "note": "Note",
     "error": "Something went wrong"
   },
+  "app": {
+    "title": "Samobranka"
+  },
   "units": {
     "underMinute": "< 1 min",
     "minutesShort": "{{count}} min",
