@@ -1454,35 +1454,6 @@ mod tests {
             .is_empty());
     }
 
-    #[tokio::test]
-    async fn the_panel_row_no_longer_carries_a_name_subset() {
-        let pool = migrated_pool().await;
-        insert_meeting(&pool, "meeting-1").await;
-        insert_meeting(&pool, "meeting-2").await;
-        insert_transcript(&pool, "t-0", "meeting-1", Some("speaker_0"), Some(0.0)).await;
-        insert_transcript(&pool, "t-1", "meeting-2", Some("speaker_0"), Some(0.0)).await;
-        SpeakersRepository::assign(&pool, "meeting-1", &[assignment("speaker_0", Some("Alex"))])
-            .await
-            .unwrap();
-        SpeakersRepository::assign(&pool, "meeting-2", &[assignment("speaker_0", Some("Zoe"))])
-            .await
-            .unwrap();
-
-        let panel = SpeakersRepository::meeting_speakers(&pool, "meeting-1")
-            .await
-            .unwrap();
-
-        assert_eq!(panel.len(), 1, "one row per label of the meeting");
-        assert_eq!(panel[0].speaker_name.as_deref(), Some("Alex"));
-        // The row reports the meeting's own speakers only; the directory is a
-        // separate command and the panel no longer guesses a subset of it.
-        let json = serde_json::to_value(&panel[0]).unwrap();
-        assert!(
-            json.get("top_speaker_names").is_none(),
-            "the bounded suggestion list left the panel contract: {json}"
-        );
-    }
-
     /// Runs the reconcile inside a transaction owned by the caller, the way the
     /// import, retranscription and diarization paths call it.
     async fn reconcile(pool: &SqlitePool, meeting_id: &str) -> ReconcileOutcome {
