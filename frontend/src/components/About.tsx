@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from "react";
 import { getVersion } from '@tauri-apps/api/app';
+import { invoke } from '@tauri-apps/api/core';
 import Image from 'next/image';
 import { UpdateDialog } from "./UpdateDialog";
 import { updateService, UpdateInfo } from '@/services/updateService';
 import { Button } from './ui/button';
-import { Loader2, CheckCircle2 } from 'lucide-react';
+import { Loader2, CheckCircle2, ArrowUpRight } from 'lucide-react';
 import { toast } from 'sonner';
 
 
@@ -34,6 +35,15 @@ export function About() {
             toast.error('Failed to check for updates: ' + (error.message || 'Unknown error'));
         } finally {
             setIsChecking(false);
+        }
+    };
+
+    const handleOpenGitHub = async () => {
+        try {
+            await invoke('open_external_url', { url: 'https://github.com/timurmazitov/samobranka' });
+        } catch (error: any) {
+            console.error('Failed to open GitHub link:', error);
+            toast.error('Failed to open link: ' + (error.message || 'Unknown error'));
         }
     };
 
@@ -81,28 +91,15 @@ export function About() {
                         </div>
                     )}
                 </div>
-            </div>
-
-            {/* Features Grid - Compact */}
-            <div className="space-y-3">
-                <h2 className="text-base font-semibold text-gray-800">What makes Samobranka different</h2>
-                <div className="grid grid-cols-2 gap-2">
-                    <div className="bg-gray-50 rounded p-3 hover:bg-gray-100 transition-colors">
-                        <h3 className="font-bold text-sm text-gray-900 mb-1">Privacy-first</h3>
-                        <p className="text-xs text-gray-600 leading-relaxed">Your data & AI processing workflow can now stay within your premise. No cloud, no leaks.</p>
-                    </div>
-                    <div className="bg-gray-50 rounded p-3 hover:bg-gray-100 transition-colors">
-                        <h3 className="font-bold text-sm text-gray-900 mb-1">Use Any Model</h3>
-                        <p className="text-xs text-gray-600 leading-relaxed">Prefer local open-source model? Great. Want to plug in an external API? Also fine. No lock-in.</p>
-                    </div>
-                    <div className="bg-gray-50 rounded p-3 hover:bg-gray-100 transition-colors">
-                        <h3 className="font-bold text-sm text-gray-900 mb-1">Cost-Smart</h3>
-                        <p className="text-xs text-gray-600 leading-relaxed">Avoid pay-per-minute bills by running models locally (or pay only for the calls you choose).</p>
-                    </div>
-                    <div className="bg-gray-50 rounded p-3 hover:bg-gray-100 transition-colors">
-                        <h3 className="font-bold text-sm text-gray-900 mb-1">Works everywhere</h3>
-                        <p className="text-xs text-gray-600 leading-relaxed">Express, Jitsi, Zoom, Teams.</p>
-                    </div>
+                <div className="mt-3">
+                    <button
+                        type="button"
+                        onClick={handleOpenGitHub}
+                        className="inline-flex items-center gap-1 text-xs text-gray-600 hover:underline"
+                    >
+                        GitHub · timurmazitov/samobranka
+                        <ArrowUpRight aria-hidden="true" className="h-3 w-3" />
+                    </button>
                 </div>
             </div>
 
