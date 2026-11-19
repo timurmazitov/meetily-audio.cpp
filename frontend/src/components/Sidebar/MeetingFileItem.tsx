@@ -6,9 +6,12 @@ import { File, Pencil, Plus, Trash2 } from 'lucide-react';
 
 import type { AppLanguageCode } from '@/i18n';
 import { formatMeetingDateTime, formatMeetingDuration } from '@/lib/meeting-datetime';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
 export interface MeetingFileItemProps {
   title: string;
+  /** Meeting id; the hover popup loads its speaker count from the backend. */
+  meetingId?: string | null;
   /** RFC3339 moment of the meeting itself; `null`/absent while unknown. */
   recordedAt?: string | null;
   /** Meeting length in seconds; `null`/absent while unknown. */
@@ -17,6 +20,14 @@ export interface MeetingFileItemProps {
   matchContext?: string | null;
   /** `false` for non-meeting rows (the "+ New Call" placeholder), which get a plus icon. */
   isMeeting?: boolean;
+  /**
+   * Speaker count loader, the popup's seam to the diarization API. The row
+   * asks it on the first hover only; resolving once per meeting and caching
+   * for the sidebar session is the caller's job (the sidebar provider does
+   * it). A rejected or `null` result means unknown — a meeting without
+   * diarization or a failed request — and omits the popup's speakers line.
+   */
+  loadSpeakerCount?: (meetingId: string) => Promise<number | null>;
   onEdit?: () => void;
   onDelete?: () => void;
 }
@@ -28,13 +39,21 @@ export interface MeetingFileItemProps {
  * ragged column. Under it sits a quiet line with the meeting's own date and
  * length, skipping whatever is unknown — with both unknown there is no line at
  * all, since an empty line would only push the list apart.
+ *
+ * Hovering the whole row opens a popup that completes the row: the full title
+ * without the clamp, the same date and length, and the speaker count. The
+ * popup only ever adds lines for values it actually knows — a title is always
+ * there, and the rest appear as they arrive — and it stays transparent to the
+ * mouse so the row's own hover actions remain clickable.
  */
 export function MeetingFileItem({
   title,
+  meetingId = null,
   recordedAt = null,
   durationSeconds = null,
   matchContext = null,
   isMeeting = true,
+  loadSpeakerCount,
   onEdit,
   onDelete,
 }: MeetingFileItemProps) {
@@ -44,8 +63,25 @@ export function MeetingFileItem({
   const duration = formatMeetingDuration(durationSeconds, language);
   const meta = [date, duration].filter((part): part is string => part !== null);
 
-  return (
-    <div className="flex flex-col w-full">
+  // The speaker count is loaded on the first hover only, and the caller's
+  // loader caches it for the sidebar session, so neither repeated hovers nor
+  // list scrolling ask the backend again.
+  const speakerRequestStarted = React.useRef(false);
+  const [speakerCount, setSpeakerCount] = React.useState<number | null>(null);
+  const handleMouseEnter = () => {
+    if (!isMeeting || !meetingId || !loadSpeakerCount || speakerRequestStarted.current) return;
+    speakerRequestStarted.current = true;
+    void loadSpeakerCount(meetingId)
+      .then((count) => {
+        if (typeof count === 'number' && count > 0) setSpeakerCount(count);
+      })
+      .catch(() => {
+        // Unknown count: the popup line simply never appears.
+      });
+  };
+
+  const row = (
+    <div className="flex flex-col w-full" onMouseEnter={isMeeting ? handleMouseEnter : undefined}>
       <div className="flex items-center w-full">
         {isMeeting ? (
           <div className="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full mr-2 bg-gray-100">
@@ -97,6 +133,30 @@ export function MeetingFileItem({
         </div>
       )}
     </div>
+  );
+
+  if (!isMeeting) return row;
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{row}</TooltipTrigger>
+      <TooltipContent
+        side="right"
+        // The popup never takes the mouse: it must not stand between the
+        // cursor and the Edit/Delete buttons the row reveals on hover.
+        className="max-w-xs pointer-events-none"
+      >
+        <div className="flex flex-col gap-0.5 text-left">
+          {/* The full title, without the row's two-line clamp. */}
+          <span className="font-medium break-words">{title}</span>
+          {date && <span>{date}</span>}
+          {duration && <span>{duration}</span>}
+          {speakerCount !== null && speakerCount > 0 && (
+            <span>{t('sidebar.popup.speakers', { count: speakerCount })}</span>
+          )}
+        </div>
+      </TooltipContent>
+    </Tooltip>
   );
 }
 

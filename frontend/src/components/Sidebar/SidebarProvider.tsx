@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { usePathname, useRouter } from 'next/navigation';
 import { invoke } from '@tauri-apps/api/core';
 import { useRecordingState } from '@/contexts/RecordingStateContext';
-import type { SummaryProcessResponse } from '@/types';
+import type { MeetingSpeaker, SummaryProcessResponse } from '@/types';
 
 
 
@@ -70,6 +70,13 @@ interface SidebarContextType {
   stopSummaryPolling: (meetingId: string, processId?: string) => void;
   // Refetch meetings from backend
   refetchMeetings: () => Promise<void>;
+  /**
+   * Number of diarized speakers of a meeting, or `null` while unknown (no
+   * diarization, or the backend failed). Resolved on the hover popup's first
+   * ask and cached for the sidebar session, so repeated hovers and list
+   * scrolling never re-request.
+   */
+  loadSpeakerCount: (meetingId: string) => Promise<number | null>;
 
 }
 
@@ -97,6 +104,10 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
   const [serverAddress, setServerAddress] = useState('');
   const [transcriptServerAddress, setTranscriptServerAddress] = useState('');
   const summaryPollsRef = React.useRef(new Map<string, SummaryPoll>());
+  // Speaker counts for the hover popup, resolved lazily on first hover and
+  // kept for the lifetime of the sidebar. The promises themselves are cached,
+  // so concurrent asks for one meeting share a single request.
+  const speakerCountPromisesRef = React.useRef(new Map<string, Promise<number | null>>());
 
   // Use recording state from RecordingStateContext (single source of truth)
   const { isRecording } = useRecordingState();
@@ -154,6 +165,18 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
       setTranscriptServerAddress('http://127.0.0.1:8178/stream');
     };
     fetchSettings();
+  }, []);
+
+  const loadSpeakerCount = React.useCallback((meetingId: string) => {
+    const cached = speakerCountPromisesRef.current.get(meetingId);
+    if (cached) return cached;
+    const request = invoke<MeetingSpeaker[]>('api_get_meeting_speakers', { meetingId })
+      .then((speakers) => (Array.isArray(speakers) ? speakers.length : null))
+      // A failed request leaves the count unknown for the session: the popup
+      // line stays out and the row does not retry on every hover.
+      .catch(() => null);
+    speakerCountPromisesRef.current.set(meetingId, request);
+    return request;
   }, []);
 
   const baseItems: SidebarItem[] = [
@@ -353,6 +376,7 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
       startSummaryPolling,
       stopSummaryPolling,
       refetchMeetings: fetchMeetings,
+      loadSpeakerCount,
 
     }}>
       {children}

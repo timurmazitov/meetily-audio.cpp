@@ -51,6 +51,7 @@ const Sidebar: React.FC = () => {
     meetings,
     setMeetings,
     refetchMeetings,
+    loadSpeakerCount,
     serverAddress
   } = useSidebar();
 
@@ -628,10 +629,12 @@ const Sidebar: React.FC = () => {
           ) : (
             <MeetingFileItem
               title={item.title}
+              meetingId={isMeetingItem ? item.id : null}
               recordedAt={item.recordedAt ?? null}
               durationSeconds={item.durationSeconds ?? null}
               matchContext={hasTranscriptMatch ? matchingResult.matchContext : null}
               isMeeting={isMeetingItem}
+              loadSpeakerCount={loadSpeakerCount}
               onEdit={() => handleEditStart(item.id, item.title, item.recordedAt ?? null)}
               onDelete={() => setDeleteModalState({ isOpen: true, itemId: item.id })}
             />
