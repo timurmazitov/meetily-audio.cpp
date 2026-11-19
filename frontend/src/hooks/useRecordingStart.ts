@@ -12,6 +12,7 @@ import {
   type ModelWithStatus,
 } from '@/lib/transcription-model-readiness';
 import { toast } from 'sonner';
+import i18n from '@/i18n';
 
 const TRANSCRIPTION_RUNTIME_START_ERROR_CODE = 'TRANSCRIPTION_RUNTIME_INITIALIZATION_FAILED';
 const TRANSCRIPTION_RUNTIME_USER_MESSAGE = 'Speech recognition could not initialize. Restart Samobranka. If the problem continues, repair or reinstall the app.';
@@ -128,13 +129,13 @@ export function useRecordingStart(
       if (!modelReady) {
         const isDownloading = await checkIfModelDownloading();
         if (isDownloading) {
-          toast.info('Model download in progress', {
-            description: 'Please wait for the transcription model to finish downloading before recording.',
+          toast.info(i18n.t('toasts.recording.downloadInProgress'), {
+            description: i18n.t('toasts.recording.downloadInProgressDescription'),
             duration: 5000,
           });
         } else {
-          toast.error('Transcription model not ready', {
-            description: 'Please download a transcription model before recording.',
+          toast.error(i18n.t('toasts.recording.modelNotReady'), {
+            description: i18n.t('toasts.recording.modelNotReadyDescription'),
             duration: 5000,
           });
           showModal?.('modelSelector', 'Transcription model setup required');
@@ -185,7 +186,7 @@ export function useRecordingStart(
 
       const isRuntimeError = isTranscriptionRuntimeStartError(error);
       if (errorMsg.includes('Recording start timed out')) {
-        toast.error('Recording start timed out — please try again');
+        toast.error(i18n.t('toasts.recording.startTimedOut'));
       }
 
       setStatus(RecordingStatus.ERROR, isRuntimeError
@@ -215,13 +216,13 @@ export function useRecordingStart(
           if (!modelReady) {
             const isDownloading = await checkIfModelDownloading();
             if (isDownloading) {
-              toast.info('Model download in progress', {
-                description: 'Please wait for the transcription model to finish downloading before recording.',
+              toast.info(i18n.t('toasts.recording.downloadInProgress'), {
+                description: i18n.t('toasts.recording.downloadInProgressDescription'),
                 duration: 5000,
               });
             } else {
-              toast.error('Transcription model not ready', {
-                description: 'Please download a transcription model before recording.',
+              toast.error(i18n.t('toasts.recording.modelNotReady'), {
+                description: i18n.t('toasts.recording.modelNotReadyDescription'),
                 duration: 5000,
               });
               showModal?.('modelSelector', 'Transcription model setup required');
@@ -268,7 +269,7 @@ export function useRecordingStart(
                 ? TRANSCRIPTION_RUNTIME_USER_MESSAGE
                 : errorMsg);
               if (!isRuntimeError) {
-                alert(`Failed to start recording.\n\n${errorMsg}`);
+                alert(`${i18n.t('toasts.recording.alertFailed')}\n\n${errorMsg}`);
               }
             }
           } finally {
@@ -310,13 +311,13 @@ export function useRecordingStart(
       if (!modelReady) {
         const isDownloading = await checkIfModelDownloading();
         if (isDownloading) {
-          toast.info('Model download in progress', {
-            description: 'Please wait for the transcription model to finish downloading before recording.',
+          toast.info(i18n.t('toasts.recording.downloadInProgress'), {
+            description: i18n.t('toasts.recording.downloadInProgressDescription'),
             duration: 5000,
           });
         } else {
-          toast.error('Transcription model not ready', {
-            description: 'Please download a transcription model before recording.',
+          toast.error(i18n.t('toasts.recording.modelNotReady'), {
+            description: i18n.t('toasts.recording.modelNotReadyDescription'),
             duration: 5000,
           });
           showModal?.('modelSelector', 'Transcription model setup required');
@@ -362,7 +363,7 @@ export function useRecordingStart(
             ? TRANSCRIPTION_RUNTIME_USER_MESSAGE
             : errorMsg);
           if (!isRuntimeError) {
-            alert(`Failed to start recording.\n\n${errorMsg}`);
+            alert(`${i18n.t('toasts.recording.alertFailed')}\n\n${errorMsg}`);
           }
         }
       } finally {

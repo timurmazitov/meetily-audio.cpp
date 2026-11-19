@@ -72,7 +72,14 @@
     "meetingDateTime": "Meeting Date and Time",
     "meetingDateHint": "Leave empty if the meeting date is unknown.",
     "editMeetingAria": "Edit meeting details",
-    "deleteMeetingAria": "Delete meeting"
+    "deleteMeetingAria": "Delete meeting",
+    "matchPrefix": "Match:",
+    "toast": {
+      "deleteFailed": "Failed to delete meeting",
+      "titleEmpty": "Meeting title cannot be empty",
+      "invalidDateTime": "Please enter a valid date and time",
+      "updateFailed": "Failed to update meeting details"
+    }
   },
   "about": {
     "title": "About Samobranka",
@@ -847,6 +854,104 @@
       "downloadModelFailed": "Failed to download model",
       "deleteModelFailed": "Failed to delete model",
       "modelDeleted": "Model {{model}} deleted"
+    }
+  },
+  "toasts": {
+    "recording": {
+      "downloadInProgress": "Model download in progress",
+      "downloadInProgressDescription": "Please wait for the transcription model to finish downloading before recording.",
+      "modelNotReady": "Transcription model not ready",
+      "modelNotReadyDescription": "Please download a transcription model before recording.",
+      "startTimedOut": "Recording start timed out — please try again",
+      "alertFailed": "Failed to start recording.",
+      "saved": "Recording saved successfully!",
+      "segmentsSaved": "{{count}} transcript segments saved.",
+      "saveFailed": "Failed to save meeting"
+    },
+    "summaryLanguage": {
+      "pinned": "Could not apply default summary language",
+      "pinnedDescriptionRecording": "The meeting was saved, but the default summary language was not applied.",
+      "pinnedDescriptionImported": "The imported meeting was saved, but the default summary language was not applied.",
+      "pinnedDescriptionRecovered": "The recovered meeting was saved, but the default summary language was not applied.",
+      "detect": "Could not detect summary language",
+      "detectDescription": "The meeting was saved, but Auto could not detect the summary language."
+    },
+    "summary": {
+      "loadLanguageFailed": "Could not load saved summary language",
+      "loadLanguageFailedDescription": "Using Auto for this generation.",
+      "bilingual": "Bilingual transcript detected",
+      "bilingualDescription": "Pick a summary language manually if Auto chooses the wrong fallback.",
+      "generating": "Generating summary...",
+      "regenerating": "Regenerating summary...",
+      "usingModel": "Using {{provider}}/{{model}}",
+      "failedGenerate": "Failed to generate summary",
+      "failedRegenerate": "Failed to regenerate summary",
+      "generationFailed": "Summary generation failed",
+      "regenerationFailed": "Summary regeneration failed",
+      "noTranscriptText": "No transcript text available. Please add some text first.",
+      "cancelledReload": "Summary generation was cancelled, but the saved summary could not be reloaded. Please reopen this meeting.",
+      "reloadFailedSuffix": "{{error}}. The saved summary could not be reloaded. Please reopen this meeting.",
+      "restoredSuffix": "{{error}}. Your previous summary has been restored.",
+      "noContentCompleted": "Summary generation completed without visible content. Please retry.",
+      "generatedWithFallback": "Summary generated with fallback",
+      "normalizationFallbackDescription": "English normalization failed, so the original sanitized summary was kept.",
+      "generated": "Summary generated successfully!",
+      "generatedDescription": "Your meeting summary is ready",
+      "generatedDescriptionReasoning": "Your meeting summary is ready. Model reasoning was filtered out of the notes.",
+      "fetchForSummaryFailed": "Failed to fetch transcripts for summary generation",
+      "modelConfigLoading": "Loading model configuration, please wait...",
+      "noTranscripts": "No transcripts available for summary",
+      "noTranscriptsRegeneration": "No transcripts available for summary regeneration",
+      "noOllamaModels": "No Ollama models found. Please download gemma3:1b from Model Settings.",
+      "noBuiltInModel": "No built-in AI model selected. Please select a model in settings.",
+      "builtInNotReady": "Built-in AI model is not ready. Please check model settings.",
+      "validateModelFailed": "Failed to validate summary model. Please check model settings.",
+      "stopped": "Summary generation stopped",
+      "stoppedDescription": "You can generate a new summary anytime",
+      "alreadyFinishing": "Summary is already finishing",
+      "alreadyFinishingDescription": "Waiting for the latest result.",
+      "failedStop": "Failed to stop summary generation",
+      "failedStopDescription": "Generation is still running; waiting for its latest status.",
+      "failedRetry": "Summary generation failed. Please retry.",
+      "processing": "Processing transcript...",
+      "completed": "Summary completed",
+      "errorStatus": "Error generating summary"
+    },
+    "copy": {
+      "fetchForCopyFailed": "Failed to fetch transcripts for copying",
+      "noTranscriptsToCopy": "No transcripts available to copy",
+      "noSummaryContentCopy": "No summary content available to copy",
+      "noSummaryContentExport": "No summary content available to export",
+      "failedCopySummary": "Failed to copy summary",
+      "failedExportSummary": "Failed to export summary",
+      "summaryCopied": "Summary copied to clipboard"
+    },
+    "modelConfig": {
+      "saved": "Summary settings saved successfully",
+      "saveFailed": "Failed to save summary settings",
+      "saveFailedUnknown": "Failed to save model config: Unknown error"
+    },
+    "meetingData": {
+      "changesSaved": "Changes saved successfully",
+      "changesSaveFailed": "Failed to save changes"
+    },
+    "templates": {
+      "selected": "Template selected",
+      "selectedDescription": "Using \"{{name}}\" template for summary generation"
+    },
+    "speakerNames": {
+      "reset": "Speaker names were reset"
+    },
+    "modal": {
+      "modelReady": "Model ready! Closing window..."
+    },
+    "ollama": {
+      "downloaded": "Model {{name}} downloaded!",
+      "downloadedDescription": "Model is now ready to use",
+      "failed": "Download failed: {{name}}"
+    },
+    "diarization": {
+      "failed": "Diarization failed"
     }
   },
   "speakers": {
