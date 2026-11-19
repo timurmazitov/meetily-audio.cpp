@@ -584,7 +584,11 @@ test('an unreadable directory keeps No name and Create, and says so inside the l
 
   const options = pickerOptions(instance, 'speaker_0');
   expect(options[0]).toBe('No name');
-  expect(instanceText(speakerRow(instance, 'speaker_0'))).toContain('database is locked');
+  expect(instanceText(speakerRow(instance, 'speaker_0'))).toContain(
+    'Could not read the people directory.',
+  );
+  // The raw backend string is a diagnostic, not something to show a user.
+  expect(instanceText(speakerRow(instance, 'speaker_0'))).not.toContain('database is locked');
   expect(text(instance)).not.toContain('Create „');
 
   // Removing the name still works: a broken read is not a broken panel.

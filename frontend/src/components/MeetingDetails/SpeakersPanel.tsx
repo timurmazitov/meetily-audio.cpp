@@ -268,7 +268,8 @@ export function SpeakersPanel({
    *
    * A failed read is not fatal: the names list stays empty, `No name` and
    * "create from what was typed" keep working, and the error is shown inside
-   * the open picker.
+   * the open picker. The user sees a plain sentence; the backend detail stays
+   * in the diagnostic log.
    */
   const loadDirectory = useCallback(async () => {
     try {
@@ -277,8 +278,9 @@ export function SpeakersPanel({
       setDirectoryNames([...names].sort(comparePersonNames));
       setDirectoryError(null);
     } catch (error) {
+      console.warn('Failed to read the speaker directory:', error);
       setDirectoryNames([]);
-      setDirectoryError(String(error));
+      setDirectoryError('Could not read the people directory.');
     }
   }, []);
 
