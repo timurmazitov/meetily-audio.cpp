@@ -1,9 +1,12 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
 import { Database, AlertCircle, Loader2, CheckCircle2 } from 'lucide-react';
+import i18n, { type AppLanguageCode } from '@/i18n';
+import { formatMegabytes } from '@/lib/format-locale';
 
 interface HomebrewDatabaseDetectorProps {
   onImportSuccess: () => void;
@@ -17,6 +20,8 @@ const HOMEBREW_PATHS = [
 ];
 
 export function HomebrewDatabaseDetector({ onImportSuccess, onDecline }: HomebrewDatabaseDetectorProps) {
+  const { t } = useTranslation();
+  const language = i18n.language as AppLanguageCode;
   const [isChecking, setIsChecking] = useState(true);
   const [isImporting, setIsImporting] = useState(false);
   const [homebrewDbExists, setHomebrewDbExists] = useState(false);
@@ -61,7 +66,7 @@ export function HomebrewDatabaseDetector({ onImportSuccess, onDecline }: Homebre
         legacyDbPath: detectedPath,
       });
 
-      toast.success('Database imported successfully! Reloading...');
+      toast.success(t('dialogs.legacyDb.importedReloading'));
 
       // Wait 1 second for user to see success, then reload window to refresh all data
       setTimeout(() => {
@@ -69,7 +74,7 @@ export function HomebrewDatabaseDetector({ onImportSuccess, onDecline }: Homebre
       }, 1000);
     } catch (error) {
       console.error('Error importing database:', error);
-      toast.error(`Import failed: ${error}`);
+      toast.error(t('dialogs.legacyDb.importFailed', { reason: String(error) }));
       setIsImporting(false);
     }
   };
@@ -84,9 +89,7 @@ export function HomebrewDatabaseDetector({ onImportSuccess, onDecline }: Homebre
   }
 
   const formatFileSize = (bytes: number): string => {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    return formatMegabytes(bytes / (1024 * 1024), language);
   };
 
   return (
@@ -97,22 +100,22 @@ export function HomebrewDatabaseDetector({ onImportSuccess, onDecline }: Homebre
           <div className="flex items-center gap-2 mb-1">
             <AlertCircle className="h-4 w-4 text-blue-600" />
             <h3 className="text-sm font-semibold text-blue-900">
-              Previous Samobranka Installation Detected!
+              {t('dialogs.legacyDb.homebrew.title')}
             </h3>
           </div>
           <p className="text-sm text-blue-800 mb-2">
-            We found an existing database from your previous Samobranka installation (Python backend version).
+            {t('dialogs.legacyDb.homebrew.description')}
           </p>
           <div className="bg-white/50 rounded p-2 mb-3">
             <p className="text-xs text-blue-700 font-mono break-all">
               {detectedPath}
             </p>
             <p className="text-xs text-blue-600 mt-1">
-              Size: {formatFileSize(dbSize)}
+              {t('dialogs.legacyDb.size', { size: formatFileSize(dbSize) })}
             </p>
           </div>
           <p className="text-sm text-blue-800 mb-3">
-            Would you like to import your previous meetings, transcripts, and summaries?
+            {t('dialogs.legacyDb.homebrew.question')}
           </p>
           
           {/* Yes/No Buttons */}
@@ -125,12 +128,12 @@ export function HomebrewDatabaseDetector({ onImportSuccess, onDecline }: Homebre
               {isImporting ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  <span>Importing...</span>
+                  <span>{t('dialogs.legacyDb.importing')}</span>
                 </>
               ) : (
                 <>
                   <CheckCircle2 className="h-4 w-4" />
-                  <span>Yes, Import</span>
+                  <span>{t('dialogs.legacyDb.homebrew.confirm')}</span>
                 </>
               )}
             </button>
@@ -140,7 +143,7 @@ export function HomebrewDatabaseDetector({ onImportSuccess, onDecline }: Homebre
               disabled={isImporting}
               className="flex-1 px-4 py-2 border-2 border-blue-400 text-blue-700 rounded-lg hover:bg-blue-100 disabled:bg-gray-100 disabled:cursor-not-allowed transition-colors"
             >
-              No, Browse Manually
+              {t('dialogs.legacyDb.homebrew.decline')}
             </button>
           </div>
         </div>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
+import { useTranslation } from 'react-i18next';
 import {
   AUDIO_CPP_PROVIDER,
 } from '../lib/transcription-provider';
@@ -64,6 +65,7 @@ export function AudioCppModelManager({
   onModelSelect,
   autoSave = false,
 }: AudioCppModelManagerProps) {
+  const { t } = useTranslation();
   const [client, setClient] = useState<AudioCppModelClient | undefined>(injectedClient);
   const [models, setModels] = useState<AudioCppModelInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -158,7 +160,7 @@ export function AudioCppModelManager({
             setModels(prev => prev.map(model =>
               model.name === modelName ? { ...model, status: 'Missing' as AudioCppModelStatus } : model
             ));
-            toast.info(`${nameOf(modelName)} download cancelled`, { duration: 3000 });
+            toast.info(t('models.common.downloadCancelled', { name: nameOf(modelName) }), { duration: 3000 });
             return;
           }
 
@@ -191,8 +193,8 @@ export function AudioCppModelManager({
             model.name === modelName ? { ...model, status: 'Available' as AudioCppModelStatus } : model
           ));
 
-          toast.success(`${nameOf(modelName)} ready!`, {
-            description: 'Model downloaded and ready to use',
+          toast.success(t('models.common.modelReady', { name: nameOf(modelName) }), {
+            description: t('models.common.downloadedAndReady'),
             duration: 4000,
           });
         }),
@@ -207,7 +209,7 @@ export function AudioCppModelManager({
             model.name === modelName ? { ...model, status: { Error: error } as AudioCppModelStatus } : model
           ));
 
-          toast.error(`Failed to download ${nameOf(modelName)}`, {
+          toast.error(t('models.common.downloadFailedFor', { name: nameOf(modelName) }), {
             description: error,
             duration: 6000,
           });
@@ -225,7 +227,7 @@ export function AudioCppModelManager({
         registered.forEach(unlisten => unlisten());
         if (!disposed && failed) {
           const reason = failed.reason;
-          setError(reason instanceof Error ? reason.message : 'Failed to listen for model updates');
+          setError(reason instanceof Error ? reason.message : t('models.common.listeningFailed'));
           setLoading(false);
         }
         return;
@@ -281,7 +283,7 @@ export function AudioCppModelManager({
     void client.getDiagnostics()
       .then(report => {
         if (disposed) return;
-        setRuntimeError(report.available ? null : report.error ?? 'native library unavailable');
+        setRuntimeError(report.available ? null : report.error ?? t('models.audioCpp.nativeLibraryUnavailable'));
       })
       .catch(err => {
         // Diagnostics are advisory: an unanswered report must not turn into a
@@ -303,8 +305,8 @@ export function AudioCppModelManager({
         : model
     ));
 
-    toast.info(`Downloading ${nameOf(modelName)}...`, {
-      description: 'This may take a few minutes',
+    toast.info(t('models.common.downloadingToast', { name: nameOf(modelName) }), {
+      description: t('models.common.mayTakeMinutes'),
       duration: 5000,
     });
 
@@ -318,7 +320,7 @@ export function AudioCppModelManager({
       setModels(prev => prev.map(model =>
         model.name === modelName ? { ...model, status: { Error: message } } : model
       ));
-      toast.error(`Failed to download ${nameOf(modelName)}`, {
+      toast.error(t('models.common.downloadFailedFor', { name: nameOf(modelName) }), {
         description: message,
         duration: 6000,
       });
@@ -331,15 +333,15 @@ export function AudioCppModelManager({
     try {
       const outcome = await client.cancelDownload(modelName);
       if (outcome === 'pending') {
-        toast.info(`Cancelling ${nameOf(modelName)}...`, {
-          description: 'The download is still shutting down. Retry will be available when cleanup completes.',
+        toast.info(t('models.common.cancellingFor', { name: nameOf(modelName) }), {
+          description: t('models.common.cancellationPending'),
           duration: 4000,
         });
       }
     } catch (err) {
       clearCancellingModel(modelName);
       console.error('Failed to cancel audio.cpp model download:', err);
-      toast.error('Failed to cancel download', { description: String(err), duration: 4000 });
+      toast.error(t('models.common.failedToCancelDownload'), { description: String(err), duration: 4000 });
     }
   };
 
@@ -351,20 +353,20 @@ export function AudioCppModelManager({
       latestStatusByModelRef.current.delete(modelName);
       progressThrottleRef.current.delete(modelName);
       await refreshModels();
-      toast.success(`${name} deleted`, {
-        description: 'Model removed to free up space',
+      toast.success(t('models.common.modelDeleted', { name }), {
+        description: t('models.common.modelRemoved'),
         duration: 3000,
       });
     } catch (err) {
       console.error('Failed to delete audio.cpp model:', err);
-      toast.error(`Failed to delete ${name}`, { description: String(err), duration: 4000 });
+      toast.error(t('models.common.failedToDelete', { name }), { description: String(err), duration: 4000 });
     }
   };
 
   const selectModel = async (modelName: string) => {
     onModelSelect?.(modelName);
     const name = nameOf(modelName);
-    toast.success(`Switched to ${name}`, { duration: 3000 });
+    toast.success(t('models.common.switchedTo', { name }), { duration: 3000 });
 
     if (autoSave) {
       try {
@@ -375,7 +377,7 @@ export function AudioCppModelManager({
         });
       } catch (err) {
         console.error('Failed to save audio.cpp model selection:', err);
-        toast.error('Failed to save model selection', {
+        toast.error(t('models.common.failedToSaveSelection'), {
           description: err instanceof Error ? err.message : String(err),
           duration: 4000,
         });
@@ -404,7 +406,7 @@ export function AudioCppModelManager({
   if (error) {
     return (
       <div className={`bg-red-50 border border-red-200 rounded-lg p-4 ${className}`}>
-        <p className="text-sm text-red-800">Failed to load audio.cpp models</p>
+        <p className="text-sm text-red-800">{t('models.audioCpp.failedToLoadModels')}</p>
         <p className="text-xs text-red-600 mt-1">{error}</p>
       </div>
     );
@@ -419,11 +421,10 @@ export function AudioCppModelManager({
           title={runtimeError}
         >
           <p className="text-sm font-medium text-amber-900">
-            Diarization engine is unavailable on this system
+            {t('models.audioCpp.runtimeUnavailable')}
           </p>
           <p className="mt-1 text-xs text-amber-700">
-            The model can still be downloaded; speaker labels will start once the
-            native audio.cpp library is available.
+            {t('models.audioCpp.runtimeUnavailableDescription')}
           </p>
         </div>
       )}
@@ -451,7 +452,7 @@ export function AudioCppModelManager({
         onClick={() => { void client?.openModelsFolder(); }}
         className="text-xs text-gray-500 hover:text-gray-700 underline"
       >
-        Open models folder
+        {t('models.audioCpp.openModelsFolder')}
       </button>
     </div>
   );
@@ -483,6 +484,7 @@ function AudioCppModelCard({
   onCancel,
   onDelete,
 }: AudioCppModelCardProps) {
+  const { t } = useTranslation();
   const [isHovered, setIsHovered] = useState(false);
 
   const available = isAvailableStatus(model.status);
@@ -539,12 +541,12 @@ function AudioCppModelCard({
                 {isSelected ? (
                   <div className="flex items-center gap-1.5 text-blue-600">
                     <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                    <span className="text-xs font-medium">Selected</span>
+                    <span className="text-xs font-medium">{t('models.common.selected')}</span>
                   </div>
                 ) : (
                   <div className="flex items-center gap-1.5 text-green-600">
                     <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                    <span className="text-xs font-medium">Ready</span>
+                    <span className="text-xs font-medium">{t('models.common.ready')}</span>
                   </div>
                 )}
                 {isHovered && (
@@ -552,8 +554,8 @@ function AudioCppModelCard({
                       type="button"
                       onClick={(event) => { event.stopPropagation(); onDelete(); }}
                       className="text-gray-400 hover:text-red-600 transition-colors p-1"
-                      title="Delete model to free up space"
-                      aria-label={`Delete ${model.display_name}`}
+                      title={t('models.common.deleteModelTitle')}
+                      aria-label={t('models.common.deleteModelAria', { name: model.display_name })}
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -569,7 +571,7 @@ function AudioCppModelCard({
                 onClick={(event) => { event.stopPropagation(); onDownload(); }}
                 className="bg-blue-600 text-white px-3 py-1.5 rounded-md text-sm font-medium hover:bg-blue-700 transition-colors"
               >
-                {isError ? 'Retry' : 'Download'}
+                {isError ? t('models.common.retry') : t('models.common.download')}
               </button>
             )}
 
@@ -580,14 +582,14 @@ function AudioCppModelCard({
                   onClick={(event) => { event.stopPropagation(); onDelete(); }}
                   className="bg-orange-600 text-white px-3 py-1.5 rounded-md text-sm font-medium hover:bg-orange-700 transition-colors"
                 >
-                  Delete
+                  {t('common.delete')}
                 </button>
                 <button
                   type="button"
                   onClick={(event) => { event.stopPropagation(); onDownload(); }}
                   className="bg-blue-600 text-white px-3 py-1.5 rounded-md text-sm font-medium hover:bg-blue-700 transition-colors"
                 >
-                  Re-download
+                  {t('models.common.reDownload')}
                 </button>
               </div>
             )}
@@ -599,22 +601,22 @@ function AudioCppModelCard({
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
                 <span className="text-sm font-medium text-blue-600">
-                  {isCancelling ? 'Cancelling…' : 'Downloading...'}
+                  {isCancelling ? t('models.common.cancelling') : t('models.common.downloading')}
                 </span>
                 {!isCancelling && (
                   <span className="text-sm font-semibold text-blue-600">{Math.round(progress)}%</span>
                 )}
               </div>
               {isCancelling ? (
-                <span className="text-xs text-gray-500 font-medium px-2 py-1">Cancellation requested</span>
+                <span className="text-xs text-gray-500 font-medium px-2 py-1">{t('models.common.cancellationRequested')}</span>
               ) : (
                 <button
                   type="button"
                   onClick={(event) => { event.stopPropagation(); onCancel(); }}
                   className="text-xs text-gray-600 hover:text-red-600 font-medium transition-colors px-2 py-1 rounded hover:bg-red-50"
-                  title="Cancel download"
+                  title={t('models.common.cancelDownloadTitle')}
                 >
-                  Cancel
+                  {t('common.cancel')}
                 </button>
               )}
             </div>

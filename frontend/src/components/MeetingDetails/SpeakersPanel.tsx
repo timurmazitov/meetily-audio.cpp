@@ -34,14 +34,12 @@ import { diarizationClient as defaultDiarizationClient } from '@/lib/diarization
 import { comparePersonNames, foldPersonName, personNameKey } from '@/lib/person-sort';
 import { formatSpeakerDisplayLabel } from '@/lib/transcript-format';
 import type { MeetingSpeaker, SpeakerAssignment } from '@/types';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
 
 /** `speaker_0` → `Speaker 1`; anything else is shown as-is. */
 function displayLabel(label: string): string {
   return formatSpeakerDisplayLabel(label, undefined) ?? label;
-}
-
-function segmentCountLabel(count: number): string {
-  return `${count} ${count === 1 ? 'segment' : 'segments'}`;
 }
 
 interface SpeakerNamePickerProps {
@@ -84,6 +82,7 @@ function SpeakerNamePicker({
   disabled,
   onValueChange,
 }: SpeakerNamePickerProps) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
 
@@ -123,18 +122,18 @@ function SpeakerNamePicker({
           size="sm"
           role="combobox"
           aria-expanded={open}
-          aria-label={`Name for ${displayLabel(label)}`}
+          aria-label={t('speakers.nameFor', { speaker: displayLabel(label) })}
           disabled={disabled}
           className="w-full justify-between font-normal"
         >
-          <span className="truncate">{value ?? 'No name'}</span>
+          <span className="truncate">{value ?? t('speakers.noName')}</span>
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[250px] p-0" align="start">
         <Command shouldFilter={false}>
           <CommandInput
-            placeholder="Search people…"
+            placeholder={t('speakers.searchPeople')}
             value={query}
             onValueChange={setQuery}
           />
@@ -144,11 +143,11 @@ function SpeakerNamePicker({
                 <Check
                   className={`mr-2 h-4 w-4 ${value === null ? 'opacity-100' : 'opacity-0'}`}
                 />
-                <span className="truncate">No name</span>
+                <span className="truncate">{t('speakers.noName')}</span>
               </CommandItem>
               {canCreate && (
                 <CommandItem value={`__create__${trimmed}`} onSelect={() => choose(trimmed)}>
-                  <span className="truncate">Create „{trimmed}“</span>
+                  <span className="truncate">{t('speakers.createName', { name: trimmed })}</span>
                 </CommandItem>
               )}
               {matches.map((name) => {
@@ -170,7 +169,7 @@ function SpeakerNamePicker({
                       <span
                         data-testid="name-owner"
                         className="ml-auto shrink-0 text-xs text-muted-foreground"
-                        title={`Already assigned to ${owner}`}
+                        title={t('speakers.alreadyAssigned', { owner })}
                       >
                         {owner}
                       </span>
@@ -183,7 +182,7 @@ function SpeakerNamePicker({
               )}
               {matches.length === 0 && !canCreate && !directoryError && (
                 <div className="py-4 text-center text-sm text-muted-foreground">
-                  No people found.
+                  {t('speakers.noPeopleFound')}
                 </div>
               )}
             </CommandGroup>
@@ -222,6 +221,7 @@ export function SpeakersPanel({
   diarizationClient = defaultDiarizationClient,
   modelClient = audioCppClient,
 }: SpeakersPanelProps) {
+  const { t } = useTranslation();
   const [speakers, setSpeakers] = useState<MeetingSpeaker[]>([]);
   const [draft, setDraft] = useState<Record<string, string | null>>({});
   const [isLoading, setIsLoading] = useState(false);
@@ -280,7 +280,7 @@ export function SpeakersPanel({
     } catch (error) {
       console.warn('Failed to read the speaker directory:', error);
       setDirectoryNames([]);
-      setDirectoryError('Could not read the people directory.');
+      setDirectoryError(t('speakers.directoryUnavailable'));
     }
   }, []);
 
@@ -471,7 +471,7 @@ export function SpeakersPanel({
         meetingId,
         assignments,
       });
-      toast.success('Speaker names saved');
+      toast.success(i18n.t('speakers.saved'));
       // Close directly: `handleOpenChange` blocks while a save is in flight.
       resetDraft();
       onOpenChange(false);
@@ -514,10 +514,10 @@ export function SpeakersPanel({
         <SheetHeader>
           <SheetTitle className="flex items-center gap-2">
             <Users className="h-5 w-5" />
-            Speakers
+            {t('speakers.title')}
           </SheetTitle>
           <SheetDescription>
-            Give this meeting&apos;s speakers a name. Names are reused across meetings.
+            {t('speakers.description')}
           </SheetDescription>
         </SheetHeader>
 
@@ -525,7 +525,7 @@ export function SpeakersPanel({
           {isLoading ? (
             <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
-              Loading speakers…
+              {t('speakers.loading')}
             </div>
           ) : loadError ? (
             <div className="py-6 text-center text-sm text-red-600">{loadError}</div>
@@ -541,7 +541,7 @@ export function SpeakersPanel({
                   title={
                     hasDiarizationModel === false
                       ? DIARIZATION_UNAVAILABLE_HINT
-                      : 'Run speaker diarization for this meeting'
+                      : t('speakers.runTooltip')
                   }
                 >
                   {isDiarizing ? (
@@ -549,7 +549,7 @@ export function SpeakersPanel({
                   ) : (
                     <Sparkles className="mr-2 h-4 w-4" />
                   )}
-                  {isDiarizing ? 'Running diarization…' : 'Run diarization'}
+                  {isDiarizing ? t('speakers.running') : t('speakers.run')}
                 </Button>
               </div>
               {hasDiarizationModel === null && (
@@ -557,8 +557,7 @@ export function SpeakersPanel({
                   data-testid="diarization-catalog-warning"
                   className="text-xs text-muted-foreground"
                 >
-                  Could not read the diarization model list. A run will report the
-                  real status.
+                  {t('speakers.catalogWarning')}
                 </p>
               )}
               {diarizationReason && (
@@ -581,7 +580,7 @@ export function SpeakersPanel({
                   <div className="flex items-baseline justify-between gap-2">
                     <span className="text-sm font-medium">{displayLabel(row.label)}</span>
                     <span className="text-xs text-muted-foreground">
-                      {segmentCountLabel(row.segment_count)}
+                      {t('speakers.segmentCount', { count: row.segment_count })}
                     </span>
                   </div>
                   <SpeakerNamePicker
@@ -606,11 +605,11 @@ export function SpeakersPanel({
 
         <SheetFooter className="gap-2">
           <Button variant="outline" onClick={() => handleOpenChange(false)} disabled={isSaving}>
-            Cancel
+            {t('common.cancel')}
           </Button>
           <Button onClick={handleDone} disabled={isSaving || isLoading}>
             {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Done
+            {t('speakers.done')}
           </Button>
         </SheetFooter>
       </SheetContent>

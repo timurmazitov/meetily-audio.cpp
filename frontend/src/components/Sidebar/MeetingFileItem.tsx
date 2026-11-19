@@ -1,8 +1,10 @@
 'use client';
 
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { File, Pencil, Plus, Trash2 } from 'lucide-react';
 
+import type { AppLanguageCode } from '@/i18n';
 import { formatMeetingDateTime, formatMeetingDuration } from '@/lib/meeting-datetime';
 
 export interface MeetingFileItemProps {
@@ -36,8 +38,10 @@ export function MeetingFileItem({
   onEdit,
   onDelete,
 }: MeetingFileItemProps) {
-  const date = formatMeetingDateTime(recordedAt);
-  const duration = formatMeetingDuration(durationSeconds);
+  const { t, i18n } = useTranslation();
+  const language = i18n.language as AppLanguageCode;
+  const date = formatMeetingDateTime(recordedAt, language);
+  const duration = formatMeetingDuration(durationSeconds, language);
   const meta = [date, duration].filter((part): part is string => part !== null);
 
   return (
@@ -62,7 +66,7 @@ export function MeetingFileItem({
                   onEdit();
                 }}
                 className="hover:text-blue-600 p-1 rounded-md hover:bg-blue-50 flex-shrink-0"
-                aria-label="Edit meeting details"
+                aria-label={t('sidebar.editMeetingAria')}
               >
                 <Pencil className="w-4 h-4" />
               </button>
@@ -74,7 +78,7 @@ export function MeetingFileItem({
                   onDelete();
                 }}
                 className="hover:text-red-600 p-1 rounded-md hover:bg-red-50 flex-shrink-0"
-                aria-label="Delete meeting"
+                aria-label={t('sidebar.deleteMeetingAria')}
               >
                 <Trash2 className="w-4 h-4" />
               </button>
@@ -89,7 +93,7 @@ export function MeetingFileItem({
 
       {matchContext && (
         <div className="mt-1 ml-8 text-xs text-gray-500 bg-yellow-50 p-1.5 rounded border border-yellow-100 line-clamp-2">
-          <span className="font-medium text-yellow-600">Match:</span> {matchContext}
+          <span className="font-medium text-yellow-600">{t('sidebar.matchPrefix')}</span> {matchContext}
         </div>
       )}
     </div>

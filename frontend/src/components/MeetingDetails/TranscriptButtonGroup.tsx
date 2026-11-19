@@ -8,6 +8,8 @@ import { RetranscribeDialog } from './RetranscribeDialog';
 import { SpeakersPanel } from './SpeakersPanel';
 import type { DiarizationClient } from '@/lib/diarization';
 import type { AudioCppModelClient } from '@/lib/audiocpp';
+import { useTranslation } from 'react-i18next';
+import '@/i18n';
 
 
 interface TranscriptButtonGroupProps {
@@ -35,6 +37,7 @@ export function TranscriptButtonGroup({
   diarizationClient,
   diarizationModelClient,
 }: TranscriptButtonGroupProps) {
+  const { t } = useTranslation();
   const [showRetranscribeDialog, setShowRetranscribeDialog] = useState(false);
   const [showSpeakersPanel, setShowSpeakersPanel] = useState(false);
 
@@ -56,10 +59,10 @@ export function TranscriptButtonGroup({
             onCopyTranscript();
           }}
           disabled={transcriptCount === 0}
-          title={transcriptCount === 0 ? 'No transcript available' : 'Copy Transcript'}
+          title={transcriptCount === 0 ? t('transcript.noTranscript') : t('transcript.copyTooltip')}
         >
           <Copy />
-          <span className="hidden @[22rem]:inline">Copy</span>
+          <span className="hidden @[22rem]:inline">{t('common.copy')}</span>
         </Button>
 
         <Button
@@ -70,10 +73,10 @@ export function TranscriptButtonGroup({
             onExportTranscript();
           }}
           disabled={transcriptCount === 0}
-          title={transcriptCount === 0 ? 'No transcript available' : 'Export Transcript'}
+          title={transcriptCount === 0 ? t('transcript.noTranscript') : t('transcript.exportTitle')}
         >
           <Download />
-          <span className="hidden @[22rem]:inline">Export</span>
+          <span className="hidden @[22rem]:inline">{t('transcript.exportButton')}</span>
         </Button>
 
         <Button
@@ -83,10 +86,10 @@ export function TranscriptButtonGroup({
           onClick={() => {
             onOpenMeetingFolder();
           }}
-          title="Open Recording Folder"
+          title={t('transcript.openRecordingFolder')}
         >
           <FolderOpen className="@[22rem]:mr-2" size={18} />
-          <span className="hidden @[22rem]:inline">Recording</span>
+          <span className="hidden @[22rem]:inline">{t('transcript.recording')}</span>
         </Button>
 
         <Button
@@ -96,10 +99,10 @@ export function TranscriptButtonGroup({
           onClick={() => {
             setShowSpeakersPanel(true);
           }}
-          title="Speakers"
+          title={t('speakers.title')}
         >
           <Users size={18} />
-          <span className="hidden @[22rem]:inline">Speakers</span>
+          <span className="hidden @[22rem]:inline">{t('speakers.title')}</span>
         </Button>
 
         {meetingId && meetingFolderPath && (
@@ -110,10 +113,10 @@ export function TranscriptButtonGroup({
             onClick={() => {
               setShowRetranscribeDialog(true);
             }}
-            title="Retranscribe to enhance your recorded audio"
+            title={t('transcript.enhanceTitle')}
           >
             <RefreshCw className="@[22rem]:mr-2" size={18} />
-            <span className="hidden @[22rem]:inline">Enhance</span>
+            <span className="hidden @[22rem]:inline">{t('transcript.enhance')}</span>
           </Button>
         )}
       </ButtonGroup>

@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { AlertTriangle, Mic, Speaker, RefreshCw } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { invoke } from '@tauri-apps/api/core';
@@ -17,6 +18,7 @@ export function PermissionWarning({
   onRecheck,
   isRechecking = false
 }: PermissionWarningProps) {
+  const { t } = useTranslation();
   const isLinux = useIsLinux();
 
   // Don't show on Linux - permission handling is not needed
@@ -61,7 +63,7 @@ export function PermissionWarning({
             <div className="flex items-center gap-2">
               {!hasMicrophone && <Mic className="h-4 w-4" />}
               {!hasSystemAudio && <Speaker className="h-4 w-4" />}
-              {!hasMicrophone && !hasSystemAudio ? 'Permissions Required' : !hasMicrophone ? 'Microphone Permission Required' : 'System Audio Permission Required'}
+              {!hasMicrophone && !hasSystemAudio ? t('warnings.permissions.bothTitle') : !hasMicrophone ? t('warnings.permissions.microphoneTitle') : t('warnings.permissions.systemAudioTitle')}
             </div>
           </AlertTitle>
           {/* Action Buttons */}
@@ -72,7 +74,7 @@ export function PermissionWarning({
                 className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-amber-600 hover:bg-amber-700 rounded-md transition-colors"
               >
                 <Mic className="h-4 w-4" />
-                Open Microphone Settings
+                {t('warnings.permissions.openMicrophoneSettings')}
               </button>
             )}
             {isMacOS && !hasSystemAudio && (
@@ -81,7 +83,7 @@ export function PermissionWarning({
                 className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors"
               >
                 <Speaker className="h-4 w-4" />
-                Open Screen Recording Settings
+                {t('warnings.permissions.openScreenRecordingSettings')}
               </button>
             )}
             <button
@@ -90,7 +92,7 @@ export function PermissionWarning({
               className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-amber-900 bg-amber-100 hover:bg-amber-200 rounded-md transition-colors disabled:opacity-50"
             >
               <RefreshCw className={`h-4 w-4 ${isRechecking ? 'animate-spin' : ''}`} />
-              Recheck
+              {t('warnings.permissions.recheck')}
             </button>
           </div>
           <AlertDescription className="text-amber-800 mt-2">
@@ -98,14 +100,14 @@ export function PermissionWarning({
             {!hasMicrophone && (
               <>
                 <p className="mb-3">
-                  Samobranka needs access to your microphone to record meetings. No microphone devices were detected.
+                  {t('warnings.permissions.microphoneDescription')}
                 </p>
                 <div className="space-y-2 text-sm mb-4">
-                  <p className="font-medium">Please check:</p>
+                  <p className="font-medium">{t('warnings.permissions.microphoneCheckTitle')}</p>
                   <ul className="list-disc list-inside ml-2 space-y-1">
-                    <li>Your microphone is connected and powered on</li>
-                    <li>Microphone permission is granted in System Settings</li>
-                    <li>No other app is exclusively using the microphone</li>
+                    <li>{t('warnings.permissions.microphoneCheckConnected')}</li>
+                    <li>{t('warnings.permissions.microphoneCheckPermission')}</li>
+                    <li>{t('warnings.permissions.microphoneCheckBusy')}</li>
                   </ul>
                 </div>
               </>
@@ -116,16 +118,16 @@ export function PermissionWarning({
               <>
                 <p className="mb-3">
                   {hasMicrophone
-                    ? 'System audio capture is not available. You can still record with your microphone, but computer audio won\'t be captured.'
-                    : 'System audio capture is also not available.'}
+                    ? t('warnings.permissions.systemAudioDescriptionWithMicrophone')
+                    : t('warnings.permissions.systemAudioDescription')}
                 </p>
                 {isMacOS && (
                   <div className="space-y-2 text-sm mb-4">
-                    <p className="font-medium">To enable system audio on macOS:</p>
+                    <p className="font-medium">{t('warnings.permissions.macOSEnableTitle')}</p>
                     <ul className="list-disc list-inside ml-2 space-y-1">
-                      <li>Install a virtual audio device (e.g., BlackHole 2ch)</li>
-                      <li>Grant Screen Recording permission to Samobranka</li>
-                      <li>Configure your audio routing in Audio MIDI Setup</li>
+                      <li>{t('warnings.permissions.macOSInstallVirtualDevice')}</li>
+                      <li>{t('warnings.permissions.macOSGrantScreenRecording')}</li>
+                      <li>{t('warnings.permissions.macOSConfigureRouting')}</li>
                     </ul>
                   </div>
                 )}

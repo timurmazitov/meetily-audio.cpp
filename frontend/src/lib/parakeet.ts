@@ -1,4 +1,7 @@
 // Types for Parakeet (NVIDIA NeMo) integration
+import i18n, { type AppLanguageCode } from '@/i18n';
+import { formatMegabytes } from '@/lib/format-locale';
+
 export interface ParakeetModelInfo {
   name: string;
   path: string;
@@ -117,8 +120,19 @@ export function getModelDisplayName(modelName: string): string {
 }
 
 // Get model display info (icon, tagline, etc.)
+// The taglines are looked up per call so a language switch is reflected without
+// a reload; the config keeps the English text as the source of truth.
+const TAGLINE_KEYS: Record<string, string> = {
+  'parakeet-tdt-0.6b-v3-int8': 'models.parakeet.tagline.v3',
+  'parakeet-tdt-0.6b-v2-int8': 'models.parakeet.tagline.v2',
+  'parakeet-tdt-0.6b-v3-fp32': 'models.parakeet.tagline.v3FullPrecision',
+};
+
 export function getModelDisplayInfo(modelName: string): ModelDisplayInfo | null {
-  return MODEL_DISPLAY_CONFIG[modelName] || null;
+  const info = MODEL_DISPLAY_CONFIG[modelName];
+  if (!info) return null;
+  const taglineKey = TAGLINE_KEYS[modelName];
+  return taglineKey ? { ...info, tagline: i18n.t(taglineKey) } : info;
 }
 
 export function getStatusColor(status: ModelStatus): string {
@@ -130,10 +144,7 @@ export function getStatusColor(status: ModelStatus): string {
 }
 
 export function formatFileSize(sizeMb: number): string {
-  if (sizeMb >= 1000) {
-    return `${(sizeMb / 1000).toFixed(1)}GB`;
-  }
-  return `${sizeMb}MB`;
+  return formatMegabytes(sizeMb, i18n.language as AppLanguageCode);
 }
 
 // Helper function to check if model is quantized
@@ -145,11 +156,11 @@ export function isQuantizedModel(modelName: string): boolean {
 export function getModelPerformanceBadge(quantization: QuantizationType): { label: string; color: string } {
   switch (quantization) {
     case 'FP32':
-      return { label: 'Full Precision', color: 'blue' };
+      return { label: i18n.t('models.parakeet.badge.fullPrecision'), color: 'blue' };
     case 'Int8':
-      return { label: 'Int8 Quantized', color: 'green' };
+      return { label: i18n.t('models.parakeet.badge.int8Quantized'), color: 'green' };
     default:
-      return { label: 'Standard', color: 'gray' };
+      return { label: i18n.t('models.parakeet.badge.standard'), color: 'gray' };
   }
 }
 

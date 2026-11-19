@@ -1,3 +1,6 @@
+import i18n, { type AppLanguageCode } from '@/i18n';
+import { formatMegabytes } from '@/lib/format-locale';
+
 /**
  * Types and Tauri command wrappers for the audio.cpp (GigaAM + Nemotron)
  * model manager.
@@ -102,7 +105,9 @@ export const AUDIOCPP_EVENTS = {
 
 /** Task label shown in the model manager. */
 export function taskLabel(task: AudioCppModelTask): string {
-  return task === 'asr' ? 'Transcription' : 'Diarization';
+  return task === 'asr'
+    ? i18n.t('models.audioCpp.taskTranscription')
+    : i18n.t('models.audioCpp.taskDiarization');
 }
 
 /** Whether a status value represents an in-flight download. */
@@ -124,10 +129,7 @@ export function isAvailableStatus(status: AudioCppModelStatus): boolean {
 
 /** Human-readable size, matching the other model managers. */
 export function formatModelSize(sizeMb: number): string {
-  if (sizeMb >= 1000) {
-    return `${(sizeMb / 1000).toFixed(1)}GB`;
-  }
-  return `${sizeMb}MB`;
+  return formatMegabytes(sizeMb, i18n.language as AppLanguageCode);
 }
 
 /** Unlisten handle returned by an event subscription. */

@@ -9,6 +9,7 @@ import { recordingService } from '@/services/recordingService';
 import { indexedDBService } from '@/services/indexedDBService';
 import { formatTranscriptText } from '@/lib/transcript-format';
 import { buildExportFileName, exportFileWithDialog } from '@/lib/export-file';
+import i18n from '@/i18n';
 
 interface TranscriptContextType {
   transcripts: Transcript[];
@@ -29,6 +30,9 @@ const TranscriptContext = createContext<TranscriptContextType | undefined>(undef
 
 export function TranscriptProvider({ children }: { children: ReactNode }) {
   const [transcripts, setTranscripts] = useState<Transcript[]>([]);
+  // `+ New Call` is a sentinel, not copy: `src/lib/export-file.ts` compares
+  // against it to keep the placeholder out of export file names. It stays
+  // English for that reason and is never shown as a finished meeting's name.
   const [meetingTitle, setMeetingTitle] = useState('+ New Call');
   const [currentMeetingId, setCurrentMeetingId] = useState<string | null>(null);
 
@@ -109,7 +113,9 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
             const meetingName = await recordingService.getRecordingMeetingName();
 
             // Use a better fallback that matches the backend's naming pattern
-            const effectiveTitle = meetingName || `Meeting ${new Date().toISOString().slice(0, 19).replace('T', '_').replace(/:/g, '-')}`;
+            const effectiveTitle = meetingName || i18n.t('recording.fallbackMeetingTitle', {
+              timestamp: new Date().toISOString().slice(0, 19).replace('T', '_').replace(/:/g, '-')
+            });
 
             // Initialize meeting metadata in IndexedDB
             await indexedDBService.saveMeetingMetadata({
@@ -341,7 +347,7 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
         console.log('✅ MAIN transcript listener setup complete');
       } catch (error) {
         console.error('❌ Failed to setup MAIN transcript listener:', error);
-        alert('Failed to setup transcript listener. Check console for details.');
+        alert(i18n.t('errors.transcriptListenerFailed'));
       }
     };
 
@@ -461,14 +467,14 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
     const fullTranscript = formatTranscriptText(transcripts);
     navigator.clipboard.writeText(fullTranscript);
 
-    toast.success("Transcript copied to clipboard");
+    toast.success(i18n.t('recording.transcriptCopied'));
   }, [transcripts]);
 
   // Export transcript to a file via the native save dialog.
   // The file content is identical to what Copy puts on the clipboard.
   const exportTranscript = useCallback(async () => {
     if (!transcripts.length) {
-      toast.error('No transcripts available to export');
+      toast.error(i18n.t('errors.noTranscriptsToExport'));
       return;
     }
 

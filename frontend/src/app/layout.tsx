@@ -10,6 +10,8 @@ import "sonner/dist/styles.css"
 import { useState, useEffect, useCallback } from 'react'
 import { listen, UnlistenFn } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
+import { useTranslation } from 'react-i18next'
+import { LanguageProvider, AppLanguageGate } from '@/contexts/LanguageContext'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { RecordingStateProvider } from '@/contexts/RecordingStateContext'
 import { OllamaDownloadProvider } from '@/contexts/OllamaDownloadContext'
@@ -59,6 +61,7 @@ export default function RootLayout({
 }: {
   children: React.ReactNode
 }) {
+  const { t } = useTranslation()
   const [showOnboarding, setShowOnboarding] = useState(false)
   const [onboardingCompleted, setOnboardingCompleted] = useState(false)
 
@@ -103,8 +106,8 @@ export default function RootLayout({
       console.log('[Layout] Received request-recording-toggle from tray');
 
       if (showOnboarding) {
-        toast.error("Please complete setup first", {
-          description: "You need to finish onboarding before you can start recording."
+        toast.error(t('layout.onboardingRequired'), {
+          description: t('layout.onboardingRequiredDescription')
         });
       } else {
         // If in main app, forward to useRecordingStart via window event
@@ -116,7 +119,7 @@ export default function RootLayout({
     return () => {
       unlisten.then(fn => fn());
     };
-  }, [showOnboarding]);
+  }, [showOnboarding, t]);
 
   // Handle file drop for audio import
   const handleFileDrop = useCallback((paths: string[]) => {
@@ -131,11 +134,11 @@ export default function RootLayout({
       setImportFilePath(audioFile);
       setShowImportDialog(true);
     } else if (paths.length > 0) {
-      toast.error('Please drop an audio file', {
-        description: `Supported formats: ${getAudioFormatsDisplayList()}`
+      toast.error(t('layout.dropAudioFile'), {
+        description: t('layout.supportedFormats', { formats: getAudioFormatsDisplayList() })
       });
     }
-  }, []);
+  }, [t]);
 
   // Listen for drag-drop events
   useEffect(() => {
@@ -212,48 +215,51 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${sourceSans3.variable} font-sans antialiased`}>
-        <RecordingStateProvider>
-          <TranscriptProvider>
-            <ConfigProvider>
-              <OllamaDownloadProvider>
-                <OnboardingProvider>
-                  <UpdateCheckProvider>
-                    <SidebarProvider>
-                      <TooltipProvider>
-                        <RecordingPostProcessingProvider>
-                          <ImportDialogProvider onOpen={handleOpenImportDialog}>
-                            {/* Download progress toast provider - listens for background downloads */}
-                            <DownloadProgressToastProvider />
+        <LanguageProvider>
+          <AppLanguageGate>
+            <RecordingStateProvider>
+              <TranscriptProvider>
+                <ConfigProvider>
+                  <OllamaDownloadProvider>
+                    <OnboardingProvider>
+                      <UpdateCheckProvider>
+                        <SidebarProvider>
+                          <TooltipProvider>
+                            <RecordingPostProcessingProvider>
+                              <ImportDialogProvider onOpen={handleOpenImportDialog}>
+                                {/* Download progress toast provider - listens for background downloads */}
+                                <DownloadProgressToastProvider />
 
-                            {/* Show onboarding or main app */}
-                            {showOnboarding ? (
-                              <OnboardingFlow onComplete={handleOnboardingComplete} />
-                            ) : (
-                              <div className="flex">
-                                <Sidebar />
-                                <MainContent>{children}</MainContent>
-                              </div>
-                            )}
-                            {/* Import audio overlay and dialog */}
-                            <ImportDropOverlay visible={showDropOverlay} />
-                            <ImportDialogSection
-                              showImportDialog={showImportDialog}
-                              handleImportDialogClose={handleImportDialogClose}
-                              importFilePath={importFilePath}
-                            />
-                          </ImportDialogProvider>
-                        </RecordingPostProcessingProvider>
-                      </TooltipProvider>
-                    </SidebarProvider>
-                  </UpdateCheckProvider>
-                </OnboardingProvider>
+                                {/* Show onboarding or main app */}
+                                {showOnboarding ? (
+                                  <OnboardingFlow onComplete={handleOnboardingComplete} />
+                                ) : (
+                                  <div className="flex">
+                                    <Sidebar />
+                                    <MainContent>{children}</MainContent>
+                                  </div>
+                                )}
+                                {/* Import audio overlay and dialog */}
+                                <ImportDropOverlay visible={showDropOverlay} />
+                                <ImportDialogSection
+                                  showImportDialog={showImportDialog}
+                                  handleImportDialogClose={handleImportDialogClose}
+                                  importFilePath={importFilePath}
+                                />
+                              </ImportDialogProvider>
+                            </RecordingPostProcessingProvider>
+                          </TooltipProvider>
+                        </SidebarProvider>
+                      </UpdateCheckProvider>
+                    </OnboardingProvider>
+                  </OllamaDownloadProvider>
+                </ConfigProvider>
+              </TranscriptProvider>
+            </RecordingStateProvider>
 
-              </OllamaDownloadProvider>
-            </ConfigProvider>
-          </TranscriptProvider>
-        </RecordingStateProvider>
-
-        <Toaster position="bottom-center" richColors closeButton />
+            <Toaster position="bottom-center" richColors closeButton />
+          </AppLanguageGate>
+        </LanguageProvider>
       </body>
     </html>
   )

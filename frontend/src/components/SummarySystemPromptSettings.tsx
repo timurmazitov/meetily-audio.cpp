@@ -6,11 +6,10 @@ import { toast } from 'sonner';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { ScrollText, RotateCcw } from 'lucide-react';
-
-const PLACEHOLDER_HINT =
-  'Available placeholders: {section_instructions} — the instructions of the selected template sections; {template} — the Markdown structure of the selected template. A template with its own system prompt replaces this one entirely.';
+import { useTranslation } from 'react-i18next';
 
 export function SummarySystemPromptSettings() {
+  const { t } = useTranslation();
   const [prompt, setPrompt] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -21,7 +20,7 @@ export function SummarySystemPromptSettings() {
       setPrompt(stored);
     } catch (error) {
       console.error('Failed to load summary system prompt:', error);
-      toast.error('Failed to load system prompt');
+      toast.error(t('settingsSummary.systemPrompt.loadFailed'));
     } finally {
       setIsLoading(false);
     }
@@ -44,11 +43,19 @@ export function SummarySystemPromptSettings() {
     }
   };
 
-  const handleSave = () => savePrompt(prompt, 'System prompt saved successfully', 'Failed to save system prompt');
+  const handleSave = () => savePrompt(
+    prompt,
+    t('settingsSummary.systemPrompt.saved'),
+    t('settingsSummary.systemPrompt.saveFailed'),
+  );
 
   const handleReset = async () => {
     // Clearing the stored value makes the backend return the built-in default.
-    await savePrompt('', 'System prompt reset to default', 'Failed to reset system prompt');
+    await savePrompt(
+      '',
+      t('settingsSummary.systemPrompt.reset'),
+      t('settingsSummary.systemPrompt.resetFailed'),
+    );
     try {
       setPrompt(await invoke<string>('api_get_summary_system_prompt'));
     } catch (error) {
@@ -60,22 +67,21 @@ export function SummarySystemPromptSettings() {
     <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm">
       <div className="flex items-center gap-2 mb-2">
         <ScrollText size={18} className="text-gray-500" />
-        <h3 className="text-lg font-semibold text-gray-900">Base System Prompt</h3>
+        <h3 className="text-lg font-semibold text-gray-900">{t('settingsSummary.systemPrompt.title')}</h3>
       </div>
       <p className="text-sm text-gray-600 mb-4">
-        Sent to the AI model with every summary request. Templates that define their own
-        system prompt override this text entirely.
+        {t('settingsSummary.systemPrompt.description')}
       </p>
 
       <Textarea
-        aria-label="Base system prompt"
+        aria-label={t('settingsSummary.systemPrompt.ariaLabel')}
         value={prompt}
         onChange={(event) => setPrompt(event.target.value)}
         disabled={isLoading || isSaving}
         className="min-h-[220px] font-mono text-xs"
       />
 
-      <p className="text-xs text-gray-400 mt-2">{PLACEHOLDER_HINT}</p>
+      <p className="text-xs text-gray-400 mt-2">{t('settingsSummary.systemPrompt.placeholderHint')}</p>
 
       <div className="flex items-center justify-end gap-2 mt-4">
         <Button
@@ -85,14 +91,14 @@ export function SummarySystemPromptSettings() {
           disabled={isLoading || isSaving}
         >
           <RotateCcw size={14} className="mr-1" />
-          Reset to default
+          {t('settingsSummary.systemPrompt.resetButton')}
         </Button>
         <Button
           type="button"
           onClick={handleSave}
           disabled={isLoading || isSaving}
         >
-          Save prompt
+          {t('settingsSummary.systemPrompt.saveButton')}
         </Button>
       </div>
     </div>

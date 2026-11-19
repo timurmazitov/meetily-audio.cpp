@@ -2,6 +2,7 @@ import React from 'react';
 import { Download } from 'lucide-react';
 import { toast } from 'sonner';
 import { UpdateInfo } from '@/services/updateService';
+import i18n from '@/i18n';
 
 let globalShowDialogCallback: (() => void) | null = null;
 
@@ -23,9 +24,9 @@ export function showUpdateNotification(updateInfo: UpdateInfo, onUpdateClick?: (
       <div className="flex items-center gap-2">
         <Download className="h-4 w-4" />
         <div>
-          <p className="font-medium">Update Available</p>
+          <p className="font-medium">{i18n.t('updates.notification.title')}</p>
           <p className="text-sm text-muted-foreground">
-            Version {updateInfo.version} is now available
+            {i18n.t('updates.notification.description', { version: updateInfo.version })}
           </p>
         </div>
       </div>
@@ -36,7 +37,7 @@ export function showUpdateNotification(updateInfo: UpdateInfo, onUpdateClick?: (
         }}
         className="text-sm font-medium text-blue-600 hover:text-blue-700 underline"
       >
-        View Details
+        {i18n.t('updates.notification.viewDetails')}
       </button>
     </div>,
     {

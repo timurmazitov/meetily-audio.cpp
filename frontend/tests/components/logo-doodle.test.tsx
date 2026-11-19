@@ -1,5 +1,5 @@
 import React from 'react';
-import { afterAll, afterEach, expect, mock, setSystemTime, test } from 'bun:test';
+import { afterAll, afterEach, beforeEach, expect, mock, setSystemTime, test } from 'bun:test';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 
 // Load originals before mocking, then load consumers after their native/UI boundaries are mocked.
@@ -19,22 +19,48 @@ const invoke = mock(async (command: string) => {
   if (command === 'api_get_meetings') return [];
   throw new Error(`Unexpected command: ${command}`);
 });
-mock.module('@tauri-apps/api/core', () => ({
-  convertFileSrc: (path: string) => `asset://localhost${path}`,
-  invoke,
-}));
 const Container = ({ children }: { children?: React.ReactNode }) => <div>{children}</div>;
-mock.module('../../src/components/ui/dialog', () => ({
-  Dialog: Container, DialogContent: Container, DialogTitle: Container, DialogTrigger: Container,
-}));
-mock.module('../../src/components/About', () => ({ About: () => null }));
-mock.module('next/image', () => ({
-  default: ({ priority, ...props }: React.ImgHTMLAttributes<HTMLImageElement> & { priority?: boolean }) => <img {...props} />,
-}));
-mock.module('next/navigation', () => ({ usePathname: () => '/', useRouter: () => ({}) }));
-mock.module('../../src/contexts/RecordingStateContext', () => ({
-  useRecordingState: () => ({ isRecording: false }),
-}));
+/**
+ * Re-applied before every test: bun installs every file's load-time mocks
+ * before running any test, so another suite's per-test registration of these
+ * modules (the `@tauri-apps/api/core` fake of swept-components-i18n carries
+ * the REAL `convertFileSrc`, which reads `window`) would otherwise stay in
+ * place while this file's tests run. Same pattern as that suite's
+ * `applyComponentMocks`.
+ */
+const globalWithWindow = globalThis as unknown as { window?: Record<string, unknown> };
+const hadWindow = 'window' in globalWithWindow;
+const originalWindow = globalWithWindow.window;
+function applyTestMocks() {
+  const coreFake = {
+    convertFileSrc: (path: string) => `asset://localhost${path}`,
+    invoke,
+  };
+  mock.module('@tauri-apps/api/core', () => coreFake);
+  // The real `convertFileSrc`/`invoke` delegate to `window.__TAURI_INTERNALS__`;
+  // other suites' `afterAll` restores can rebind `Logo` to those, so the shim
+  // keeps every path through the module under this suite's control (same
+  // technique as `copy-export-operations.test.tsx`).
+  globalWithWindow.window ??= {};
+  globalWithWindow.window.__TAURI_INTERNALS__ = coreFake;
+  mock.module('../../src/components/ui/dialog', () => ({
+    Dialog: Container, DialogContent: Container, DialogTitle: Container, DialogTrigger: Container,
+  }));
+  mock.module('../../src/components/About', () => ({ About: () => null }));
+  mock.module('next/image', () => ({
+    default: ({ priority, ...props }: React.ImgHTMLAttributes<HTMLImageElement> & { priority?: boolean }) => <img {...props} />,
+  }));
+  mock.module('next/navigation', () => ({ usePathname: () => '/', useRouter: () => ({}) }));
+  mock.module('../../src/contexts/RecordingStateContext', () => ({
+    useRecordingState: () => ({ isRecording: false }),
+  }));
+}
+applyTestMocks();
+beforeEach(applyTestMocks);
+afterAll(() => {
+  if (hadWindow) globalWithWindow.window = originalWindow;
+  else Reflect.deleteProperty(globalWithWindow, 'window');
+});
 const { default: Logo } = await import('../../src/components/Logo');
 const { SidebarProvider, useSidebar } = await import('../../src/components/Sidebar/SidebarProvider');
 

@@ -106,9 +106,11 @@ describe('audio.cpp model manager types', () => {
   });
 
   test('formats catalog sizes the way the other model managers do', () => {
-    expect(formatModelSize(422)).toBe('422MB');
-    expect(formatModelSize(190)).toBe('190MB');
-    expect(formatModelSize(1549)).toBe('1.5GB');
+    // Locale-aware spacing from `formatMegabytes` (`units.megabytesShort`
+    // renders `{{value}} MB`), same as the other model managers.
+    expect(formatModelSize(422)).toBe('422 MB');
+    expect(formatModelSize(190)).toBe('190 MB');
+    expect(formatModelSize(1549)).toBe('1.5 GB');
   });
 
   test('carries family and task metadata independently of any engine', () => {

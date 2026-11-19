@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ModelConfig, ModelSettingsModal } from "./ModelSettingsModal"
 import { TranscriptModelProps, TranscriptSettings } from "./TranscriptSettings"
@@ -26,6 +27,8 @@ export function SettingTabs({
     onSaveTranscript,
 }: SettingTabsProps) {
 
+    const { t } = useTranslation();
+
     const handleTabChange = () => {
         setSaveSuccess(null); // Reset save success when tab changes
     };
@@ -33,10 +36,10 @@ export function SettingTabs({
     return (
         <Tabs defaultValue={defaultTab} className="w-full max-h-[calc(100vh-10rem)] overflow-y-auto" onValueChange={handleTabChange}>
   <TabsList>
-    <TabsTrigger value="transcriptSettings">Transcript</TabsTrigger>
-    <TabsTrigger value="modelSettings">Ai Summary</TabsTrigger>
-    <TabsTrigger value="recordingSettings">Preferences</TabsTrigger>
-    <TabsTrigger value="about">About</TabsTrigger>
+    <TabsTrigger value="transcriptSettings">{t('settingsModal.tabs.transcript')}</TabsTrigger>
+    <TabsTrigger value="modelSettings">{t('settingsModal.tabs.summary')}</TabsTrigger>
+    <TabsTrigger value="recordingSettings">{t('settingsModal.tabs.preferences')}</TabsTrigger>
+    <TabsTrigger value="about">{t('settingsModal.tabs.about')}</TabsTrigger>
   </TabsList>
   <TabsContent value="modelSettings">
     <ModelSettingsModal

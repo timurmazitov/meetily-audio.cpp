@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useTranslation } from 'react-i18next';
 import { getVersion } from '@tauri-apps/api/app';
 import { invoke } from '@tauri-apps/api/core';
 import Image from 'next/image';
@@ -10,6 +11,7 @@ import { toast } from 'sonner';
 
 
 export function About() {
+    const { t } = useTranslation();
     const [currentVersion, setCurrentVersion] = useState<string>('0.5.0');
     const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
     const [isChecking, setIsChecking] = useState(false);
@@ -28,11 +30,11 @@ export function About() {
             if (info.available) {
                 setShowUpdateDialog(true);
             } else {
-                toast.success('You are running the latest version');
+                toast.success(t('updates.toast.upToDate'));
             }
         } catch (error: any) {
             console.error('Failed to check for updates:', error);
-            toast.error('Failed to check for updates: ' + (error.message || 'Unknown error'));
+            toast.error(t('updates.toast.checkFailed', { reason: error.message || t('misc.unknownError') }));
         } finally {
             setIsChecking(false);
         }
@@ -43,7 +45,7 @@ export function About() {
             await invoke('open_external_url', { url: 'https://github.com/timurmazitov/samobranka' });
         } catch (error: any) {
             console.error('Failed to open GitHub link:', error);
-            toast.error('Failed to open link: ' + (error.message || 'Unknown error'));
+            toast.error(t('misc.openLinkFailed', { reason: error.message || t('misc.unknownError') }));
         }
     };
 
@@ -54,7 +56,7 @@ export function About() {
                 <div className="mb-3">
                     <Image
                         src="icon_128x128.png"
-                        alt="Samobranka Logo"
+                        alt={t('misc.about.logoAlt')}
                         width={64}
                         height={64}
                         className="mx-auto"
@@ -63,7 +65,7 @@ export function About() {
                 {/* <h1 className="text-xl font-bold text-gray-900">Samobranka</h1> */}
                 <span className="text-sm text-gray-500"> v{currentVersion}</span>
                 <p className="text-medium text-gray-600 mt-1">
-                    Real-time notes and summaries that never leave your machine.
+                    {t('misc.about.tagline')}
                 </p>
                 <div className="mt-3">
                     <Button
@@ -76,18 +78,18 @@ export function About() {
                         {isChecking ? (
                             <>
                                 <Loader2 className="h-3 w-3 mr-2 animate-spin" />
-                                Checking...
+                                {t('updates.checking')}
                             </>
                         ) : (
                             <>
                                 <CheckCircle2 className="h-3 w-3 mr-2" />
-                                Check for Updates
+                                {t('updates.checkForUpdates')}
                             </>
                         )}
                     </Button>
                     {updateInfo?.available && (
                         <div className="mt-2 text-xs text-blue-600">
-                            Update available: v{updateInfo.version}
+                            {t('updates.availableShort', { version: updateInfo.version })}
                         </div>
                     )}
                 </div>

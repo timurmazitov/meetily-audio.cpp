@@ -7,13 +7,9 @@
 /** Watched by name in the settings modal, saved by value in the database. */
 export const AUDIO_CPP_PROVIDER = 'audioCpp';
 
-/**
- * Shown wherever automatic translation is offered for a provider that cannot
- * translate. audioCpp (GigaAM) and Parakeet transcribe in the language they
- * hear; only the local Whisper decoder has a translate mode.
- */
-export const TRANSLATION_WHISPER_ONLY_MESSAGE =
-  'Automatic translation is only available with the Whisper provider. audioCpp transcribes in the language of the recording.';
+// The user-facing explanation for "translation is Whisper-only" lives in the
+// interface catalog (`languageSelection.translationWhisperOnly`), because it has
+// to be translatable.
 
 /** Whether a provider can translate audio to English. */
 export function supportsTranslation(provider: string): boolean {
