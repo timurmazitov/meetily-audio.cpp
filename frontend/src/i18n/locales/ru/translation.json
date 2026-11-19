@@ -74,6 +74,9 @@
     "editMeetingAria": "Изменить данные встречи",
     "deleteMeetingAria": "Удалить встречу",
     "matchPrefix": "Совпадение:",
+    "popup": {
+      "speakers": "Спикеров: {{count}}"
+    },
     "toast": {
       "deleteFailed": "Не удалось удалить встречу",
       "titleEmpty": "Название встречи не может быть пустым",

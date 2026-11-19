@@ -74,6 +74,9 @@
     "editMeetingAria": "Edit meeting details",
     "deleteMeetingAria": "Delete meeting",
     "matchPrefix": "Match:",
+    "popup": {
+      "speakers": "Speakers: {{count}}"
+    },
     "toast": {
       "deleteFailed": "Failed to delete meeting",
       "titleEmpty": "Meeting title cannot be empty",
