@@ -25,6 +25,8 @@ interface UsePaginatedTranscriptsReturn {
     loadMore: () => Promise<void>;
     reset: () => void;
     refetch: () => Promise<void>;
+    /** Reload the meeting row (title/date) without touching the loaded transcript page. */
+    refetchMetadata: () => Promise<void>;
     /** Apply a row's speaker edit locally (after the backend accepted it). */
     setTranscriptSpeaker: (transcriptId: string, label: string | null, speakerName?: string | null) => void;
 }
@@ -189,6 +191,15 @@ export function usePaginatedTranscripts({
         }
     }, [meetingId, reset, loadMetadata, loadTranscriptsAtOffset, isCurrentRequest]);
 
+    // Reload only the meeting metadata, leaving the loaded transcript page
+    // untouched: a sidebar rename changes nothing in the transcripts, so the
+    // open page re-reads just the row behind the header.
+    const refetchMetadata = useCallback(async () => {
+        if (!meetingId || activeMeetingIdRef.current !== meetingId) return;
+
+        await loadMetadata(requestIdRef.current);
+    }, [meetingId, loadMetadata]);
+
     // A new meeting or effect lifetime owns its own requests.
     useEffect(() => {
         activeMeetingIdRef.current = meetingId;
@@ -237,6 +248,7 @@ export function usePaginatedTranscripts({
         loadMore,
         reset,
         refetch,
+        refetchMetadata,
         setTranscriptSpeaker,
     };
 }

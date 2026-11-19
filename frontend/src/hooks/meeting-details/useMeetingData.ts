@@ -17,7 +17,7 @@ export function useMeetingData({ meeting, summaryData, onMeetingUpdated }: UseMe
   // State
   // Use prop directly since summary generation fetches transcripts independently
   const transcripts = meeting.transcripts;
-  const [meetingTitle, setMeetingTitle] = useState(meeting.title || '+ New Call');
+  const [meetingTitle, setMeetingTitle] = useState<string>(meeting.title || '+ New Call');
   const [aiSummary, setAiSummary] = useState<MeetingSummary | null>(summaryData);
   const [isSaving, setIsSaving] = useState(false);
   const [isSummaryDirty, setIsSummaryDirty] = useState(false);
@@ -33,6 +33,18 @@ export function useMeetingData({ meeting, summaryData, onMeetingUpdated }: UseMe
     console.log('[useMeetingData] Syncing summary data from prop:', summaryData ? 'present' : 'null');
     setAiSummary(summaryData);
   }, [summaryData]); // Only trigger when parent prop changes, not when aiSummary changes
+
+  // Sync meetingTitle state when the meeting data carries a different title
+  // (e.g. after a sidebar rename reloads the metadata), so the title the user
+  // sees and the title the exports write are always the same current value.
+  // Compares before set and skips an empty source: the auto-title
+  // `updateMeetingTitle` just applied is never rolled back while the backend
+  // metadata has not caught up yet (the sync converges once it does).
+  useEffect(() => {
+    const sourceTitle = meeting.title;
+    if (!sourceTitle) return;
+    setMeetingTitle(prev => (prev === sourceTitle ? prev : sourceTitle));
+  }, [meeting.title]); // Only trigger when the source value changes, not when meetingTitle changes
 
   const handleSummaryChange = useCallback((newSummary: Summary) => {
     setAiSummary(newSummary);

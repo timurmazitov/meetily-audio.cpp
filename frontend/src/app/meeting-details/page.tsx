@@ -50,6 +50,7 @@ function MeetingDetailsContent() {
     loadedCount,
     loadMore,
     refetch,
+    refetchMetadata,
     setTranscriptSpeaker,
     error: transcriptError,
   } = usePaginatedTranscripts({ meetingId: meetingId || '' });
@@ -204,21 +205,24 @@ function MeetingDetailsContent() {
   // The speaker list is reloaded together with the transcripts it belongs to.
   useSpeakerNamesResetListener(meetingId, refetchTranscriptsAndSpeakers);
 
-  // The sidebar's edit dialog can change this meeting's date (and title) while
-  // it is open here. Reload so the summary corner and the header follow.
+  // The sidebar's edit dialog can change this meeting's title or date while it
+  // is open here. Reload so the summary corner, the header and the exports
+  // follow. `dateEdited` tells which fields moved: a pure rename changes
+  // nothing in the transcripts or the speaker list, so only the metadata is
+  // re-read. An event without the flag keeps the old full reload.
   useEffect(() => {
     if (!meetingId || typeof window === 'undefined') return;
 
     const onMetadataUpdated = (event: Event) => {
-      const detail = (event as CustomEvent<{ meetingId?: string }>).detail;
+      const detail = (event as CustomEvent<{ meetingId?: string; dateEdited?: boolean }>).detail;
       if (detail?.meetingId && detail.meetingId === meetingId) {
-        void refetch();
+        void (detail.dateEdited === false ? refetchMetadata() : refetch());
       }
     };
 
     window.addEventListener('meeting-metadata-updated', onMetadataUpdated);
     return () => window.removeEventListener('meeting-metadata-updated', onMetadataUpdated);
-  }, [meetingId, refetch]);
+  }, [meetingId, refetch, refetchMetadata]);
 
   // Extract fetchMeetingDetails for use in child components (now refetches via hook)
   const fetchMeetingDetails = useCallback(async () => {

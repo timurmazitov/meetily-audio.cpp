@@ -413,12 +413,13 @@ const Sidebar: React.FC = () => {
         setCurrentMeeting({ id: meetingId, title: newTitle });
       }
 
-      // The open meeting page shows the date too; tell it to reload.
-      if (dateEdited) {
-        window.dispatchEvent(new CustomEvent('meeting-metadata-updated', {
-          detail: { meetingId }
-        }));
-      }
+      // The open meeting page shows the title and the date too; tell it to
+      // reload on any successful save. The flag says whether the date moved:
+      // a pure rename cannot change the transcripts or the speaker list, so
+      // the page can reload nothing but the meeting metadata.
+      window.dispatchEvent(new CustomEvent('meeting-metadata-updated', {
+        detail: { meetingId, dateEdited }
+      }));
 
       await refetchMeetings();
 
