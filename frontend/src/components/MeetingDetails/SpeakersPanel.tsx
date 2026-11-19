@@ -31,19 +31,13 @@ import {
 import type { AudioCppModelClient } from '@/lib/audiocpp';
 import { audioCppClient } from '@/lib/audiocppClient';
 import { diarizationClient as defaultDiarizationClient } from '@/lib/diarizationClient';
-import { comparePersonNames } from '@/lib/person-sort';
+import { comparePersonNames, foldPersonName, personNameKey } from '@/lib/person-sort';
 import { formatSpeakerDisplayLabel } from '@/lib/transcript-format';
 import type { MeetingSpeaker, SpeakerAssignment } from '@/types';
 
 /** `speaker_0` → `Speaker 1`; anything else is shown as-is. */
 function displayLabel(label: string): string {
   return formatSpeakerDisplayLabel(label, undefined) ?? label;
-}
-
-/** Names are compared the way the backend compares them: trimmed, case-folded. */
-function foldName(name: string | null | undefined): string | null {
-  const folded = name?.trim().toLowerCase();
-  return folded ? folded : null;
 }
 
 function segmentCountLabel(count: number): string {
@@ -100,7 +94,7 @@ function SpeakerNamePicker({
 
   /** The other speaker holding this name in the draft, if any. */
   const ownerOf = (name: string): string | null => {
-    const folded = foldName(name);
+    const folded = personNameKey(name);
     if (!folded) return null;
     const owners = nameOwners?.get(folded);
     if (!owners || owners.length === 0 || owners.includes(label)) return null;
@@ -108,11 +102,11 @@ function SpeakerNamePicker({
   };
 
   const trimmed = query.trim();
-  const needle = trimmed.toLowerCase();
+  const needle = foldPersonName(trimmed);
   const matches = needle
-    ? names.filter((name) => name.toLowerCase().includes(needle))
+    ? names.filter((name) => foldPersonName(name).includes(needle))
     : names;
-  const exactMatch = names.some((name) => name.trim().toLowerCase() === needle);
+  const exactMatch = names.some((name) => personNameKey(name) === needle);
   const canCreate = trimmed.length > 0 && !exactMatch;
 
   const choose = (name: string | null) => {
@@ -159,7 +153,7 @@ function SpeakerNamePicker({
               )}
               {matches.map((name) => {
                 const owner = ownerOf(name);
-                const isCurrent = foldName(value) === foldName(name);
+                const isCurrent = personNameKey(value) === personNameKey(name);
                 return (
                   <CommandItem
                     key={name}
@@ -420,7 +414,7 @@ export function SpeakersPanel({
   const nameOwners = useMemo(() => {
     const owners = new Map<string, string[]>();
     for (const row of speakers) {
-      const folded = foldName(draft[row.label] ?? null);
+      const folded = personNameKey(draft[row.label] ?? null);
       if (!folded) continue;
       const claimants = owners.get(folded);
       if (claimants) claimants.push(row.label);
@@ -442,7 +436,7 @@ export function SpeakersPanel({
   const conflictLabels = (): string[] => {
     const names = speakers.map((row) => ({
       label: row.label,
-      name: foldName(draft[row.label] ?? null),
+      name: personNameKey(draft[row.label] ?? null),
       changed: (draft[row.label] ?? null) !== (row.speaker_name ?? null),
     }));
     return names
