@@ -62,7 +62,7 @@ export function MeetingFileItem({
                   onEdit();
                 }}
                 className="hover:text-blue-600 p-1 rounded-md hover:bg-blue-50 flex-shrink-0"
-                aria-label="Edit meeting title"
+                aria-label="Edit meeting details"
               >
                 <Pencil className="w-4 h-4" />
               </button>

@@ -1,7 +1,7 @@
 use crate::api::{MeetingDetails, MeetingTranscript};
 use crate::database::models::{MeetingModel, Transcript};
 use crate::database::repositories::speaker::SpeakersRepository;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use sqlx::{Connection, Error as SqlxError, SqliteConnection, SqlitePool};
 use log::{error, info};
 use std::collections::HashMap;
@@ -194,10 +194,33 @@ impl MeetingsRepository {
         Ok((transcripts, total.0))
     }
 
+    /// Renames a meeting and leaves its own moment untouched.
+    ///
+    /// Kept as the narrow entry point for callers that have no date to edit;
+    /// it is exactly [`MeetingsRepository::update_meeting_title_and_date`] with
+    /// "do not touch the date", so there is one SQL statement family.
+    #[allow(dead_code)]
     pub async fn update_meeting_title(
         pool: &SqlitePool,
         meeting_id: &str,
         new_title: &str,
+    ) -> Result<bool, SqlxError> {
+        Self::update_meeting_title_and_date(pool, meeting_id, new_title, None).await
+    }
+
+    /// Renames a meeting and, when asked, corrects its own moment, in one
+    /// transaction.
+    ///
+    /// `recorded_at` is three-valued for the same reason the edit dialog is:
+    /// `None` leaves the stored date alone (a caller that only edits the title
+    /// must not wipe it), `Some(None)` clears it back to "unknown" — the
+    /// glossary's `NULL`, never "now" — and `Some(Some(moment))` writes the
+    /// moment the user picked.
+    pub async fn update_meeting_title_and_date(
+        pool: &SqlitePool,
+        meeting_id: &str,
+        new_title: &str,
+        recorded_at: Option<Option<DateTime<Utc>>>,
     ) -> Result<bool, SqlxError> {
         if meeting_id.trim().is_empty() {
             return Err(SqlxError::Protocol(
@@ -210,13 +233,31 @@ impl MeetingsRepository {
 
         let now = Utc::now().naive_utc();
 
-        let rows_affected =
-            sqlx::query("UPDATE meetings SET title = ?, updated_at = ? WHERE id = ?")
+        let rows_affected = match recorded_at {
+            None => {
+                sqlx::query("UPDATE meetings SET title = ?, updated_at = ? WHERE id = ?")
+                    .bind(new_title)
+                    .bind(now)
+                    .bind(meeting_id)
+                    .execute(&mut *transaction)
+                    .await?
+            }
+            Some(moment) => {
+                sqlx::query(
+                    "UPDATE meetings SET title = ?, recorded_at = ?, updated_at = ? WHERE id = ?",
+                )
                 .bind(new_title)
+                // Bound as the same type the recording path writes, so the
+                // `COALESCE(recorded_at, created_at)` ordering keeps comparing
+                // RFC3339 UTC text and not a bare `YYYY-MM-DD`.
+                .bind(moment)
                 .bind(now)
                 .bind(meeting_id)
                 .execute(&mut *transaction)
-                .await?;
+                .await?
+            }
+        };
+
         if rows_affected.rows_affected() == 0 {
             transaction.rollback().await?;
             return Ok(false);
@@ -314,6 +355,7 @@ async fn delete_meeting_with_transaction(
 #[cfg(test)]
 mod tests {
     use super::MeetingsRepository;
+    use chrono::{DateTime, Utc};
     use sqlx::sqlite::SqlitePoolOptions;
     use sqlx::SqlitePool;
 
@@ -626,5 +668,149 @@ mod tests {
             Some("speaker_0"),
             "the label itself is unchanged"
         );
+    }
+
+    /// The stored date exactly as the edit dialog would find it again.
+    async fn stored_moment(pool: &SqlitePool, meeting_id: &str) -> Option<String> {
+        sqlx::query_as::<_, (Option<String>,)>(
+            "SELECT recorded_at FROM meetings WHERE id = ?",
+        )
+        .bind(meeting_id)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+        .0
+    }
+
+    #[tokio::test]
+    async fn a_picked_date_replaces_the_stored_one() {
+        let pool = migrated_pool().await;
+        seed_meeting_with_moments(
+            &pool,
+            "meeting-1",
+            "2026-11-18T10:00:00Z",
+            Some("2026-11-18T09:00:00Z"),
+        )
+        .await;
+        let picked = DateTime::parse_from_rfc3339("2026-11-17T16:45:00+00:00")
+            .unwrap()
+            .with_timezone(&Utc);
+
+        let changed = MeetingsRepository::update_meeting_title_and_date(
+            &pool,
+            "meeting-1",
+            "Renamed",
+            Some(Some(picked)),
+        )
+        .await
+        .unwrap();
+
+        assert!(changed);
+        assert_eq!(
+            stored_moment(&pool, "meeting-1").await.as_deref(),
+            Some("2026-11-17T16:45:00+00:00")
+        );
+    }
+
+    #[tokio::test]
+    async fn a_title_only_edit_leaves_the_date_untouched() {
+        let pool = migrated_pool().await;
+        seed_meeting_with_moments(
+            &pool,
+            "meeting-1",
+            "2026-11-18T10:00:00Z",
+            Some("2026-11-18T09:00:00Z"),
+        )
+        .await;
+
+        let changed = MeetingsRepository::update_meeting_title_and_date(
+            &pool,
+            "meeting-1",
+            "Renamed",
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert!(changed);
+        assert_eq!(
+            stored_moment(&pool, "meeting-1").await.as_deref(),
+            Some("2026-11-18T09:00:00Z"),
+            "a caller that only renames must not wipe the meeting date"
+        );
+    }
+
+    #[tokio::test]
+    async fn clearing_the_date_makes_it_unknown_again_not_now() {
+        let pool = migrated_pool().await;
+        seed_meeting_with_moments(
+            &pool,
+            "meeting-1",
+            "2026-11-18T10:00:00Z",
+            Some("2026-11-18T09:00:00Z"),
+        )
+        .await;
+
+        MeetingsRepository::update_meeting_title_and_date(&pool, "meeting-1", "Renamed", Some(None))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            stored_moment(&pool, "meeting-1").await,
+            None,
+            "unknown is NULL, never a substituted moment (ADR-0005)"
+        );
+    }
+
+    #[tokio::test]
+    async fn editing_the_date_reorders_the_list() {
+        let pool = migrated_pool().await;
+        seed_meeting_with_moments(
+            &pool,
+            "now",
+            "2026-11-18T10:00:00Z",
+            Some("2026-11-18T09:00:00Z"),
+        )
+        .await;
+        seed_meeting_with_moments(
+            &pool,
+            "older",
+            "2026-11-18T10:00:00Z",
+            Some("2020-03-04T09:00:00Z"),
+        )
+        .await;
+        assert_eq!(listed_ids(&pool).await, ["now", "older"]);
+
+        // Correcting the old meeting's date to today, later than the other
+        // meeting's own moment, puts it on top.
+        let corrected = DateTime::parse_from_rfc3339("2026-11-19T09:00:00+00:00")
+            .unwrap()
+            .with_timezone(&Utc);
+        MeetingsRepository::update_meeting_title_and_date(
+            &pool,
+            "older",
+            "older",
+            Some(Some(corrected)),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            listed_ids(&pool).await,
+            ["older", "now"],
+            "the list is ordered by the meeting's own moment, which just changed"
+        );
+    }
+
+    #[tokio::test]
+    async fn editing_an_unknown_meeting_reports_it_instead_of_pretending() {
+        let pool = migrated_pool().await;
+
+        let changed =
+            MeetingsRepository::update_meeting_title_and_date(&pool, "missing", "Renamed", Some(None))
+                .await
+                .unwrap();
+
+        assert!(!changed);
     }
 }

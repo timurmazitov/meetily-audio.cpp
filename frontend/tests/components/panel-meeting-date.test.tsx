@@ -95,6 +95,12 @@ mock.module('sonner', () => ({
   toast: { info: notify, error: notify, success: notify, warning: notify },
 }));
 
+// The summary body is BlockNote, which needs a real DOM; this suite only cares
+// where the date sits, so the editor is replaced by a plain marker.
+mock.module('../../src/components/AISummary/BlockNoteSummaryView', () => ({
+  BlockNoteSummaryView: React.forwardRef(() => <div data-summary-body="true" />),
+}));
+
 const stored = new Map<string, string>();
 
 beforeEach(() => {
@@ -238,67 +244,80 @@ function dateRows(instance: ReactTestRenderer, containerClass: string) {
 const SUMMARY_ROOT = 'flex-1 min-w-0 flex flex-col bg-white overflow-hidden h-full w-full @container';
 const TRANSCRIPT_ROOT = 'flex h-full min-w-0 w-full bg-white flex-col relative @container';
 
-// --- Slice 1: the summary panel shows the meeting date ---------------------
+/** A summary that counts as visible content, so the text window is rendered. */
+const visibleSummary = { markdown: '## Notes\n\nThe team agreed on the plan.' } as any;
 
-test('the summary panel header shows the meeting date and time on the right', async () => {
-  const view = await render(<SummaryPanel {...summaryProps({ meetingDate })} />);
+// --- Slice 1: the summary text window carries the meeting date -------------
+
+test('the summary text window shows the meeting date and time in its top-right corner', async () => {
+  const view = await render(
+    <SummaryPanel {...summaryProps({ meetingDate, aiSummary: visibleSummary })} />,
+  );
 
   expect(viewText(view)).toContain(expectedDate);
 
-  const rows = headerRows(view, SUMMARY_ROOT);
-  const dateRow = rows.find((row) => textOf(row).includes(expectedDate));
-  expect(String(dateRow.props.className)).toContain('flex items-center justify-end');
-  // The date is its own row, so it can never pull the centered buttons.
-  expect(String(dateRow.props.className)).not.toContain('justify-center');
+  const corner = view.root.findAll(
+    (node) => node.type === 'h3' && String(node.props.className).includes('text-gray-500'),
+  );
+  expect(corner).toHaveLength(1);
+  expect(textOf(corner[0].props.children)).toBe(expectedDate);
+  // Grey, tabular figures, and pinned right by its wrapper.
+  expect(String(corner[0].props.className)).toContain('tabular-nums');
+  const wrapper = corner[0].parent!;
+  expect(String(wrapper.props.className)).toContain('justify-end');
 });
 
-test('the header date comes from the meeting moment, not the row creation time', async () => {
+test('the corner date comes from the meeting moment, not the row creation time', async () => {
   // The row was created at 21:00 local, the meeting itself happened at 14:32.
   // Showing `created_at` would date a one-hour call by its end (ADR-0005).
-  const view = await render(<SummaryPanel {...summaryProps({ meetingDate })} />);
+  const view = await render(
+    <SummaryPanel {...summaryProps({ meetingDate, aiSummary: visibleSummary })} />,
+  );
 
   expect(viewText(view)).not.toContain('18/11/2026, 21:00');
 });
 
-// --- Slice 2: the transcript panel shows the same date ---------------------
+// --- Slice 2: neither panel header shows the date any more -----------------
 
-test('the transcript panel header shows the same meeting date and time', async () => {
-  const view = await render(<TranscriptPanel {...transcriptProps({ meetingDate })} />);
+test('the summary panel header no longer draws a date row', async () => {
+  const view = await render(<SummaryPanel {...summaryProps({ meetingDate })} />);
 
-  expect(viewText(view)).toContain(expectedDate);
-
-  const rows = headerRows(view, TRANSCRIPT_ROOT);
-  const dateRow = rows.find((row) => textOf(row).includes(expectedDate));
-  expect(String(dateRow.props.className)).toContain('flex items-center justify-end');
-  expect(String(dateRow.props.className)).not.toContain('justify-center');
+  expect(dateRows(view, SUMMARY_ROOT)).toHaveLength(0);
 });
 
-// --- Slice 3: an unknown date draws no row at all -------------------------
+test('the transcript panel header no longer draws a date row', async () => {
+  const view = await render(<TranscriptPanel {...transcriptProps()} />);
 
-test('a summary panel meeting without a date keeps its old single-row header', async () => {
-  const unknown = await render(<SummaryPanel {...summaryProps({ meetingDate: null })} />);
-  expect(dateRows(unknown, SUMMARY_ROOT)).toHaveLength(0);
+  expect(dateRows(view, TRANSCRIPT_ROOT)).toHaveLength(0);
+  expect(viewText(view)).not.toContain(expectedDate);
+});
+
+// --- Slice 3: no text and no date mean nothing is drawn --------------------
+
+test('an empty summary window shows no date at all', async () => {
+  const view = await render(<SummaryPanel {...summaryProps({ meetingDate })} />);
+
+  // The empty state takes the whole pane; the corner belongs to the text.
+  expect(viewText(view)).not.toContain(expectedDate);
+});
+
+test('a meeting without a date draws no corner in the summary window', async () => {
+  const unknown = await render(
+    <SummaryPanel {...summaryProps({ meetingDate: null, aiSummary: visibleSummary })} />,
+  );
+  expect(viewText(unknown)).not.toContain(expectedDate);
 
   if (renderer) await act(async () => renderer!.unmount());
-  const unusable = await render(<SummaryPanel {...summaryProps({ meetingDate: 'not-a-date' })} />);
+  const unusable = await render(
+    <SummaryPanel {...summaryProps({ meetingDate: 'not-a-date', aiSummary: visibleSummary })} />,
+  );
   // Neither a placeholder nor the current moment: the formatter returns null.
-  expect(dateRows(unusable, SUMMARY_ROOT)).toHaveLength(0);
   expect(viewText(unusable)).not.toContain(expectedDate);
 });
 
-test('a transcript panel meeting without a date keeps its old single-row header', async () => {
-  const unknown = await render(<TranscriptPanel {...transcriptProps({ meetingDate: null })} />);
-  expect(dateRows(unknown, TRANSCRIPT_ROOT)).toHaveLength(0);
+// --- Slice 4: switching tabs cannot duplicate the date ---------------------
 
-  if (renderer) await act(async () => renderer!.unmount());
-  const unusable = await render(<TranscriptPanel {...transcriptProps({ meetingDate: 'not-a-date' })} />);
-  expect(dateRows(unusable, TRANSCRIPT_ROOT)).toHaveLength(0);
-  expect(viewText(unusable)).not.toContain(expectedDate);
-});
-
-// --- Slice 4: switching tabs keeps the date -------------------------------
-
-test('both panels carry the date at once, so switching tabs cannot lose it', async () => {
+test('the date appears exactly once across both tabs', async () => {
   // The split view mounts both tabs (`forceMount`) and only hides one, so a
   // single tree with both panels is exactly what the user sees on desktop.
   const { MeetingDetailsSplitView } = await import(
@@ -309,16 +328,18 @@ test('both panels carry the date at once, so switching tabs cannot lose it', asy
     <MeetingDetailsSplitView
       activeTab="transcript"
       onTabChange={() => {}}
-      transcript={<TranscriptPanel {...transcriptProps({ meetingDate })} />}
-      summary={<SummaryPanel {...summaryProps({ meetingDate })} />}
+      transcript={<TranscriptPanel {...transcriptProps()} />}
+      summary={
+        <SummaryPanel {...summaryProps({ meetingDate, aiSummary: visibleSummary })} />
+      }
     />,
   );
 
   const dates = view.root.findAll(
-    (node) => typeof node.type === 'string' && node.props.className === 'text-xs text-gray-500 tabular-nums whitespace-nowrap',
+    (node) => typeof node.type === 'string' && String(node.props.className).includes('tabular-nums'),
   );
-  expect(dates).toHaveLength(2);
-  expect(dates.map((node) => textOf(node.props.children))).toEqual([expectedDate, expectedDate]);
-  expect(dateRows(view, SUMMARY_ROOT)).toHaveLength(1);
-  expect(dateRows(view, TRANSCRIPT_ROOT)).toHaveLength(1);
+  expect(dates).toHaveLength(1);
+  expect(textOf(dates[0].props.children)).toBe(expectedDate);
+  expect(dateRows(view, SUMMARY_ROOT)).toHaveLength(0);
+  expect(dateRows(view, TRANSCRIPT_ROOT)).toHaveLength(0);
 });

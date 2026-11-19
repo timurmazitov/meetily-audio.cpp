@@ -5,7 +5,6 @@ import { TranscriptView } from '@/components/TranscriptView';
 import { VirtualizedTranscriptView } from '@/components/VirtualizedTranscriptView';
 import { TranscriptButtonGroup } from './TranscriptButtonGroup';
 import { useMemo } from 'react';
-import { formatMeetingDateTime } from '@/lib/meeting-datetime';
 
 interface TranscriptPanelProps {
   transcripts: Transcript[];
@@ -16,11 +15,6 @@ interface TranscriptPanelProps {
   onOpenMeetingFolder: () => Promise<void>;
   isRecording: boolean;
   disableAutoScroll?: boolean;
-  /**
-   * The meeting's own moment (RFC3339), shown in the header. When absent or
-   * unparsable the header keeps its old single row — never a placeholder.
-   */
-  meetingDate?: string | null;
 
   // Optional pagination props (when using virtualization)
   usePagination?: boolean;
@@ -50,7 +44,6 @@ export function TranscriptPanel({
   onOpenMeetingFolder,
   isRecording,
   disableAutoScroll = false,
-  meetingDate = null,
   usePagination = false,
   segments,
   hasMore,
@@ -81,19 +74,10 @@ export function TranscriptPanel({
     }));
   }, [transcripts, usePagination, segments]);
 
-  const formattedMeetingDate = formatMeetingDateTime(meetingDate);
-
   return (
     <div className="flex h-full min-w-0 w-full bg-white flex-col relative @container">
       {/* Title area */}
       <div className="p-4 border-b border-gray-200">
-        {/* The meeting's own moment sits in its own right-aligned row, so it
-            can never shift the centered buttons below it. */}
-        {formattedMeetingDate && (
-          <div className="flex items-center justify-end mb-2 min-w-0">
-            <span className="text-xs text-gray-500 tabular-nums whitespace-nowrap">{formattedMeetingDate}</span>
-          </div>
-        )}
         <TranscriptButtonGroup
           transcriptCount={usePagination ? (totalCount ?? convertedSegments.length) : (transcripts?.length || 0)}
           onCopyTranscript={onCopyTranscript}

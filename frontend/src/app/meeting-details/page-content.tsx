@@ -220,7 +220,6 @@ export default function PageContent({
               onRefetchTranscripts={onRefetchTranscripts}
               meetingSpeakers={meetingSpeakers}
               onSpeakerChanged={onSpeakerChanged}
-              meetingDate={meeting.recorded_at}
             />
           }
           summary={

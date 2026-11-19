@@ -11,6 +11,7 @@ import { ModelConfig } from '@/components/ModelSettingsModal';
 import { SettingTabs } from '../SettingTabs';
 import { TranscriptModelProps } from '@/components/TranscriptSettings';
 import { invoke } from '@tauri-apps/api/core';
+import { fromDateTimeInputValue, toDateTimeInputValue } from '@/lib/meeting-datetime';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { toast } from 'sonner';
 import { useRecordingState } from '@/contexts/RecordingStateContext';
@@ -47,6 +48,7 @@ const Sidebar: React.FC = () => {
     isSearching,
     meetings,
     setMeetings,
+    refetchMeetings,
     serverAddress
   } = useSidebar();
 
@@ -76,6 +78,9 @@ const Sidebar: React.FC = () => {
     currentTitle: ''
   });
   const [editingTitle, setEditingTitle] = useState<string>('');
+  const [editingDateTime, setEditingDateTime] = useState<string>('');
+  /** The field's value on open, so an untouched date is never rewritten. */
+  const [initialDateTime, setInitialDateTime] = useState<string>('');
 
   // Ensure 'meetings' folder is always expanded
   useEffect(() => {
@@ -343,14 +348,16 @@ const Sidebar: React.FC = () => {
     setDeleteModalState({ isOpen: false, itemId: null });
   };
 
-  // Handle modal editing of meeting names
-  const handleEditStart = (meetingId: string, currentTitle: string) => {
+  // Handle modal editing of meeting name and date
+  const handleEditStart = (meetingId: string, currentTitle: string, currentRecordedAt: string | null) => {
     setEditModalState({
       isOpen: true,
       meetingId: meetingId,
       currentTitle: currentTitle
     });
     setEditingTitle(currentTitle);
+    setEditingDateTime(toDateTimeInputValue(currentRecordedAt));
+    setInitialDateTime(toDateTimeInputValue(currentRecordedAt));
   };
 
   const handleEditConfirm = async () => {
@@ -365,15 +372,37 @@ const Sidebar: React.FC = () => {
       return;
     }
 
+    // The field is the whole truth when it changed: empty means "no date",
+    // passed as an empty string so the backend can tell it apart from "not
+    // edited". An untouched field is not sent at all, so a pure rename cannot
+    // silently truncate the stored moment to the minute.
+    const dateEdited = editingDateTime !== initialDateTime;
+    const nextRecordedAt = dateEdited
+      ? (editingDateTime.trim() ? fromDateTimeInputValue(editingDateTime) : '')
+      : null;
+
+    if (dateEdited && editingDateTime.trim() && nextRecordedAt === null) {
+      toast.error("Please enter a valid date and time");
+      return;
+    }
+
     try {
       await invoke('api_save_meeting_title', {
         meetingId: meetingId,
         title: newTitle,
+        recordedAt: nextRecordedAt,
       });
 
-      // Update local state
+      // Update local state so the row reflects the edit immediately. The
+      // backend list is refetched below, which also restores the sort order.
       const updatedMeetings = meetings.map((m: CurrentMeeting) =>
-        m.id === meetingId ? { ...m, title: newTitle } : m
+        m.id === meetingId
+          ? {
+            ...m,
+            title: newTitle,
+            recordedAt: dateEdited ? (nextRecordedAt || undefined) : m.recordedAt,
+          }
+          : m
       );
       setMeetings(updatedMeetings);
 
@@ -382,14 +411,25 @@ const Sidebar: React.FC = () => {
         setCurrentMeeting({ id: meetingId, title: newTitle });
       }
 
-      toast.success("Meeting title updated successfully");
+      // The open meeting page shows the date too; tell it to reload.
+      if (dateEdited) {
+        window.dispatchEvent(new CustomEvent('meeting-metadata-updated', {
+          detail: { meetingId }
+        }));
+      }
+
+      await refetchMeetings();
+
+      toast.success("Meeting details updated successfully");
 
       // Close modal and reset state
       setEditModalState({ isOpen: false, meetingId: null, currentTitle: '' });
       setEditingTitle('');
+      setEditingDateTime('');
+      setInitialDateTime('');
     } catch (error) {
-      console.error('Failed to update meeting title:', error);
-      toast.error("Failed to update meeting title", {
+      console.error('Failed to update meeting details:', error);
+      toast.error("Failed to update meeting details", {
         description: error instanceof Error ? error.message : String(error)
       });
     }
@@ -398,6 +438,8 @@ const Sidebar: React.FC = () => {
   const handleEditCancel = () => {
     setEditModalState({ isOpen: false, meetingId: null, currentTitle: '' });
     setEditingTitle('');
+    setEditingDateTime('');
+    setInitialDateTime('');
   };
 
   const toggleFolder = (folderId: string) => {
@@ -587,7 +629,7 @@ const Sidebar: React.FC = () => {
               durationSeconds={item.durationSeconds ?? null}
               matchContext={hasTranscriptMatch ? matchingResult.matchContext : null}
               isMeeting={isMeetingItem}
-              onEdit={() => handleEditStart(item.id, item.title)}
+              onEdit={() => handleEditStart(item.id, item.title, item.recordedAt ?? null)}
               onDelete={() => setDeleteModalState({ isOpen: true, itemId: item.id })}
             />
           )}
@@ -764,16 +806,16 @@ const Sidebar: React.FC = () => {
         onCancel={() => setDeleteModalState({ isOpen: false, itemId: null })}
       />
 
-      {/* Edit Meeting Title Modal */}
+      {/* Edit Meeting Details Modal */}
       <Dialog open={editModalState.isOpen} onOpenChange={(open) => {
         if (!open) handleEditCancel();
       }}>
         <DialogContent className="sm:max-w-[425px]">
           <VisuallyHidden>
-            <DialogTitle>Edit Meeting Title</DialogTitle>
+            <DialogTitle>Edit Meeting Details</DialogTitle>
           </VisuallyHidden>
           <div className="py-4">
-            <h3 className="text-lg font-semibold mb-4">Edit Meeting Title</h3>
+            <h3 className="text-lg font-semibold mb-4">Edit Meeting Details</h3>
             <div className="space-y-4">
               <div>
                 <label htmlFor="meeting-title" className="block text-sm font-medium text-gray-700 mb-2">
@@ -795,6 +837,28 @@ const Sidebar: React.FC = () => {
                   placeholder="Enter meeting title"
                   autoFocus
                 />
+              </div>
+              <div>
+                <label htmlFor="meeting-date-time" className="block text-sm font-medium text-gray-700 mb-2">
+                  Meeting Date and Time
+                </label>
+                <input
+                  id="meeting-date-time"
+                  type="datetime-local"
+                  value={editingDateTime}
+                  onChange={(e) => setEditingDateTime(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      handleEditConfirm();
+                    } else if (e.key === 'Escape') {
+                      handleEditCancel();
+                    }
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+                <p className="mt-2 text-xs text-gray-500">
+                  Leave empty if the meeting date is unknown.
+                </p>
               </div>
             </div>
           </div>

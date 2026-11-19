@@ -194,6 +194,9 @@ pub struct PaginatedTranscriptsResponse {
 pub struct SaveMeetingTitleRequest {
     pub meeting_id: String,
     pub title: String,
+    /// `None` leaves the stored date alone, `Some("")` clears it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recorded_at: Option<String>,
 }
 
 /// One row of the meeting's speaker panel: a diarization label, its assigned
@@ -1150,15 +1153,40 @@ pub async fn api_save_meeting_title<R: Runtime>(
     state: tauri::State<'_, AppState>,
     meeting_id: String,
     title: String,
+    // The edit dialog's date field. `None` = the caller only renames and the
+    // stored date must not change; `Some("")` = the user cleared the field, so
+    // the meeting goes back to "date unknown"; `Some(rfc3339)` = the picked
+    // moment.
+    recorded_at: Option<String>,
     auth_token: Option<String>,
 ) -> Result<serde_json::Value, String> {
     log_info!(
-        "api_save_meeting_title called for meeting_id: {}, auth_token: {}",
+        "api_save_meeting_title called for meeting_id: {}, date_edited: {}, auth_token: {}",
         meeting_id,
+        recorded_at.is_some(),
         auth_token.is_some()
     );
+
+    let requested_date = match recorded_at {
+        None => None,
+        Some(raw) if raw.trim().is_empty() => Some(None),
+        Some(raw) => {
+            let moment = chrono::DateTime::parse_from_rfc3339(raw.trim())
+                .map_err(|e| format!("Invalid meeting date: {}", e))?
+                .with_timezone(&chrono::Utc);
+            Some(Some(moment))
+        }
+    };
+
     let pool = state.db_manager.pool();
-    match MeetingsRepository::update_meeting_title(pool, &meeting_id, &title).await {
+    match MeetingsRepository::update_meeting_title_and_date(
+        pool,
+        &meeting_id,
+        &title,
+        requested_date,
+    )
+    .await
+    {
         Ok(true) => {
             log_info!("Successfully saved meeting title");
             Ok(serde_json::json!({"message": "Meeting title saved successfully"}))

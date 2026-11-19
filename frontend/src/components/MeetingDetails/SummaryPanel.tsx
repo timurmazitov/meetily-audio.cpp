@@ -31,8 +31,9 @@ interface SummaryPanelProps {
     recorded_at?: string | null;
   };
   /**
-   * The meeting's own moment (RFC3339), shown in the header. When absent or
-   * unparsable the header keeps its old single row — never a placeholder.
+   * The meeting's own moment (RFC3339), shown in the top-right corner of the
+   * summary text window. When absent or unparsable nothing is drawn — never a
+   * placeholder.
    */
   meetingDate?: string | null;
   meetingTitle: string;
@@ -256,13 +257,6 @@ export function SummaryPanel({
     <div className="flex-1 min-w-0 flex flex-col bg-white overflow-hidden h-full w-full @container">
       {/* Top-level actions — always visible, same pattern as TranscriptPanel */}
       <div className="p-4 border-b border-gray-200">
-        {/* The meeting's own moment sits in its own right-aligned row, so it
-            can never shift the centered buttons below it. */}
-        {formattedMeetingDate && (
-          <div className="flex items-center justify-end mb-2 min-w-0">
-            <span className="text-xs text-gray-500 tabular-nums whitespace-nowrap">{formattedMeetingDate}</span>
-          </div>
-        )}
         <div className="flex items-center justify-center w-full min-w-0 gap-2 flex-wrap">
           <div className="flex-shrink-0 min-w-0">
             <SummaryGeneratorButtonGroup
@@ -313,8 +307,18 @@ export function SummaryPanel({
           error={summaryError}
         />
       ) : (
-        <div className="flex-1 overflow-y-auto overflow-x-auto min-h-0">
-          <div className="p-6 w-full">
+        <div className="flex-1 min-h-0 flex flex-col">
+          {/* The meeting's own moment lives in the summary text window itself,
+              in its top-right corner, so it is read next to the summary it
+              dates. It sits outside the scroll area and never scrolls away. */}
+          {formattedMeetingDate && (
+            <div className="flex justify-end px-6 pt-4">
+              <h3 className="text-lg font-medium text-gray-500 tabular-nums whitespace-nowrap">
+                {formattedMeetingDate}
+              </h3>
+            </div>
+          )}
+          <div className="flex-1 overflow-y-auto overflow-x-auto min-h-0 p-6">
             <BlockNoteSummaryView
               ref={summaryRef}
               summaryData={aiSummary}
@@ -335,15 +339,15 @@ export function SummaryPanel({
                 recorded_at: meeting.recorded_at ?? meetingDate
               }}
             />
+            {summaryStatus !== 'idle' && (
+              <div className={`mt-4 p-4 rounded-lg ${summaryStatus === 'error' ? 'bg-red-100 text-red-700' :
+                summaryStatus === 'completed' ? 'bg-green-100 text-green-700' :
+                  'bg-blue-100 text-blue-700'
+                }`}>
+                <p className="text-sm font-medium">{getSummaryStatusMessage(summaryStatus)}</p>
+              </div>
+            )}
           </div>
-          {summaryStatus !== 'idle' && (
-            <div className={`mt-4 p-4 rounded-lg ${summaryStatus === 'error' ? 'bg-red-100 text-red-700' :
-              summaryStatus === 'completed' ? 'bg-green-100 text-green-700' :
-                'bg-blue-100 text-blue-700'
-              }`}>
-              <p className="text-sm font-medium">{getSummaryStatusMessage(summaryStatus)}</p>
-            </div>
-          )}
         </div>
       )}
     </div>

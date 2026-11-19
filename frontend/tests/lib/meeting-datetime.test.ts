@@ -1,6 +1,11 @@
 import { describe, expect, test } from 'bun:test';
 
-import { formatMeetingDateTime, formatMeetingDuration } from '../../src/lib/meeting-datetime';
+import {
+  formatMeetingDateTime,
+  formatMeetingDuration,
+  fromDateTimeInputValue,
+  toDateTimeInputValue,
+} from '../../src/lib/meeting-datetime';
 
 describe('formatMeetingDateTime', () => {
   test('renders a local date and a zero-padded 24-hour time', () => {
@@ -59,5 +64,61 @@ describe('formatMeetingDuration', () => {
     expect(formatMeetingDuration(-5)).toBeNull();
     expect(formatMeetingDuration(Number.NaN)).toBeNull();
     expect(formatMeetingDuration(Number.POSITIVE_INFINITY)).toBeNull();
+  });
+});
+
+describe('toDateTimeInputValue', () => {
+  test('renders the local wall clock the way datetime-local expects', () => {
+    expect(toDateTimeInputValue(new Date(2026, 10, 18, 14, 32, 45))).toBe('2026-11-18T14:32');
+    expect(toDateTimeInputValue(new Date(2026, 0, 1, 9, 5))).toBe('2026-01-01T09:05');
+    expect(toDateTimeInputValue(new Date(2026, 11, 31, 0, 0))).toBe('2026-12-31T00:00');
+  });
+
+  test('accepts the RFC3339 string the database stores', () => {
+    const moment = new Date(2026, 10, 18, 14, 32);
+    expect(toDateTimeInputValue(moment.toISOString())).toBe('2026-11-18T14:32');
+  });
+
+  test('a date-only value becomes midnight, not a rejected field', () => {
+    expect(toDateTimeInputValue('2026-11-18')).toBe('2026-11-18T00:00');
+  });
+
+  test('an unknown date leaves the field empty instead of inventing one', () => {
+    expect(toDateTimeInputValue(null)).toBe('');
+    expect(toDateTimeInputValue(undefined)).toBe('');
+    expect(toDateTimeInputValue('')).toBe('');
+    expect(toDateTimeInputValue('   ')).toBe('');
+    expect(toDateTimeInputValue('not a date')).toBe('');
+  });
+});
+
+describe('fromDateTimeInputValue', () => {
+  test('round-trips a local moment through the input value', () => {
+    const moment = new Date(2026, 10, 18, 14, 32);
+    expect(fromDateTimeInputValue('2026-11-18T14:32')).toBe(moment.toISOString());
+    expect(toDateTimeInputValue(fromDateTimeInputValue('2026-11-18T14:32'))).toBe('2026-11-18T14:32');
+  });
+
+  test('seconds are always zero: the date is edited to the minute', () => {
+    const stored = fromDateTimeInputValue('2026-11-18T14:32')!;
+    expect(new Date(stored).getSeconds()).toBe(0);
+    expect(new Date(stored).getMilliseconds()).toBe(0);
+  });
+
+  test('an empty field means "no date", which is not an instant', () => {
+    expect(fromDateTimeInputValue('')).toBeNull();
+    expect(fromDateTimeInputValue('   ')).toBeNull();
+  });
+
+  test('a day that does not exist or an impossible time is rejected, not rolled over', () => {
+    expect(fromDateTimeInputValue('2026-02-31T10:00')).toBeNull();
+    expect(fromDateTimeInputValue('2026-13-01T10:00')).toBeNull();
+    expect(fromDateTimeInputValue('2026-11-18T25:00')).toBeNull();
+    expect(fromDateTimeInputValue('2026-11-18T10:61')).toBeNull();
+  });
+
+  test('a value that is not a datetime-local string is rejected', () => {
+    expect(fromDateTimeInputValue('18/11/2026, 14:32')).toBeNull();
+    expect(fromDateTimeInputValue('not a date')).toBeNull();
   });
 });

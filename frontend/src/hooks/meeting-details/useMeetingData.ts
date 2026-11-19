@@ -77,8 +77,9 @@ export function useMeetingData({ meeting, summaryData, onMeetingUpdated }: UseMe
   const updateMeetingTitle = useCallback((newTitle: string) => {
     console.log('📝 Updating meeting title to:', newTitle);
     setMeetingTitle(newTitle);
+    // Keep the row's own date and length: a rename must not blank them.
     const updatedMeetings = sidebarMeetings.map((m: CurrentMeeting) =>
-      m.id === meeting.id ? { id: m.id, title: newTitle } : m
+      m.id === meeting.id ? { ...m, title: newTitle } : m
     );
     setMeetings(updatedMeetings);
     setCurrentMeeting({ id: meeting.id, title: newTitle });

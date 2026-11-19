@@ -111,6 +111,6 @@ test('the icon and the hover actions are still part of the row', async () => {
   const labels = view.root
     .findAll((node) => typeof node.type === 'string' && node.type === 'button')
     .map((node) => node.props['aria-label']);
-  expect(labels).toEqual(['Edit meeting title', 'Delete meeting']);
+  expect(labels).toEqual(['Edit meeting details', 'Delete meeting']);
   expect(labels).toHaveLength(2);
 });

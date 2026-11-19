@@ -204,6 +204,22 @@ function MeetingDetailsContent() {
   // The speaker list is reloaded together with the transcripts it belongs to.
   useSpeakerNamesResetListener(meetingId, refetchTranscriptsAndSpeakers);
 
+  // The sidebar's edit dialog can change this meeting's date (and title) while
+  // it is open here. Reload so the summary corner and the header follow.
+  useEffect(() => {
+    if (!meetingId || typeof window === 'undefined') return;
+
+    const onMetadataUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<{ meetingId?: string }>).detail;
+      if (detail?.meetingId && detail.meetingId === meetingId) {
+        void refetch();
+      }
+    };
+
+    window.addEventListener('meeting-metadata-updated', onMetadataUpdated);
+    return () => window.removeEventListener('meeting-metadata-updated', onMetadataUpdated);
+  }, [meetingId, refetch]);
+
   // Extract fetchMeetingDetails for use in child components (now refetches via hook)
   const fetchMeetingDetails = useCallback(async () => {
     if (!meetingId || meetingId === 'intro-call') {

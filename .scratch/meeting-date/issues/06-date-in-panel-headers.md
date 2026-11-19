@@ -1,7 +1,7 @@
 # 06: Дата встречи в шапках панелей саммари и транскрипта
 
 Type: task
-Status: resolved
+Status: superseded by 11
 Blocked by: 02
 
 ## Что сделать
@@ -32,3 +32,7 @@ Blocked by: 02
 - Пустая/неразбираемая дата не рисует строку вовсе: `formatMeetingDateTime` возвращает `null`, заглушек и подстановки «сейчас» нет.
 - Проверка: `cargo test --lib` — **635 passed / 0 failed / 7 ignored**; `tsc --noEmit` — exit 0; `bun test` — 302 pass / 12 fail, все 12 — известный baseline mock-isolation (`logo-doodle`, `recording-controls-stop`, `recording-state-shutdown`), каждый файл зелёный отдельно. Тесты тикета: `panel-meeting-date` 6/6, `paginated-transcripts` 11/11.
 - Не проверено: узкое окно (визуальный критерий снят как не покрытый тестом) и живой прогон в Tauri-приложении.
+
+## Superseded
+
+Тикет 11 переехал: строка даты из шапок панелей убрана, дата живёт в правом верхнем углу окна с текстом саммари и правится в окне редактирования встречи. Критерий «видна в обеих панелях» отменён.
