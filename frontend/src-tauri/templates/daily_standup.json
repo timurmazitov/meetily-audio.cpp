@@ -1,38 +1,38 @@
 {
-  "name": "Daily Standup",
-  "description": "Time-boxed daily updates for engineering/product teams.",
+  "name": "Ежедневный стендап",
+  "description": "Ежедневные обновления по таймбоксу для инженерных и продуктовых команд.",
   "sections": [
     {
-      "title": "Date",
-      "instruction": "Meeting date taken from the <meeting_date> block in the user message and converted to YYYY-MM-DD (drop its time); if the block is absent, do not invent a date and write that the date is unknown",
+      "title": "Дата",
+      "instruction": "Дата встречи, взятая из блока <meeting_date> в пользовательском сообщении и преобразованная к формату YYYY-MM-DD (без времени); если блок отсутствует, не выдумывайте дату и укажите, что дата неизвестна",
       "format": "string"
     },
     {
-      "title": "Attendees",
-      "instruction": "List of participants present",
+      "title": "Участники",
+      "instruction": "Список присутствовавших участников",
       "format": "list"
     },
     {
-      "title": "Yesterday",
-      "instruction": "What I completed yesterday (short bullets)",
+      "title": "Вчера",
+      "instruction": "Что было выполнено вчера (краткие пункты)",
       "format": "list",
-      "example_item_format": "| **Owner** | **Completed Work** |\n| --- | --- |"
+      "example_item_format": "| **Ответственный** | **Выполненная работа** |\n| --- | --- |"
     },
     {
-      "title": "Today",
-      "instruction": "Planned work for today (short bullets)",
+      "title": "Сегодня",
+      "instruction": "Запланированная работа на сегодня (краткие пункты)",
       "format": "list",
-      "example_item_format": "| **Owner** | **Planned Work** |\n| --- | --- |"
+      "example_item_format": "| **Ответственный** | **Запланированная работа** |\n| --- | --- |"
     },
     {
-      "title": "Blockers",
-      "instruction": "Any impediments and owner if known",
+      "title": "Препятствия",
+      "instruction": "Все препятствия и ответственный, если известен",
       "format": "list",
-      "item_format": "| **Owner** | **Blocker** | Impact |\n| --- | --- | --- |"
+      "item_format": "| **Ответственный** | **Препятствие** | Влияние |\n| --- | --- | --- |"
     },
     {
-      "title": "Notes",
-      "instruction": "Optional quick notes or announcements",
+      "title": "Заметки",
+      "instruction": "Необязательные краткие заметки или объявления",
       "format": "paragraph"
     }
   ]

@@ -1,45 +1,45 @@
 {
-      "name": "Retrospective (Agile)",
-      "description": "Sprint retrospective template for continuous improvement.",
-      "sections": [
-        {
-          "title": "Sprint",
-          "instruction": "Sprint name/number and sprint date range as stated in the transcript; the <meeting_date> block is the meeting's own date, not a substitute for the sprint range, so never fill the range from it; if the range is not stated, do not invent it and write that it is unknown",
-          "format": "string"
-        },
-        {
-          "title": "Attendance",
-          "instruction": "List of participants",
-          "format": "list"
-        },
-        {
-          "title": "Start Doing",
-          "instruction": "Actions or experiments to start next sprint",
-          "format": "list",
-          "item_format": "| **Idea** | **Proposer** |\n| --- | --- |"
-        },
-        {
-          "title": "Stop Doing",
-          "instruction": "Practices to stop",
-          "format": "list",
-          "item_format": "| **Practice** | **Reason** |\n| --- | --- |"
-        },
-        {
-          "title": "Continue Doing",
-          "instruction": "Practices to continue",
-          "format": "list",
-          "item_format": "| **Practice** | **Notes** |\n| --- | --- |"
-        },
-        {
-          "title": "Action Items",
-          "instruction": "Concrete experiments with owners and success metrics",
-          "format": "list",
-          "item_format": "| **Owner** | **Task** | **Due Date** | **Success Metric** |\n| --- | --- | --- | --- |"
-        },
-        {
-          "title": "Notes & Votes",
-          "instruction": "Summary and top-voted items",
-          "format": "paragraph"
-        }
-      ]
+  "name": "Ретроспектива (Agile)",
+  "description": "Шаблон ретроспективы спринта для непрерывного улучшения.",
+  "sections": [
+    {
+      "title": "Спринт",
+      "instruction": "Название/номер спринта и диапазон дат спринта так, как они названы в стенограмме; блок <meeting_date> — это дата самой встречи, а не замена диапазону спринта, поэтому никогда не берите диапазон из него; если диапазон не назван, не выдумывайте его и укажите, что он неизвестен",
+      "format": "string"
+    },
+    {
+      "title": "Присутствовавшие",
+      "instruction": "Список участников",
+      "format": "list"
+    },
+    {
+      "title": "Начать делать",
+      "instruction": "Действия или эксперименты, которые стоит начать в следующем спринте",
+      "format": "list",
+      "item_format": "| **Идея** | **Автор** |\n| --- | --- |"
+    },
+    {
+      "title": "Перестать делать",
+      "instruction": "Практики, от которых стоит отказаться",
+      "format": "list",
+      "item_format": "| **Практика** | **Причина** |\n| --- | --- |"
+    },
+    {
+      "title": "Продолжать делать",
+      "instruction": "Практики, которые стоит продолжить",
+      "format": "list",
+      "item_format": "| **Практика** | **Заметки** |\n| --- | --- |"
+    },
+    {
+      "title": "Задачи",
+      "instruction": "Конкретные эксперименты с ответственными и метриками успеха",
+      "format": "list",
+      "item_format": "| **Ответственный** | **Задача** | **Срок** | **Метрика успеха** |\n| --- | --- | --- | --- |"
+    },
+    {
+      "title": "Заметки и голосования",
+      "instruction": "Итоги и пункты с наибольшим числом голосов",
+      "format": "paragraph"
     }
+  ]
+}

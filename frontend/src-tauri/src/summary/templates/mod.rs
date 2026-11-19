@@ -68,11 +68,11 @@ mod tests {
     /// to point at the date block so the model does not substitute the meeting
     /// date for the sprint range.
     const DATE_SECTIONS: [(&str, &str); 5] = [
-        ("daily_standup", "Date"),
-        ("project_sync", "Meeting Date & Time"),
-        ("psychatric_session", "Session Metadata"),
-        ("sales_marketing_client_call", "Meeting Metadata"),
-        ("retrospective", "Sprint"),
+        ("daily_standup", "Дата"),
+        ("project_sync", "Дата и время встречи"),
+        ("psychatric_session", "Метаданные приёма"),
+        ("sales_marketing_client_call", "Метаданные встречи"),
+        ("retrospective", "Спринт"),
     ];
 
     /// Reads a bundled template straight from the source tree.
@@ -137,14 +137,14 @@ mod tests {
             let instruction = section.instruction.to_lowercase();
 
             assert!(
-                instruction.contains("do not invent"),
+                instruction.contains("не выдумывайте"),
                 "Instruction of '{}' in '{}' does not forbid inventing a date: {:?}",
                 section_title,
                 id,
                 section.instruction
             );
             assert!(
-                instruction.contains("unknown"),
+                instruction.contains("неизвест"),
                 "Instruction of '{}' in '{}' does not ask for an unknown date: {:?}",
                 section_title,
                 id,
@@ -179,15 +179,15 @@ mod tests {
     fn retrospective_keeps_the_sprint_range_separate_from_the_meeting_date() {
         // The Sprint section asks for a sprint date range, not the meeting date:
         // the date block must never be used to fill the range.
-        let instruction = date_section("retrospective", "Sprint").instruction;
+        let instruction = date_section("retrospective", "Спринт").instruction;
 
         assert!(
-            !instruction.to_lowercase().contains("verbatim"),
+            !instruction.contains("дословно"),
             "retrospective must not take the sprint range from the date block: {:?}",
             instruction
         );
         assert!(
-            instruction.contains("not a substitute"),
+            instruction.contains("не замена"),
             "retrospective must say the meeting date is not a substitute for the sprint range: {:?}",
             instruction
         );
@@ -199,7 +199,7 @@ mod tests {
         let section = template
             .sections
             .iter()
-            .find(|section| section.title == "Date")
+            .find(|section| section.title == "Дата")
             .expect("daily_standup has a Date section");
 
         assert!(

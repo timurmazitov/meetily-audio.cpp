@@ -1,44 +1,44 @@
 {
-      "name": "Client / Sales Meeting",
-      "description": "Capture client goals, deliverables, and next steps.",
-      "sections": [
-        {
-          "title": "Meeting Metadata",
-          "instruction": "Date and time taken verbatim from the <meeting_date> block in the user message (if the block is absent, do not invent a date or time and write that they are unknown), location/modality, account manager",
-          "format": "string"
-        },
-        {
-          "title": "Attendees",
-          "instruction": "Client and vendor attendees with roles",
-          "format": "list"
-        },
-        {
-          "title": "Client Goals & Success Criteria",
-          "instruction": "What the client wants to achieve and how success will be measured",
-          "format": "paragraph"
-        },
-        {
-          "title": "Agreed Deliverables",
-          "instruction": "Deliverables, owners, and due dates",
-          "format": "list",
-          "item_format": "| **Deliverable** | **Owner** | **Due Date** |\n| --- | --- | --- |"
-        },
-        {
-          "title": "Commercial Terms Discussed",
-          "instruction": "Pricing, SLAs, payment terms or contract items discussed",
-          "format": "paragraph"
-        },
-        {
-          "title": "Risks & Concerns",
-          "instruction": "Client concerns, blockers, or escalation items",
-          "format": "list",
-          "item_format": "| **Concern** | **Impact** | **Owner** |\n| --- | --- | --- |"
-        },
-        {
-          "title": "Next Steps",
-          "instruction": "Actions, owners, and due dates",
-          "format": "list",
-          "item_format": "| **Owner** | **Action** | **Due Date** |\n| --- | --- | --- |"
-        }
-      ]
+  "name": "Встреча с клиентом / Продажи",
+  "description": "Фиксация целей клиента, результатов работы и следующих шагов.",
+  "sections": [
+    {
+      "title": "Метаданные встречи",
+      "instruction": "Дата и время дословно из блока <meeting_date> в пользовательском сообщении (если блок отсутствует, не выдумывайте дату и время и укажите, что они неизвестны), место/формат проведения, аккаунт-менеджер",
+      "format": "string"
+    },
+    {
+      "title": "Участники",
+      "instruction": "Участники со стороны клиента и исполнителя с их ролями",
+      "format": "list"
+    },
+    {
+      "title": "Цели клиента и критерии успеха",
+      "instruction": "Чего клиент хочет достичь и как будет измеряться успех",
+      "format": "paragraph"
+    },
+    {
+      "title": "Согласованные результаты",
+      "instruction": "Результаты работы, ответственные и сроки",
+      "format": "list",
+      "item_format": "| **Результат** | **Ответственный** | **Срок** |\n| --- | --- | --- |"
+    },
+    {
+      "title": "Обсуждённые коммерческие условия",
+      "instruction": "Обсуждавшиеся цены, SLA, условия оплаты или пункты договора",
+      "format": "paragraph"
+    },
+    {
+      "title": "Риски и опасения",
+      "instruction": "Опасения клиента, препятствия или вопросы для эскалации",
+      "format": "list",
+      "item_format": "| **Опасение** | **Влияние** | **Ответственный** |\n| --- | --- | --- |"
+    },
+    {
+      "title": "Следующие шаги",
+      "instruction": "Действия, ответственные и сроки",
+      "format": "list",
+      "item_format": "| **Ответственный** | **Действие** | **Срок** |\n| --- | --- | --- |"
     }
+  ]
+}
