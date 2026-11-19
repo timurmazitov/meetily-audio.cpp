@@ -157,7 +157,7 @@ async function scanSources(): Promise<UsedKey[]> {
 
 const usedKeys = await scanSources();
 
-describe('translation key usage', { timeout: 30_000 }, () => {
+describe('translation key usage', () => {
   test('the scan sees a meaningful share of the catalog', () => {
     // A broken regex or glob would make the guard vacuously pass.
     expect(usedKeys.length).toBeGreaterThan(200);

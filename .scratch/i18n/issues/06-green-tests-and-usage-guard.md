@@ -1,6 +1,6 @@
 # Get bun test suite green and add usage-vs-catalog guard
 
-Status: needs-triage
+Status: resolved
 Type: task
 Blocked by: 02, 04, 05
 
