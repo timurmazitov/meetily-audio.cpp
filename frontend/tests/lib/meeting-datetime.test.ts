@@ -21,6 +21,11 @@ describe('formatMeetingDateTime', () => {
     expect(formatMeetingDateTime(moment.toISOString())).toBe('18/11/2026, 14:32');
   });
 
+  test('Russian dates use dots, keeping the same parts', () => {
+    expect(formatMeetingDateTime(new Date(2026, 10, 18, 14, 32), 'ru')).toBe('18.11.2026, 14:32');
+    expect(formatMeetingDateTime('2026-11-18', 'ru')).toBe('18.11.2026');
+  });
+
   test('a date-only value renders the date without inventing a time', () => {
     expect(formatMeetingDateTime('2026-11-18')).toBe('18/11/2026');
     expect(formatMeetingDateTime('2026-01-02')).toBe('02/01/2026');
@@ -64,6 +69,13 @@ describe('formatMeetingDuration', () => {
     expect(formatMeetingDuration(-5)).toBeNull();
     expect(formatMeetingDuration(Number.NaN)).toBeNull();
     expect(formatMeetingDuration(Number.POSITIVE_INFINITY)).toBeNull();
+  });
+
+  test('Russian uses Russian unit abbreviations', () => {
+    expect(formatMeetingDuration(42 * 60, 'ru')).toBe('42 мин');
+    expect(formatMeetingDuration(83 * 60, 'ru')).toBe('1 ч 23 мин');
+    expect(formatMeetingDuration(3600, 'ru')).toBe('1 ч');
+    expect(formatMeetingDuration(1, 'ru')).toBe('< 1 мин');
   });
 });
 

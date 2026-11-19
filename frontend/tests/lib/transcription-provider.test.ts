@@ -2,10 +2,11 @@ import { describe, expect, test } from 'bun:test';
 
 import {
   AUDIO_CPP_PROVIDER,
-  TRANSLATION_WHISPER_ONLY_MESSAGE,
   modelForProviderSwitch,
   supportsTranslation,
 } from '../../src/lib/transcription-provider';
+import enCatalog from '../../src/i18n/locales/en/translation.json';
+import ruCatalog from '../../src/i18n/locales/ru/translation.json';
 import {
   AUDIOCPP_COMMANDS,
   defaultSelectedTranscriptionModel,
@@ -74,10 +75,14 @@ describe('auto-translation availability', () => {
     expect(supportsTranslation('parakeet')).toBeFalse();
   });
 
-  test('explains in the UI message which provider can translate', () => {
-    expect(TRANSLATION_WHISPER_ONLY_MESSAGE.toLowerCase()).toContain('only available');
-    expect(TRANSLATION_WHISPER_ONLY_MESSAGE).toContain('Whisper');
-    expect(TRANSLATION_WHISPER_ONLY_MESSAGE).toContain('audioCpp');
+  test('both interface languages explain which provider can translate', () => {
+    const en = enCatalog.languageSelection.translationWhisperOnly;
+    const ru = ruCatalog.languageSelection.translationWhisperOnly;
+    // Each names the provider that does translate and the one that does not.
+    for (const message of [en, ru]) {
+      expect(message).toContain('Whisper');
+      expect(message).toContain('audioCpp');
+    }
   });
 
   test('classifies every selectable local provider for translation', () => {

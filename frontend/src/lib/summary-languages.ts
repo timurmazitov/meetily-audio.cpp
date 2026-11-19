@@ -1,3 +1,6 @@
+import i18n, { type AppLanguageCode } from '@/i18n';
+import { contentLanguageName } from '@/lib/content-languages';
+
 export interface LanguageOption {
   code: string;
   label: string;
@@ -60,6 +63,16 @@ export function normaliseLanguageCode(raw: string | null | undefined): string | 
   return null;
 }
 
-export function labelForCode(code: string): string {
-  return LANGUAGE_OPTIONS.find((l) => l.code === code)?.label ?? code;
+/**
+ * The name of a content language in the interface language. Called during
+ * render, so a component that uses it re-renders when the language changes
+ * (through `useTranslation`); pass `language` explicitly when calling it from a
+ * module without hook state.
+ */
+export function labelForCode(
+  code: string,
+  language: AppLanguageCode = i18n.language as AppLanguageCode,
+): string {
+  const fallback = LANGUAGE_OPTIONS.find((l) => l.code === code)?.label ?? code;
+  return contentLanguageName(code, language, fallback);
 }

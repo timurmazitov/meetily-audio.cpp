@@ -6,6 +6,7 @@ import { SelectedDevices } from '@/components/DeviceSelection';
 import { configService, ModelConfig } from '@/services/configService';
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
+import i18n from '@/i18n';
 
 export interface OllamaModel {
   name: string;
@@ -177,7 +178,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
         setModels(modelList);
         setError('');
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load Ollama models');
+        setError(err instanceof Error ? err.message : i18n.t('errors.loadOllamaModelsFailed'));
         console.error('Error loading models:', err);
       }
     };
@@ -351,7 +352,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
         }
       } catch (error) {
         console.error('Failed to load device preferences:', error);
-        toast.error('Could not load saved recording devices', { description: String(error) });
+        toast.error(i18n.t('errors.loadRecordingDevicesFailed'), { description: String(error) });
       }
     };
     loadDevicePreferences();

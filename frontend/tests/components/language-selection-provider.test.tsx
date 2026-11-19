@@ -20,7 +20,10 @@ mock.module('../../src/contexts/ConfigContext', () => ({
 }));
 
 const { LanguageSelection } = await import('../../src/components/LanguageSelection');
-const { TRANSLATION_WHISPER_ONLY_MESSAGE } = await import('../../src/lib/transcription-provider');
+const en = (await import('../../src/i18n/locales/en/translation.json')).default;
+const WHISPER_ONLY_MESSAGE = en.languageSelection.translationWhisperOnly;
+const AUDIOCPP_TITLE = en.languageSelection.audioCppTitle;
+const TRANSLATION_UNAVAILABLE = en.languageSelection.translationUnavailable;
 
 let renderer: ReactTestRenderer | undefined;
 
@@ -56,15 +59,15 @@ test('audioCpp disables auto-translation and explains it is Whisper-only', async
   const view = await render('audioCpp');
 
   expect(optionValues(view)).not.toContain('auto-translate');
-  expect(textOf(view)).toContain('audioCpp Language Support');
-  expect(textOf(view)).toContain(TRANSLATION_WHISPER_ONLY_MESSAGE);
+  expect(textOf(view)).toContain(AUDIOCPP_TITLE);
+  expect(textOf(view)).toContain(WHISPER_ONLY_MESSAGE);
 });
 
 test('Whisper keeps automatic translation available', async () => {
   const view = await render('localWhisper');
 
   expect(optionValues(view)).toContain('auto-translate');
-  expect(textOf(view)).not.toContain('audioCpp Language Support');
+  expect(textOf(view)).not.toContain(AUDIOCPP_TITLE);
 });
 
 test('Parakeet keeps auto-detection only', async () => {
@@ -73,14 +76,14 @@ test('Parakeet keeps auto-detection only', async () => {
   // Parakeet offers auto-detect and auto-translate only (no manual language
   // selection), exactly as it did before audioCpp was added.
   expect(optionValues(view)).toEqual(['auto', 'auto-translate']);
-  expect(textOf(view)).not.toContain('audioCpp Language Support');
+  expect(textOf(view)).not.toContain(AUDIOCPP_TITLE);
 });
 
 test('Parakeet still offers automatic translation', async () => {
   const view = await render('parakeet', 'auto-translate');
 
   expect(optionValues(view)).toContain('auto-translate');
-  expect(textOf(view)).not.toContain('Translation unavailable');
+  expect(textOf(view)).not.toContain(TRANSLATION_UNAVAILABLE);
   expect(view.root.findByType('select').props.value).toBe('auto-translate');
 });
 
@@ -88,8 +91,8 @@ test('a stale auto-translate preference does not misreport audioCpp output as tr
   // Whisper saved auto-translate, then the user switched to audioCpp.
   const view = await render('audioCpp', 'auto-translate');
 
-  expect(textOf(view)).toContain('Translation unavailable');
-  expect(textOf(view)).toContain(TRANSLATION_WHISPER_ONLY_MESSAGE);
+  expect(textOf(view)).toContain(TRANSLATION_UNAVAILABLE);
+  expect(textOf(view)).toContain(WHISPER_ONLY_MESSAGE);
   // The select falls back to auto-detect, so the UI does not claim English.
   const select = view.root.findByType('select');
   expect(select.props.value).toBe('auto');

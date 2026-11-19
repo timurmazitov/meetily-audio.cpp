@@ -1,4 +1,7 @@
 // Types for whisper-rs integration
+import i18n, { type AppLanguageCode } from '@/i18n';
+import { formatMegabytes } from '@/lib/format-locale';
+
 export interface ModelInfo {
   name: string;
   path: string;
@@ -150,10 +153,7 @@ export function getStatusColor(status: ModelStatus): string {
 }
 
 export function formatFileSize(sizeMb: number): string {
-  if (sizeMb >= 1000) {
-    return `${(sizeMb / 1000).toFixed(1)}GB`;
-  }
-  return `${sizeMb}MB`;
+  return formatMegabytes(sizeMb, i18n.language as AppLanguageCode);
 }
 
 // Helper function to get model type (f16, q5_1, q5_0, q4_0)
@@ -174,20 +174,42 @@ export function isQuantizedModel(modelName: string): boolean {
   return modelName.includes('-q');
 }
 
+// Human labels for the accuracy / speed enums the cards print.
+const ACCURACY_LABEL_KEYS: Record<ModelAccuracy, string> = {
+  'High': 'models.whisper.accuracy.high',
+  'Good': 'models.whisper.accuracy.good',
+  'Decent': 'models.whisper.accuracy.decent',
+};
+
+const SPEED_LABEL_KEYS: Record<ProcessingSpeed, string> = {
+  'Slow': 'models.whisper.speed.slow',
+  'Medium': 'models.whisper.speed.medium',
+  'Fast': 'models.whisper.speed.fast',
+  'Very Fast': 'models.whisper.speed.veryFast',
+};
+
+export function getAccuracyLabel(accuracy: ModelAccuracy): string {
+  return i18n.t(ACCURACY_LABEL_KEYS[accuracy]);
+}
+
+export function getSpeedLabel(speed: ProcessingSpeed): string {
+  return i18n.t(SPEED_LABEL_KEYS[speed]);
+}
+
 // Helper function to get model performance badge
 export function getModelPerformanceBadge(modelName: string): { label: string; color: string } {
   const type = getModelType(modelName);
   switch (type) {
     case 'f16':
-      return { label: 'Full Precision', color: 'blue' };
+      return { label: i18n.t('models.whisper.badge.fullPrecision'), color: 'blue' };
     case 'q5_1':
-      return { label: 'Balanced+', color: 'green' };
+      return { label: i18n.t('models.whisper.badge.balancedPlus'), color: 'green' };
     case 'q5_0':
-      return { label: 'Balanced', color: 'green' };
+      return { label: i18n.t('models.whisper.badge.balanced'), color: 'green' };
     case 'q4_0':
-      return { label: 'Fast', color: 'orange' };
+      return { label: i18n.t('models.whisper.badge.fast'), color: 'orange' };
     default:
-      return { label: 'Standard', color: 'gray' };
+      return { label: i18n.t('models.whisper.badge.standard'), color: 'gray' };
   }
 }
 
@@ -200,42 +222,44 @@ export function getModelTagline(modelName: string, speed: ProcessingSpeed, accur
   let speedText = '';
   switch (speed) {
     case 'Very Fast':
-      speedText = 'Real time';
+      speedText = i18n.t('models.whisper.tagline.realTime');
       break;
     case 'Fast':
-      speedText = 'Fast processing';
+      speedText = i18n.t('models.whisper.tagline.fastProcessing');
       break;
     case 'Medium':
-      speedText = 'Moderate speed';
+      speedText = i18n.t('models.whisper.tagline.moderateSpeed');
       break;
     case 'Slow':
-      speedText = 'Slower processing';
+      speedText = i18n.t('models.whisper.tagline.slowerProcessing');
       break;
   }
 
   // Key feature based on model and accuracy
   let featureText = '';
   if (baseName === 'large-v3') {
-    featureText = 'Most accurate';
+    featureText = i18n.t('models.whisper.tagline.mostAccurate');
   } else if (baseName === 'large-v3-turbo') {
-    featureText = 'Best accuracy with speed';
+    featureText = i18n.t('models.whisper.tagline.bestAccuracyWithSpeed');
   } else if (baseName === 'medium') {
-    featureText = accuracy === 'High' ? 'Professional quality' : 'Balanced quality';
+    featureText = accuracy === 'High'
+      ? i18n.t('models.whisper.tagline.professionalQuality')
+      : i18n.t('models.whisper.tagline.balancedQuality');
   } else if (baseName === 'small') {
-    featureText = 'Good accuracy';
+    featureText = i18n.t('models.whisper.tagline.goodAccuracy');
   } else if (baseName === 'base') {
-    featureText = 'Balanced quality';
+    featureText = i18n.t('models.whisper.tagline.balancedQuality');
   } else if (baseName === 'tiny') {
-    featureText = 'Fastest option';
+    featureText = i18n.t('models.whisper.tagline.fastestOption');
   }
 
   // Add quantization note if applicable
   if (isQuantized) {
     const quantType = getModelType(modelName);
     if (quantType === 'q5_0') {
-      featureText += ', optimized';
+      featureText += i18n.t('models.whisper.tagline.optimized');
     } else if (quantType === 'q4_0') {
-      featureText += ', ultra fast';
+      featureText += i18n.t('models.whisper.tagline.ultraFast');
     }
   }
 

@@ -5,6 +5,7 @@ import { Input } from './ui/input';
 import { Button } from './ui/button';
 import { Label } from './ui/label';
 import { Eye, EyeOff, Lock, Unlock } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { ModelManager } from './WhisperModelManager';
 import { ParakeetModelManager } from './ParakeetModelManager';
 import { AudioCppModelManager } from './AudioCppModelManager';
@@ -24,6 +25,7 @@ export interface TranscriptSettingsProps {
 }
 
 export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelConfig, onModelSelect }: TranscriptSettingsProps) {
+    const { t } = useTranslation();
     const [apiKey, setApiKey] = useState<string | null>(transcriptModelConfig.apiKey || null);
     const [showApiKey, setShowApiKey] = useState<boolean>(false);
     const [isApiKeyLocked, setIsApiKeyLocked] = useState<boolean>(true);
@@ -146,7 +148,7 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
                 <div className="space-y-4 pb-6">
                     <div>
                         <Label className="block text-sm font-medium text-gray-700 mb-1">
-                            Transcript Model
+                            {t('settingsTranscription.model')}
                         </Label>
                         <div className="flex space-x-2 mx-1">
                             <Select
@@ -156,12 +158,12 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
                                 }}
                             >
                                 <SelectTrigger className='focus:ring-1 focus:ring-blue-500 focus:border-blue-500'>
-                                    <SelectValue placeholder="Select provider" />
+                                    <SelectValue placeholder={t('models.common.selectProvider')} />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="parakeet">⚡ Parakeet (Recommended - Real-time / Accurate)</SelectItem>
-                                    <SelectItem value="localWhisper">🏠 Local Whisper (High Accuracy)</SelectItem>
-                                    <SelectItem value="audioCpp">🎙️ audioCpp (GigaAM — Russian)</SelectItem>
+                                    <SelectItem value="parakeet">{t('settingsTranscription.providerParakeet')}</SelectItem>
+                                    <SelectItem value="localWhisper">{t('settingsTranscription.providerWhisper')}</SelectItem>
+                                    <SelectItem value="audioCpp">{t('settingsTranscription.providerAudioCpp')}</SelectItem>
                                     {/* <SelectItem value="deepgram">☁️ Deepgram (Backup)</SelectItem>
                                     <SelectItem value="elevenLabs">☁️ ElevenLabs</SelectItem>
                                     <SelectItem value="groq">☁️ Groq</SelectItem>
@@ -178,7 +180,7 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
                                     }}
                                 >
                                     <SelectTrigger className='focus:ring-1 focus:ring-blue-500 focus:border-blue-500'>
-                                        <SelectValue placeholder="Select model" />
+                                        <SelectValue placeholder={t('settingsTranscription.selectModel')} />
                                     </SelectTrigger>
                                     <SelectContent>
                                         {modelOptions[uiProvider].map((model) => (
@@ -229,11 +231,10 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
                      */}
                     <div className="mt-6 border-t border-gray-200 pt-4">
                         <Label className="block text-sm font-medium text-gray-700">
-                            Speaker diarization
+                            {t('settingsTranscription.diarization.title')}
                         </Label>
                         <p className="mt-1 text-xs text-gray-500">
-                            Install this model to label who said what. It works with every
-                            transcription provider above.
+                            {t('settingsTranscription.diarization.description')}
                         </p>
                         <div className="mt-3">
                             <AudioCppModelManager task="diar" />
@@ -244,7 +245,7 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
                     {requiresApiKey && (
                         <div>
                             <Label className="block text-sm font-medium text-gray-700 mb-1">
-                                API Key
+                                {t('models.common.apiKey')}
                             </Label>
                             <div className="relative mx-1">
                                 <Input
@@ -255,7 +256,7 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
                                     onChange={(e) => setApiKey(e.target.value)}
                                     disabled={isApiKeyLocked}
                                     onClick={handleInputClick}
-                                    placeholder="Enter your API key"
+                                    placeholder={t('models.common.enterApiKey')}
                                 />
                                 {isApiKeyLocked && (
                                     <div
@@ -271,7 +272,7 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
                                         onClick={() => setIsApiKeyLocked(!isApiKeyLocked)}
                                         className={`transition-colors duration-200 ${isLockButtonVibrating ? 'animate-vibrate text-red-500' : ''
                                             }`}
-                                        title={isApiKeyLocked ? "Unlock to edit" : "Lock to prevent editing"}
+                                        title={isApiKeyLocked ? t('models.common.unlockToEdit') : t('models.common.lockToPreventEditing')}
                                     >
                                         {isApiKeyLocked ? <Lock className="h-4 w-4" /> : <Unlock className="h-4 w-4" />}
                                     </Button>

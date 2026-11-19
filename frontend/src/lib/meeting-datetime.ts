@@ -13,6 +13,8 @@
  */
 
 import { parseDateOnly } from '@/lib/meeting-date';
+import { DEFAULT_LANGUAGE, type AppLanguageCode } from '@/i18n';
+import { translator } from '@/lib/format-locale';
 
 /**
  * The value a `datetime-local` input expects: `2026-11-18T14:32` in local time.
@@ -93,52 +95,66 @@ function parseMoment(
 }
 
 /**
- * `18/11/2026, 14:32` in local time, with zero-padded 24-hour parts.
+ * `18/11/2026, 14:32` (English) or `18.11.2026, 14:32` (Russian) in local time,
+ * with zero-padded 24-hour parts.
  *
  * A date-only value has no time of day, so it renders the date alone rather
  * than a midnight that was never recorded. No usable value renders `null`.
  */
 export function formatMeetingDateTime(
   value: string | Date | number | null | undefined,
+  language: AppLanguageCode = DEFAULT_LANGUAGE,
 ): string | null {
   if (typeof value === 'string') {
     const dateOnly = parseDateOnly(value.trim());
-    if (dateOnly) return formatDate(dateOnly);
+    if (dateOnly) return formatDate(dateOnly, language);
   }
 
   const moment = parseMoment(value);
-  return moment ? formatInstant(moment) : null;
+  return moment ? formatInstant(moment, language) : null;
 }
 
 /**
- * `42 min`, `1 h 23 min`, `< 1 min`.
+ * `42 min`, `1 h 23 min`, `< 1 min` in English; `42 мин`, `1 ч 23 мин`,
+ * `< 1 мин` in Russian. Unit abbreviations do not inflect, so no plural forms
+ * are needed here.
  *
  * A missing, zero or non-positive length has no display form: `0 min` would
  * read as a real measurement of a meeting that never happened.
  */
-export function formatMeetingDuration(seconds: number | null | undefined): string | null {
+export function formatMeetingDuration(
+  seconds: number | null | undefined,
+  language: AppLanguageCode = DEFAULT_LANGUAGE,
+): string | null {
   if (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds <= 0) {
     return null;
   }
 
-  if (seconds < 60) return '< 1 min';
+  const t = translator(language);
+
+  if (seconds < 60) return t('units.underMinute');
 
   const totalMinutes = Math.round(seconds / 60);
   const hours = Math.floor(totalMinutes / 60);
   const minutes = totalMinutes % 60;
 
-  if (hours === 0) return `${minutes} min`;
-  if (minutes === 0) return `${hours} h`;
-  return `${hours} h ${minutes} min`;
+  if (hours === 0) return t('units.minutesShort', { count: minutes });
+  if (minutes === 0) return t('units.hoursShort', { count: hours });
+  return t('units.hoursMinutesShort', { hours, minutes });
 }
 
-function formatInstant(moment: Date): string | null {
+function formatInstant(moment: Date, language: AppLanguageCode): string | null {
   if (Number.isNaN(moment.getTime())) return null;
-  return `${formatDate(moment)}, ${pad(moment.getHours())}:${pad(moment.getMinutes())}`;
+  return `${formatDate(moment, language)}, ${pad(moment.getHours())}:${pad(moment.getMinutes())}`;
 }
 
-function formatDate(moment: Date): string {
-  return `${pad(moment.getDate())}/${pad(moment.getMonth() + 1)}/${moment.getFullYear()}`;
+function formatDate(moment: Date, language: AppLanguageCode): string {
+  const separator = language === 'ru' ? '.' : '/';
+  return [
+    pad(moment.getDate()),
+    pad(moment.getMonth() + 1),
+    moment.getFullYear(),
+  ].join(separator);
 }
 
 function pad(value: number): string {

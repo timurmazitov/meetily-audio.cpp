@@ -3,16 +3,18 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { MessagesSquare } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 
 export default function FeedbackLink({ isCollapsed }: { isCollapsed: boolean }) {
+  const { t } = useTranslation();
   const pathname = usePathname();
   const isActive = pathname === '/feedback';
   const link = (
     <Link
       href="/feedback"
       replace={pathname === '/settings'}
-      aria-label="Send Feedback"
+      aria-label={t('nav.feedback')}
       aria-current={isActive ? 'page' : undefined}
       className={`flex items-center justify-center rounded-lg transition-colors active:bg-gray-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-500 focus-visible:ring-offset-2 ${
         isCollapsed
@@ -34,7 +36,7 @@ export default function FeedbackLink({ isCollapsed }: { isCollapsed: boolean }) 
   return (
     <Tooltip>
       <TooltipTrigger asChild>{link}</TooltipTrigger>
-      <TooltipContent side="right">Send Feedback</TooltipContent>
+      <TooltipContent side="right">{t('nav.feedback')}</TooltipContent>
     </Tooltip>
   );
 }

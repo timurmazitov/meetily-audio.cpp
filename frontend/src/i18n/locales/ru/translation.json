@@ -1,0 +1,830 @@
+{
+  "common": {
+    "back": "Назад",
+    "cancel": "Отмена",
+    "save": "Сохранить",
+    "delete": "Удалить",
+    "close": "Закрыть",
+    "copy": "Копировать",
+    "clear": "Очистить",
+    "loading": "Загрузка...",
+    "searching": "Поиск...",
+    "openFolder": "Открыть папку",
+    "note": "Примечание",
+    "error": "Что-то пошло не так"
+  },
+  "units": {
+    "underMinute": "< 1 мин",
+    "minutesShort": "{{count}} мин",
+    "hoursShort": "{{count}} ч",
+    "hoursMinutesShort": "{{hours}} ч {{minutes}} мин",
+    "megabytesShort": "{{value}} МБ",
+    "gigabytesShort": "{{value}} ГБ"
+  },
+  "nav": {
+    "home": "Главная",
+    "startRecording": "Начать запись",
+    "recordingInProgress": "Идёт запись...",
+    "importAudio": "Импортировать аудио",
+    "meetingNotes": "Заметки о встречах",
+    "settings": "Настройки",
+    "feedback": "Обратная связь"
+  },
+  "appLanguage": {
+    "title": "Язык интерфейса",
+    "description": "Выберите язык интерфейса Samobranka"
+  },
+  "settings": {
+    "title": "Настройки",
+    "tabs": {
+      "general": "Общие",
+      "recordings": "Записи",
+      "transcription": "Транскрибация",
+      "summary": "Саммари"
+    },
+    "general": {
+      "loading": "Загрузка настроек...",
+      "notifications": {
+        "title": "Уведомления",
+        "description": "Включить или отключить уведомления о начале и конце встречи"
+      },
+      "storage": {
+        "title": "Расположение данных",
+        "description": "Где Samobranka хранит ваши данные",
+        "recordings": "Записи встреч",
+        "noteStrong": "Примечание:",
+        "note": "База данных и модели хранятся вместе в каталоге данных приложения — так ими удобнее управлять."
+      }
+    }
+  },
+  "sidebar": {
+    "searchPlaceholder": "Поиск по содержимому встреч...",
+    "deleteConfirm": "Удалить встречу? Это действие нельзя отменить.",
+    "meetingDeleted": "Встреча удалена",
+    "meetingDeletedDescription": "Все связанные данные удалены",
+    "meetingUpdated": "Данные встречи обновлены",
+    "editMeeting": "Изменить данные встречи",
+    "meetingTitle": "Название встречи",
+    "meetingTitlePlaceholder": "Введите название встречи",
+    "meetingDateTime": "Дата и время встречи",
+    "meetingDateHint": "Оставьте пустым, если дата встречи неизвестна.",
+    "editMeetingAria": "Изменить данные встречи",
+    "deleteMeetingAria": "Удалить встречу"
+  },
+  "about": {
+    "title": "О Samobranka",
+    "aria": "О Samobranka"
+  },
+  "layout": {
+    "onboardingRequired": "Сначала завершите настройку",
+    "onboardingRequiredDescription": "Чтобы начать запись, завершите первичную настройку приложения.",
+    "dropAudioFile": "Перетащите аудиофайл",
+    "supportedFormats": "Поддерживаемые форматы: {{formats}}"
+  },
+  "languageSelection": {
+    "title": "Язык транскрибации",
+    "saved": "Язык сохранён",
+    "savedDescription": "Язык транскрибации: {{language}}",
+    "saveFailed": "Не удалось сохранить язык",
+    "parakeetTitle": "Поддержка языков в Parakeet",
+    "parakeetBody": "Parakeet поддерживает только автоматическое определение языка. Ручной выбор языка недоступен. Если нужен конкретный язык, используйте Whisper.",
+    "audioCppTitle": "Поддержка языков в audioCpp",
+    "translationWhisperOnly": "Автоматический перевод доступен только с провайдером Whisper. audioCpp транскрибирует на языке записи.",
+    "current": "Текущий:",
+    "translationUnavailable": "Перевод недоступен",
+    "autoWarningTitle": "Автоопределение может ошибаться",
+    "autoWarningBody": "Для максимальной точности выберите конкретный язык (например, английский или испанский).",
+    "translationModeTitle": "Режим перевода включён",
+    "translationModeBody": "Все аудио автоматически переводятся на английский. Подходит для многоязычных встреч, где нужен английский текст.",
+    "optimizedFor": "Транскрибация будет оптимизирована для"
+  },
+  "languagePicker": {
+    "pickSummary": "Выбор языка саммари",
+    "search": "Поиск языка...",
+    "recentlyUsed": "Недавние",
+    "auto": "Авто",
+    "otherLanguages": "Другие языки",
+    "allLanguages": "Все языки",
+    "noMatches": "Ничего не найдено"
+  },
+  "recording": {
+    "controls": {
+      "processing": "Идёт обработка записи...",
+      "start": "Начать запись",
+      "pause": "Приостановить запись",
+      "resume": "Продолжить запись",
+      "pausing": "Приостановка...",
+      "resuming": "Возобновление...",
+      "stop": "Остановить запись",
+      "stopping": "Остановка...",
+      "validatingModel": "Проверка модели распознавания речи...",
+      "closeAlert": "Закрыть оповещение"
+    },
+    "deviceError": {
+      "updateSelectionTitle": "Требуется обновить выбор аудиоустройства",
+      "micTitle": "Микрофон недоступен",
+      "micMessage": "Не удалось получить доступ к микрофону. Проверьте, что:\n• микрофон подключён\n• у приложения есть разрешение на использование микрофона\n• микрофон не занят другим приложением",
+      "systemTitle": "Системный звук недоступен",
+      "systemMessage": "Не удалось захватить системный звук. Проверьте, что:\n• установлено виртуальное аудиоустройство (например, BlackHole)\n• у приложения есть разрешение на запись экрана (macOS)\n• системный звук настроен правильно",
+      "permissionTitle": "Требуется разрешение",
+      "permissionMessage": "Для записи нужны разрешения. Необходимо:\n• разрешить доступ к микрофону в системных настройках\n• разрешить запись экрана для системного звука (macOS)\n• перезапустить приложение после выдачи разрешений",
+      "failedTitle": "Сбой записи",
+      "failedMessage": "Не удалось начать запись. Проверьте настройки аудиоустройств и повторите попытку."
+    },
+    "recovery": {
+      "success": "Встреча восстановлена",
+      "withAudio": "Транскрипция и аудио восстановлены",
+      "withoutAudio": "Транскрипция восстановлена (аудио недоступно)",
+      "viewMeeting": "Открыть встречу"
+    },
+    "transcriptCopied": "Транскрипция скопирована в буфер обмена",
+    "fallbackMeetingTitle": "Встреча {{timestamp}}"
+  },
+  "recordingSettings": {
+    "title": "Настройки записи",
+    "description": "Настройте, как аудиозаписи встреч сохраняются на диск.",
+    "autoSaveTitle": "Сохранять аудиозаписи",
+    "autoSaveDescription": "Автоматически сохранять аудиофайлы после остановки записи",
+    "saveLocation": "Папка для записей",
+    "defaultFolder": "Папка по умолчанию",
+    "fileFormat": "Формат файла",
+    "fileFormatFiles": "Файлы {{format}}",
+    "timestampHint": "Записи сохраняются с меткой времени: recording_YYYYMMDD_HHMMSS.{{format}}",
+    "autoSaveDisabled": "Запись аудио отключена. Включите «Сохранять аудиозаписи», чтобы аудио встреч сохранялось автоматически.",
+    "startNotificationTitle": "Уведомление о начале записи",
+    "startNotificationDescription": "Показывать напоминание о том, что участников нужно предупредить о начале записи",
+    "defaultDevicesTitle": "Аудиоустройства по умолчанию",
+    "defaultDevicesDescription": "Выберите микрофон и устройство системного звука для записи. Они будут выбираться автоматически при начале новой записи.",
+    "deviceLockedWarning": "Во время записи выбор устройств заблокирован. Подключение нового устройства по ходу записи не переключит на него. Чтобы сменить устройства, остановите текущую встречу.",
+    "preferenceSaved": "Настройка сохранена",
+    "devicePreferencesSaved": "Настройки устройств сохранены",
+    "devicePreferencesSavedDescription": "Микрофон: {{mic}}, системный звук: {{system}}",
+    "defaultDevice": "По умолчанию"
+  },
+  "recordingNotification": {
+    "title": "Запись начата",
+    "description": "Информируйте всех участников о том, что встреча записывается.",
+    "dontShowAgain": "Больше не показывать",
+    "acknowledge": "Участники предупреждены"
+  },
+  "errors": {
+    "recordingInitFailed": "Не удалось инициализировать запись. Подробности — в консоли.",
+    "pauseFailed": "Не удалось приостановить запись. Подробности — в консоли.",
+    "resumeFailed": "Не удалось возобновить запись. Подробности — в консоли.",
+    "transcriptListenerFailed": "Не удалось запустить обработку транскрипции. Подробности — в консоли.",
+    "noTranscriptsToExport": "Нет транскрипции для экспорта",
+    "loadRecordingPreferencesFailed": "Не удалось загрузить настройки записи",
+    "savePreferenceFailed": "Не удалось сохранить настройку",
+    "saveDevicePreferencesFailed": "Не удалось сохранить настройки устройств",
+    "loadRecordingDevicesFailed": "Не удалось загрузить сохранённые устройства записи",
+    "loadOllamaModelsFailed": "Не удалось загрузить модели Ollama",
+    "recoverMeetingFailed": "Не удалось восстановить встречу",
+    "recoverMeetingUnknown": "Произошла неизвестная ошибка"
+  },
+  "onboarding": {
+    "welcome": {
+      "title": "Добро пожаловать в Samobranka",
+      "description": "Запись. Транскрибация. Саммари. Всё на устройстве.",
+      "features": {
+        "localData": "Данные не покидают устройство",
+        "summaries": "Умные саммари и выводы",
+        "offline": "Работает офлайн, облако не требуется"
+      },
+      "getStarted": "Начать",
+      "duration": "Займёт меньше 3 минут"
+    },
+    "setupOverview": {
+      "title": "Обзор настройки",
+      "description": "Для работы Samobranka нужно загрузить модели транскрибации и саммари.",
+      "stepLabel": "Шаг {{number}}: {{title}}",
+      "steps": {
+        "transcription": "Загрузить движок транскрибации",
+        "summarization": "Загрузить движок саммари"
+      },
+      "externalProviders": "Для генерации саммари в настройках можно выбрать внешних провайдеров ИИ: OpenAI, Claude или Ollama.",
+      "letsGo": "Продолжить",
+      "reportIssues": "Сообщить о проблеме на GitHub"
+    },
+    "downloads": {
+      "title": "Подготовка к работе",
+      "description": "Пользоваться Samobranka можно сразу после загрузки движка транскрибации.",
+      "cards": {
+        "transcription": "Движок транскрибации",
+        "diarization": "Диаризация спикеров",
+        "summary": "Движок саммари"
+      },
+      "waiting": "Ожидание…",
+      "downloading": "Загрузка…",
+      "failed": "Ошибка",
+      "cancelled": "Отменено",
+      "cancelledTitle": "Загрузка отменена",
+      "errorTitle": "Ошибка загрузки",
+      "tryAgain": "Повторить",
+      "speed": "{{speed}} {{unit}}/с",
+      "backgroundNotice": {
+        "title": "Можно продолжать, пока идёт загрузка",
+        "description": "Загрузка продолжится в фоне."
+      },
+      "continue": "Продолжить",
+      "retry": {
+        "transcriptionFailed": "Не удалось повторить загрузку движка транскрибации",
+        "diarizationFailed": "Не удалось повторить загрузку диаризации спикеров",
+        "summaryFailed": "Не удалось повторить загрузку модели саммари",
+        "genericFailed": "Не удалось повторить загрузку",
+        "connectionHint": "Проверьте подключение и повторите попытку."
+      },
+      "errors": {
+        "summaryModelNotReady": "Рекомендация модели саммари ещё не готова"
+      },
+      "transcriptionRequired": "Требуется движок транскрибации",
+      "transcriptionRequiredDescription": "Повторите загрузку, чтобы продолжить.",
+      "verifyFailed": "Не удалось проверить движок транскрибации",
+      "verifyFailedDescription": "Повторите попытку через минуту.",
+      "backgroundInfo": "Загрузка продолжится в фоне",
+      "backgroundInfoDescription": "Пользоваться приложением уже можно. Запись станет доступна, когда распознавание речи будет готово.",
+      "completeFailed": "Не удалось завершить настройку",
+      "completeFailedDescription": "Повторите попытку."
+    },
+    "permissions": {
+      "title": "Разрешения",
+      "description": "Для записи встреч Samobranka нужен доступ к микрофону и системному звуку.",
+      "microphone": {
+        "title": "Микрофон",
+        "description": "Нужно для записи голоса во время встреч"
+      },
+      "systemAudio": {
+        "title": "Системный звук",
+        "description": "Нажмите «Разрешить», чтобы выдать разрешение на запись аудио"
+      },
+      "finish": "Завершить настройку",
+      "skip": "Сделать это позже",
+      "note": "Без разрешений запись не работает. Их можно выдать позже в настройках.",
+      "alerts": {
+        "microphone": "Включите доступ к микрофону в разделе «Системные настройки» → «Защита и безопасность» → «Микрофон».",
+        "systemAudio": "Включите «Запись аудио» в разделе «Системные настройки» → «Конфиденциальность и безопасность» → «Запись аудио»."
+      }
+    },
+    "permissionRow": {
+      "checking": "Проверка…",
+      "openSettings": "Открыть настройки",
+      "enable": "Разрешить",
+      "accessGranted": "Доступ разрешён",
+      "accessDenied": "Доступ запрещён — выдайте его в системных настройках"
+    }
+  },
+  "importAudio": {
+    "title": {
+      "importing": "Импорт аудио...",
+      "failed": "Не удалось импортировать",
+      "complete": "Импорт завершён",
+      "idle": "Импорт аудиофайла"
+    },
+    "description": {
+      "processing": "Обработка аудио...",
+      "error": "При импорте произошла ошибка",
+      "idle": "Импортируйте аудиофайл, чтобы создать встречу с транскрипцией"
+    },
+    "chooseDifferentFile": "Выбрать другой файл",
+    "validating": "Проверка...",
+    "selectFile": "Выбрать аудиофайл",
+    "advancedOptions": "Дополнительные параметры",
+    "dropOverlay": "Перетащите аудиофайл для импорта",
+    "language": {
+      "label": "Язык",
+      "placeholder": "Выберите язык",
+      "audioCppUnsupported": "Для audioCpp выбор языка недоступен: GigaAM транскрибирует на языке обучения (русский).",
+      "parakeetUnsupported": "Для Parakeet выбор языка недоступен: всегда используется автоопределение."
+    },
+    "model": {
+      "label": "Модель",
+      "loading": "Загрузка моделей...",
+      "placeholder": "Выберите модель"
+    },
+    "actions": {
+      "import": "Импортировать",
+      "retry": "Повторить попытку"
+    },
+    "toast": {
+      "complete_one": "Импорт завершён. Создан {{count}} сегмент.",
+      "complete_few": "Импорт завершён. Создано {{count}} сегмента.",
+      "complete_many": "Импорт завершён. Создано {{count}} сегментов.",
+      "failed": "Не удалось импортировать файл",
+      "cancelled": "Импорт отменён"
+    }
+  },
+  "updates": {
+    "dialog": {
+      "downloadingTitle": "Загрузка обновления",
+      "errorTitle": "Ошибка обновления",
+      "availableTitle": "Доступно обновление",
+      "downloadingDescription": "Загрузка последней версии...",
+      "errorDescription": "При обновлении произошла ошибка",
+      "availableDescription": "Доступна новая версия ({{version}})",
+      "currentVersion": "Текущая версия:",
+      "newVersion": "Новая версия:",
+      "releaseDate": "Дата выпуска:",
+      "notFound": "Обновление больше не доступно",
+      "notAvailable": "Обновление не найдено",
+      "prepareFailed": "Не удалось подготовить обновление: {{reason}}",
+      "getFailed": "Не удалось получить обновление: {{reason}}",
+      "installFailed": "Не удалось загрузить или установить обновление",
+      "percentComplete": "Готово: {{percent}}%",
+      "restartNotice": "После установки приложение перезапустится автоматически",
+      "later": "Позже",
+      "downloadAndInstall": "Загрузить и установить"
+    },
+    "notification": {
+      "title": "Доступно обновление",
+      "description": "Доступна версия {{version}}",
+      "viewDetails": "Подробнее"
+    },
+    "toast": {
+      "installed": "Обновление установлено. Приложение перезапустится...",
+      "failed": "Не удалось обновить приложение: {{reason}}",
+      "upToDate": "Установлена последняя версия",
+      "checkFailed": "Не удалось проверить обновления: {{reason}}"
+    },
+    "checking": "Проверка...",
+    "checkForUpdates": "Проверить обновления",
+    "availableShort": "Доступно обновление: v{{version}}"
+  },
+  "recovery": {
+    "title": "Восстановление прерванных встреч",
+    "description_one": "Найдено прерванных встреч: {{count}}. Выберите встречу для предпросмотра и восстановления.",
+    "description_few": "Найдено прерванных встреч: {{count}}. Выберите встречу для предпросмотра и восстановления.",
+    "description_many": "Найдено прерванных встреч: {{count}}. Выберите встречу для предпросмотра и восстановления.",
+    "listTitle": "Прерванные встречи",
+    "transcriptCount_one": "{{count}} фрагмент транскрипции",
+    "transcriptCount_few": "{{count}} фрагмента транскрипции",
+    "transcriptCount_many": "{{count}} фрагментов транскрипции",
+    "audioAvailable": "Аудио доступно",
+    "noAudio": "Аудио нет",
+    "preview": "Предпросмотр",
+    "startedAt": "Начало: {{date}}",
+    "loadingPreview": "Загрузка предпросмотра...",
+    "showingFirst": "Показаны первые {{shown}} из {{total}} фрагментов транскрипции",
+    "moreTranscripts_one": "...и ещё {{count}} фрагмент",
+    "moreTranscripts_few": "...и ещё {{count}} фрагмента",
+    "moreTranscripts_many": "...и ещё {{count}} фрагментов",
+    "empty": "Нет фрагментов для предпросмотра",
+    "selectMeeting": "Выберите встречу для предпросмотра",
+    "confirmDelete": "Удалить встречу? Это действие нельзя отменить.",
+    "error": {
+      "recoverFailed": "Не удалось восстановить встречу. Повторите попытку.",
+      "deleteFailed": "Не удалось удалить встречу. Повторите попытку."
+    },
+    "actions": {
+      "recover": "Восстановить",
+      "recovering": "Восстановление...",
+      "deleting": "Удаление..."
+    }
+  },
+  "warnings": {
+    "permissions": {
+      "bothTitle": "Требуются разрешения",
+      "microphoneTitle": "Требуется разрешение на микрофон",
+      "systemAudioTitle": "Требуется разрешение на системный звук",
+      "openMicrophoneSettings": "Открыть настройки микрофона",
+      "openScreenRecordingSettings": "Открыть настройки записи экрана",
+      "recheck": "Проверить снова",
+      "microphoneDescription": "Samobranka нужен доступ к микрофону для записи встреч. Микрофоны не обнаружены.",
+      "microphoneCheckTitle": "Проверьте:",
+      "microphoneCheckConnected": "Микрофон подключён и включён",
+      "microphoneCheckPermission": "В настройках системы выдано разрешение на микрофон",
+      "microphoneCheckBusy": "Микрофон не используется монопольно другим приложением",
+      "systemAudioDescriptionWithMicrophone": "Захват системного звука недоступен. Запись с микрофона возможна, но звук компьютера записан не будет.",
+      "systemAudioDescription": "Захват системного звука также недоступен.",
+      "macOSEnableTitle": "Чтобы включить системный звук в macOS:",
+      "macOSInstallVirtualDevice": "Установите виртуальное аудиоустройство (например, BlackHole 2ch)",
+      "macOSGrantScreenRecording": "Выдайте Samobranka разрешение на запись экрана",
+      "macOSConfigureRouting": "Настройте маршрутизацию звука в Audio MIDI Setup"
+    },
+    "bluetooth": {
+      "title": "Обнаружено воспроизведение через Bluetooth",
+      "description": "Для воспроизведения используется <strong>{{device}}</strong>. Через Bluetooth-устройства записи могут звучать искажённо или ускоренно. Для точного прослушивания используйте <strong>динамики компьютера</strong> или <strong>проводные наушники</strong>.",
+      "learnMore": "Почему так происходит →",
+      "dismiss": "Закрыть предупреждение"
+    },
+    "compliance": {
+      "title": "Уведомление о записи",
+      "description": "Сообщите участникам о записи.",
+      "requirement": "Требуется соблюдение законодательства США",
+      "later": "Позже",
+      "done": "Готово"
+    }
+  },
+  "dialogs": {
+    "confirmDelete": {
+      "title": "Подтверждение удаления"
+    },
+    "legacyDb": {
+      "title": "Добро пожаловать в Samobranka!",
+      "description": "Есть данные от предыдущей установки Samobranka?",
+      "importedReloading": "База данных импортирована. Перезагрузка...",
+      "importFailed": "Не удалось импортировать базу данных: {{reason}}",
+      "initialized": "База данных инициализирована. Запуск приложения...",
+      "initializeFailed": "Не удалось инициализировать базу данных: {{reason}}",
+      "notFoundAtLocation": "В выбранном месте база данных не найдена. Выберите папку Samobranka, папку backend или сам файл базы данных.",
+      "size": "Размер: {{size}}",
+      "homebrew": {
+        "title": "Обнаружена предыдущая установка Samobranka",
+        "description": "Найдена существующая база данных от предыдущей установки Samobranka (версия с Python-бэкендом).",
+        "question": "Импортировать прежние встречи, транскрипции и саммари?",
+        "confirm": "Импортировать",
+        "decline": "Выбрать вручную"
+      },
+      "importing": "Импорт...",
+      "browsePrompt": "Выберите прежнюю папку Samobranka, каталог backend или файл базы данных:",
+      "selecting": "Выбор...",
+      "detecting": "Поиск базы данных...",
+      "browse": "Выбрать базу данных",
+      "found": "База данных найдена",
+      "success": "Готово",
+      "importDatabase": "Импортировать базу данных",
+      "or": "или",
+      "startFresh": "Начать с нуля (без импорта)"
+    }
+  },
+  "settingsModal": {
+    "tabs": {
+      "transcript": "Транскрибация",
+      "summary": "Саммари",
+      "preferences": "Параметры",
+      "about": "О программе"
+    },
+    "preferences": {
+      "title": "Параметры"
+    },
+    "aiModel": {
+      "title": "Настройка ИИ-модели",
+      "summarizationModel": "Модель для саммари",
+      "builtinAi": "Встроенный ИИ",
+      "availableOllamaModels": "Доступные модели Ollama",
+      "size": "Размер: {{size}}",
+      "modified": "Изменена: {{date}}"
+    },
+    "devices": {
+      "title": "Настройки аудиоустройств",
+      "defaultDevice": "По умолчанию",
+      "selected": "Устройства выбраны",
+      "selectedDescription": "Микрофон: {{microphone}}, системный звук: {{systemAudio}}"
+    },
+    "language": {
+      "title": "Настройки языка"
+    },
+    "modelSelector": {
+      "setupRequired": "Требуется настройка распознавания речи",
+      "title": "Настройки модели транскрибации"
+    },
+    "confidence": {
+      "title": "Показывать индикаторы уверенности",
+      "description": "Отображать цветные точки с оценкой качества транскрибации"
+    },
+    "errorAlert": {
+      "title": "Запись остановлена"
+    },
+    "chunkDropWarning": {
+      "title": "Предупреждение о производительности транскрибации"
+    },
+    "developerConsole": {
+      "label": "Консоль разработчика",
+      "toggle": "Переключить консоль",
+      "description": "Показ или скрытие окна консоли разработчика. В Windows это окно консоли, в macOS открывается Terminal с логами приложения."
+    },
+    "done": "Готово",
+    "dismiss": "Скрыть"
+  },
+  "feedback": {
+    "openLinkFailed": "Не удалось открыть ссылку. Проверьте браузер по умолчанию и повторите попытку.",
+    "githubCard": {
+      "title": "Сообщить об ошибке или предложить функцию",
+      "description": "Сообщите об ошибке или предложите функцию на GitHub — отзывы помогают развивать Samobranka.",
+      "link": "Открыть задачи на GitHub"
+    }
+  },
+  "notes": {
+    "notFound": "Заметка не найдена"
+  },
+  "misc": {
+    "unknownError": "Неизвестная ошибка",
+    "openLinkFailed": "Не удалось открыть ссылку: {{reason}}",
+    "editSectionTitle": "Изменить заголовок раздела",
+    "deleteSection": "Удалить раздел",
+    "about": {
+      "tagline": "Заметки и саммари в реальном времени — данные не покидают устройство.",
+      "logoAlt": "Логотип Samobranka"
+    },
+    "statusOverlays": {
+      "finalizingTranscription": "Завершение транскрибации...",
+      "savingTranscript": "Сохранение транскрипции..."
+    }
+  },
+  "models": {
+    "common": {
+      "ready": "Готова",
+      "selected": "Выбрана",
+      "recommended": "Рекомендуется",
+      "download": "Скачать",
+      "retry": "Повторить",
+      "reDownload": "Скачать заново",
+      "advancedModels": "Дополнительные модели",
+      "deleteModelTitle": "Удалить модель, чтобы освободить место",
+      "deleteModelAria": "Удалить модель {{name}}",
+      "cancelDownloadTitle": "Отменить загрузку",
+      "downloading": "Загрузка...",
+      "loadingModels": "Загрузка моделей...",
+      "cancelling": "Отмена…",
+      "cancellationRequested": "Запрошена отмена",
+      "failedToLoadModels": "Не удалось загрузить модели",
+      "failedToLoadTranscriptionModels": "Не удалось загрузить модели транскрибации",
+      "unknownError": "Неизвестная ошибка",
+      "modelReady": "Модель {{name}} готова!",
+      "downloadedAndReady": "Модель скачана и готова к использованию",
+      "downloadFailedFor": "Не удалось скачать модель {{name}}",
+      "downloadFailed": "Загрузка не удалась",
+      "downloadingToast": "Загрузка модели {{name}}...",
+      "mayTakeMinutes": "Это может занять несколько минут",
+      "switchedTo": "Выбрана модель {{name}}",
+      "modelDeleted": "Модель {{name}} удалена",
+      "modelRemoved": "Модель удалена, чтобы освободить место",
+      "failedToDelete": "Не удалось удалить модель {{name}}",
+      "deleteFailed": "Удаление не удалось",
+      "cancellingFor": "Отмена загрузки модели {{name}}...",
+      "cancellationPending": "Загрузка ещё останавливается. Повторная попытка станет доступна после завершения очистки.",
+      "failedToCancelDownload": "Не удалось отменить загрузку",
+      "downloadCancelled": "Загрузка модели {{name}} отменена",
+      "downloadCompletedBeforeCancel": "Загрузка модели {{name}} завершилась до отмены",
+      "usingForTranscription": "Для транскрибации используется {{name}}",
+      "failedToSaveSelection": "Не удалось сохранить выбор модели",
+      "listeningFailed": "Не удалось подписаться на обновления моделей",
+      "selectProvider": "Выберите провайдера",
+      "apiKey": "API-ключ",
+      "enterApiKey": "Введите API-ключ",
+      "unlockToEdit": "Разблокировать для изменения",
+      "lockToPreventEditing": "Заблокировать от изменений"
+    },
+    "whisper": {
+      "accuracyValue": "Точность: {{value}}",
+      "speedValue": "Скорость: {{value}}",
+      "accuracy": {
+        "high": "высокая",
+        "good": "хорошая",
+        "decent": "приемлемая"
+      },
+      "speed": {
+        "slow": "медленная",
+        "medium": "средняя",
+        "fast": "быстрая",
+        "veryFast": "очень быстрая"
+      },
+      "badge": {
+        "fullPrecision": "Полная точность",
+        "balancedPlus": "Сбалансированная+",
+        "balanced": "Сбалансированная",
+        "fast": "Быстрая",
+        "standard": "Стандартная"
+      },
+      "tagline": {
+        "realTime": "В реальном времени",
+        "fastProcessing": "Быстрая обработка",
+        "moderateSpeed": "Умеренная скорость",
+        "slowerProcessing": "Замедленная обработка",
+        "mostAccurate": "Максимальная точность",
+        "bestAccuracyWithSpeed": "Лучшая точность при высокой скорости",
+        "professionalQuality": "Профессиональное качество",
+        "balancedQuality": "Сбалансированное качество",
+        "goodAccuracy": "Хорошая точность",
+        "fastestOption": "Самый быстрый вариант",
+        "optimized": ", оптимизирована",
+        "ultraFast": ", очень быстрая"
+      }
+    },
+    "parakeet": {
+      "listenFailed": "Не удалось подписаться на обновления моделей Parakeet",
+      "badge": {
+        "fullPrecision": "Полная точность",
+        "int8Quantized": "Квантование Int8",
+        "standard": "Стандартная"
+      },
+      "tagline": {
+        "v3": "В реальном времени • Лучший выбор по скорости при высокой точности",
+        "v2": "В реальном времени • Меньший размер",
+        "v3FullPrecision": "В 20 раз быстрее реального времени • Более высокая точность"
+      }
+    },
+    "audioCpp": {
+      "failedToLoadModels": "Не удалось загрузить модели audio.cpp",
+      "nativeLibraryUnavailable": "нативная библиотека недоступна",
+      "openModelsFolder": "Открыть папку моделей",
+      "runtimeUnavailable": "Движок диаризации недоступен в этой системе",
+      "runtimeUnavailableDescription": "Модель всё равно можно скачать: разметка спикеров заработает, когда нативная библиотека audio.cpp станет доступна.",
+      "taskTranscription": "Транскрибация",
+      "taskDiarization": "Диаризация"
+    },
+    "builtIn": {
+      "downloaded": "Модель {{model}} успешно скачана",
+      "downloadCancelled": "Загрузка модели {{model}} отменена",
+      "deleted": "Модель {{model}} удалена",
+      "empty": "Модели не найдены. Скачайте модель, чтобы начать работу со встроенным ИИ.",
+      "title": "Встроенные модели ИИ",
+      "corrupted": "Повреждена",
+      "error": "Ошибка",
+      "deleteTitle": "Удалить модель",
+      "corruptedHint": "Файл повреждён. Повторите загрузку или удалите модель.",
+      "genericError": "Произошла ошибка",
+      "tokens_one": "{{count}} токен",
+      "tokens_few": "{{count}} токена",
+      "tokens_many": "{{count}} токенов",
+      "tokens_other": "{{count}} токена"
+    },
+    "download": {
+      "finalizing": "Завершение...",
+      "downloadingModel": "Загрузка модели {{name}}",
+      "percentComplete": "Готово: {{percent}}%",
+      "completedLoading": "✓ Загрузка завершена, модель загружается...",
+      "summary": "Доступно моделей: {{downloaded}} из {{total}}",
+      "totalSize": "всего {{size}}",
+      "localNotice": "✓ Модели работают локально — интернет для транскрибации не нужен"
+    }
+  },
+  "modelDownload": {
+    "failed": "Загрузка не удалась",
+    "complete": "Загрузка завершена",
+    "cancelled": "Загрузка отменена",
+    "parakeetModel": "Модель транскрибации (Parakeet)",
+    "summaryModel": "Модель саммари ({{model}})",
+    "errors": {
+      "network": "Сетевая ошибка — проверьте подключение к интернету",
+      "server": "Ошибка сервера — загрузка временно недоступна",
+      "storage": "Ошибка хранилища — проверьте свободное место на диске",
+      "validation": "Проверка файла не пройдена — повторите загрузку"
+    }
+  },
+  "devices": {
+    "title": "Аудиоустройства",
+    "loadFailed": "Не удалось загрузить аудиоустройства. Проверьте системные настройки звука.",
+    "noMicrophonesToMonitor": "Микрофоны для мониторинга не найдены",
+    "monitoringStartFailed": "Не удалось запустить измерение уровня звука",
+    "microphone": "Микрофон",
+    "microphoneAria": "О выборе микрофона",
+    "microphoneTooltip": "Выберите микрофон для записи. «По умолчанию» — микрофон, выбранный в системе.",
+    "selectMicrophone": "Выберите микрофон",
+    "defaultMicrophone": "Микрофон по умолчанию",
+    "unavailableDevice": "{{name}} — недоступен — выберите устройство",
+    "noMicrophones": "Микрофоны не найдены",
+    "microphoneLevels": "Уровень микрофона:",
+    "microphoneInfo": "Записывает голос и окружающий звук",
+    "systemAudio": "Системный звук",
+    "systemAudioAria": "О выборе системного звука",
+    "systemAudioTooltip": "Выберите звук для записи. «По умолчанию» — устройство вывода, выбранное в системе.",
+    "selectSystemAudio": "Выберите системный звук",
+    "defaultSystemAudio": "Системный звук по умолчанию",
+    "noSystemAudio": "Устройства системного звука не найдены",
+    "systemAudioInfo": "Записывает звук компьютера (музыку, звонки и т. п.)",
+    "backend": {
+      "title": "Бэкенд системного звука",
+      "loadFailed": "Не удалось загрузить варианты бэкенда",
+      "changeFailed": "Не удалось сменить бэкенд. Повторите попытку.",
+      "methodsTitle": "Способы захвата звука:",
+      "tryDifferent": "Попробуйте разные бэкенды, чтобы найти подходящий для системы.",
+      "active": "Активен",
+      "disabled": "Отключён",
+      "noteSystemOnly": "Выбор бэкенда влияет только на захват системного звука",
+      "noteMicrophone": "Микрофон всегда использует способ по умолчанию",
+      "noteNewSessions": "Изменения применяются к новым сессиям записи"
+    }
+  },
+  "settingsTranscription": {
+    "model": "Модель транскрибации",
+    "selectModel": "Выберите модель",
+    "providerParakeet": "⚡ Parakeet (рекомендуется — в реальном времени / точно)",
+    "providerWhisper": "🏠 Локальный Whisper (высокая точность)",
+    "providerAudioCpp": "🎙️ audioCpp (GigaAM — русский)",
+    "diarization": {
+      "title": "Диаризация спикеров",
+      "description": "Установите эту модель, чтобы размечать, кто что сказал. Она работает с любым провайдером транскрибации выше."
+    },
+    "chunkProgress": {
+      "title": "Ход обработки",
+      "paused": "Пауза",
+      "pause": "Приостановить",
+      "resume": "Продолжить",
+      "chunksCompleted": "Обработано фрагментов: {{completed}} из {{total}}",
+      "completed": "Готово",
+      "processing": "В работе",
+      "processingTitle": "Обработка",
+      "pending": "В очереди",
+      "failed": "Ошибки",
+      "calculating": "Расчёт...",
+      "estimatedRemaining": "Осталось примерно: {{time}}",
+      "recentChunks": "Последние фрагменты ({{shown}} из {{total}})",
+      "chunk": "Фрагмент {{id}}",
+      "error": "Ошибка: {{message}}",
+      "allDone_one": "Обработка завершена! Обработан {{count}} фрагмент.",
+      "allDone_few": "Обработка завершена! Обработано {{count}} фрагмента.",
+      "allDone_many": "Обработка завершена! Обработано {{count}} фрагментов.",
+      "allDone_other": "Обработка завершена! Обработано {{count}} фрагментов.",
+      "chunksRatio": "{{completed}} / {{total}} фрагментов",
+      "processingCount": "{{count}} в работе",
+      "durationHours": "{{hours}} ч {{minutes}} мин {{seconds}} с",
+      "durationMinutes": "{{minutes}} мин {{seconds}} с",
+      "durationSeconds": "{{seconds}} с"
+    }
+  },
+  "settingsSummary": {
+    "modelSettings": {
+      "loadFailed": "Не удалось загрузить настройки модели",
+      "saved": "Настройки модели сохранены",
+      "saveFailed": "Не удалось сохранить настройки модели"
+    },
+    "autoSummary": {
+      "title": "Автоматическое саммари",
+      "description": "Автоматическое создание саммари после завершения встречи (остановки записи)"
+    },
+    "modelConfiguration": {
+      "title": "Настройка модели саммари",
+      "description": "Настройте модель ИИ для создания саммари встреч."
+    },
+    "language": {
+      "title": "Язык саммари",
+      "description": "Закрепите язык как язык по умолчанию для новых встреч. Незакреплённые языки остаются доступными для быстрого переключения при создании саммари. «Авто» использует преобладающий язык транскрипции.",
+      "unpinAria": "Открепить язык {{language}}",
+      "pinAria": "Закрепить язык {{language}} как язык по умолчанию",
+      "clickToUnset": "Нажмите, чтобы снять закрепление",
+      "clickToSet": "Нажмите, чтобы закрепить как язык по умолчанию",
+      "removeAria": "Удалить {{language}}",
+      "add": "＋ Добавить язык",
+      "pinnedHint": "По умолчанию: {{language}} — нажмите ещё раз, чтобы снять. Не более 5 языков для быстрого переключения.",
+      "defaultHint": "Нажмите на любой язык, чтобы сделать его языком по умолчанию. Не более 5 языков для быстрого переключения."
+    },
+    "systemPrompt": {
+      "title": "Базовый системный промпт",
+      "description": "Отправляется модели ИИ с каждым запросом саммари. Шаблоны со своим системным промптом полностью заменяют этот текст.",
+      "ariaLabel": "Базовый системный промпт",
+      "placeholderHint": "Доступные плейсхолдеры: {section_instructions} — инструкции выбранных секций шаблона; {template} — структура Markdown выбранного шаблона. Шаблон со своим системным промптом полностью заменяет этот текст.",
+      "loadFailed": "Не удалось загрузить системный промпт",
+      "saved": "Системный промпт сохранён",
+      "saveFailed": "Не удалось сохранить системный промпт",
+      "reset": "Системный промпт сброшен к значению по умолчанию",
+      "resetFailed": "Не удалось сбросить системный промпт",
+      "resetButton": "Сбросить к значению по умолчанию",
+      "saveButton": "Сохранить промпт"
+    },
+    "model": {
+      "title": "Настройки модели",
+      "summarizationModel": "Модель для саммари",
+      "providerBuiltIn": "Встроенный ИИ (офлайн, API не нужен)",
+      "providerCustomServer": "Свой сервер (OpenAI)",
+      "selectModel": "Выберите модель…",
+      "searchModels": "Поиск моделей...",
+      "noModelsFound": "Модели не найдены.",
+      "endpointUrl": "URL эндпоинта *",
+      "endpointUrlHint": "Базовый URL OpenAI-совместимого API",
+      "modelName": "Название модели *",
+      "modelNamePlaceholder": "gpt-4, llama-3-70b и т. п.",
+      "modelNameHint": "Идентификатор модели для запросов",
+      "apiKeyOptional": "API-ключ (необязательно)",
+      "apiKeyOptionalPlaceholder": "Оставьте пустым, если не требуется",
+      "advancedOptions": "Дополнительные параметры",
+      "maxTokens": "Максимум токенов",
+      "maxTokensPlaceholder": "например, 4096",
+      "temperature": "Температура (0.0–2.0)",
+      "temperaturePlaceholder": "например, 0.7",
+      "topP": "Top P (0.0–1.0)",
+      "topPPlaceholder": "например, 0.9",
+      "testingConnection": "Проверка подключения...",
+      "testConnection": "Проверить подключение",
+      "enterEndpointAndModel": "Сначала укажите URL эндпоинта и название модели",
+      "connectionSuccessful": "Подключение установлено!",
+      "saveCustomFailed": "Не удалось сохранить конфигурацию OpenAI",
+      "customEndpoint": "Свой эндпоинт (необязательно)",
+      "customEndpointHint": "Оставьте пустым или укажите свой эндпоинт (например, http://x.yy.zz:11434)",
+      "fetching": "Получение...",
+      "fetchModels": "Получить модели",
+      "endpointChangedFetch": "Эндпоинт изменён. Перед сохранением нажмите «Получить модели», чтобы загрузить список с нового эндпоинта.",
+      "endpointChangedShort": "Эндпоинт изменён. Нажмите «Получить модели», чтобы загрузить список с нового эндпоинта.",
+      "availableModels": "Доступные модели Ollama",
+      "usingEndpoint": "Используется:",
+      "ollamaNotInstalledDescription": "Ollama не установлена или не запущена. Скачайте и установите Ollama, чтобы использовать локальные модели.",
+      "downloadOllama": "Скачать Ollama",
+      "afterInstall": "После установки Ollama перезапустите приложение и нажмите «Получить модели».",
+      "noModels": "Модели не найдены. Скачайте рекомендованную модель или нажмите «Получить модели», чтобы загрузить доступные модели Ollama.",
+      "downloadRecommended": "Скачать {{model}} (рекомендуется, ~800 МБ)",
+      "downloadingLabel": "Загрузка модели {{model}}",
+      "withSize": "размером",
+      "noSearchResults": "По запросу «{{query}}» модели не найдены. Попробуйте другой запрос.",
+      "alreadyDownloading": "Модель {{model}} уже загружается",
+      "progressPercent": "Прогресс: {{percent}}%",
+      "ollamaNotInstalled": "Ollama не установлена",
+      "ollamaNotInstalledHint": "Скачайте и установите Ollama, прежде чем скачивать модели.",
+      "openLinkFailed": "Не удалось открыть ссылку. Проверьте браузер по умолчанию и повторите попытку.",
+      "invalidEndpoint": "Недопустимый URL эндпоинта Ollama. Адрес должен начинаться с http:// или https://",
+      "loadOllamaFailed": "Не удалось загрузить модели Ollama",
+      "loadOpenRouterFailed": "Не удалось загрузить модели OpenRouter",
+      "loadBuiltInFailed": "Не удалось загрузить встроенные модели ИИ",
+      "downloadModelFailed": "Не удалось скачать модель",
+      "deleteModelFailed": "Не удалось удалить модель",
+      "modelDeleted": "Модель {{model}} удалена"
+    }
+  }
+}

@@ -1,0 +1,826 @@
+{
+  "common": {
+    "back": "Back",
+    "cancel": "Cancel",
+    "save": "Save",
+    "delete": "Delete",
+    "close": "Close",
+    "copy": "Copy",
+    "clear": "Clear",
+    "loading": "Loading...",
+    "searching": "Searching...",
+    "openFolder": "Open Folder",
+    "note": "Note",
+    "error": "Something went wrong"
+  },
+  "units": {
+    "underMinute": "< 1 min",
+    "minutesShort": "{{count}} min",
+    "hoursShort": "{{count}} h",
+    "hoursMinutesShort": "{{hours}} h {{minutes}} min",
+    "megabytesShort": "{{value}} MB",
+    "gigabytesShort": "{{value}} GB"
+  },
+  "nav": {
+    "home": "Home",
+    "startRecording": "Start Recording",
+    "recordingInProgress": "Recording in progress...",
+    "importAudio": "Import Audio",
+    "meetingNotes": "Meeting Notes",
+    "settings": "Settings",
+    "feedback": "Send Feedback"
+  },
+  "appLanguage": {
+    "title": "Application Language",
+    "description": "Choose the language of the Samobranka interface"
+  },
+  "settings": {
+    "title": "Settings",
+    "tabs": {
+      "general": "General",
+      "recordings": "Recordings",
+      "transcription": "Transcription",
+      "summary": "Summary"
+    },
+    "general": {
+      "loading": "Loading Preferences...",
+      "notifications": {
+        "title": "Notifications",
+        "description": "Enable or disable notifications of start and end of meeting"
+      },
+      "storage": {
+        "title": "Data Storage Locations",
+        "description": "View and access where Samobranka stores your data",
+        "recordings": "Meeting Recordings",
+        "noteStrong": "Note:",
+        "note": "Database and models are stored together in your application data directory for unified management."
+      }
+    }
+  },
+  "sidebar": {
+    "searchPlaceholder": "Search meeting content...",
+    "deleteConfirm": "Are you sure you want to delete this meeting? This action cannot be undone.",
+    "meetingDeleted": "Meeting deleted successfully",
+    "meetingDeletedDescription": "All associated data has been removed",
+    "meetingUpdated": "Meeting details updated successfully",
+    "editMeeting": "Edit Meeting Details",
+    "meetingTitle": "Meeting Title",
+    "meetingTitlePlaceholder": "Enter meeting title",
+    "meetingDateTime": "Meeting Date and Time",
+    "meetingDateHint": "Leave empty if the meeting date is unknown.",
+    "editMeetingAria": "Edit meeting details",
+    "deleteMeetingAria": "Delete meeting"
+  },
+  "about": {
+    "title": "About Samobranka",
+    "aria": "About Samobranka"
+  },
+  "layout": {
+    "onboardingRequired": "Please complete setup first",
+    "onboardingRequiredDescription": "You need to finish onboarding before you can start recording.",
+    "dropAudioFile": "Please drop an audio file",
+    "supportedFormats": "Supported formats: {{formats}}"
+  },
+  "languageSelection": {
+    "title": "Transcription Language",
+    "saved": "Language preference saved",
+    "savedDescription": "Transcription language set to {{language}}",
+    "saveFailed": "Failed to save language preference",
+    "parakeetTitle": "Parakeet Language Support",
+    "parakeetBody": "Parakeet currently only supports automatic language detection. Manual language selection is not available. Use Whisper if you need to specify a particular language.",
+    "audioCppTitle": "audioCpp Language Support",
+    "translationWhisperOnly": "Automatic translation is only available with the Whisper provider. audioCpp transcribes in the language of the recording.",
+    "current": "Current:",
+    "translationUnavailable": "Translation unavailable",
+    "autoWarningTitle": "Auto Detect may produce incorrect results",
+    "autoWarningBody": "For best accuracy, select your specific language (e.g., English, Spanish, etc.)",
+    "translationModeTitle": "Translation Mode Active",
+    "translationModeBody": "All audio will be automatically translated to English. Best for multilingual meetings where you need English output.",
+    "optimizedFor": "Transcription will be optimized for"
+  },
+  "languagePicker": {
+    "pickSummary": "Pick summary language",
+    "search": "Search language...",
+    "recentlyUsed": "Recently Used",
+    "auto": "Auto",
+    "otherLanguages": "Other Languages",
+    "allLanguages": "All Languages",
+    "noMatches": "No matches"
+  },
+  "recording": {
+    "controls": {
+      "processing": "Processing recording...",
+      "start": "Start recording",
+      "pause": "Pause recording",
+      "resume": "Resume recording",
+      "pausing": "Pausing...",
+      "resuming": "Resuming...",
+      "stop": "Stop recording",
+      "stopping": "Stopping...",
+      "validatingModel": "Validating speech recognition...",
+      "closeAlert": "Close alert"
+    },
+    "deviceError": {
+      "updateSelectionTitle": "Update Audio Device Selection",
+      "micTitle": "Microphone Not Available",
+      "micMessage": "Unable to access your microphone. Please check that:\n• Your microphone is connected\n• The app has microphone permissions\n• No other app is using the microphone",
+      "systemTitle": "System Audio Not Available",
+      "systemMessage": "Unable to capture system audio. Please check that:\n• A virtual audio device (like BlackHole) is installed\n• The app has screen recording permissions (macOS)\n• System audio is properly configured",
+      "permissionTitle": "Permission Required",
+      "permissionMessage": "Recording permissions are required. Please:\n• Grant microphone access in System Settings\n• Grant screen recording access for system audio (macOS)\n• Restart the app after granting permissions",
+      "failedTitle": "Recording Failed",
+      "failedMessage": "Unable to start recording. Please check your audio device settings and try again."
+    },
+    "recovery": {
+      "success": "Meeting recovered successfully!",
+      "withAudio": "Transcripts and audio recovered",
+      "withoutAudio": "Transcripts recovered (no audio available)",
+      "viewMeeting": "View Meeting"
+    },
+    "transcriptCopied": "Transcript copied to clipboard",
+    "fallbackMeetingTitle": "Meeting {{timestamp}}"
+  },
+  "recordingSettings": {
+    "title": "Recording Settings",
+    "description": "Configure how your audio recordings are saved during meetings.",
+    "autoSaveTitle": "Save Audio Recordings",
+    "autoSaveDescription": "Automatically save audio files when recording stops",
+    "saveLocation": "Save Location",
+    "defaultFolder": "Default folder",
+    "fileFormat": "File Format",
+    "fileFormatFiles": "{{format}} files",
+    "timestampHint": "Recordings are saved with timestamp: recording_YYYYMMDD_HHMMSS.{{format}}",
+    "autoSaveDisabled": "Audio recording is disabled. Enable \"Save Audio Recordings\" to automatically save your meeting audio.",
+    "startNotificationTitle": "Recording Start Notification",
+    "startNotificationDescription": "Show reminder to inform participants when recording starts",
+    "defaultDevicesTitle": "Default Audio Devices",
+    "defaultDevicesDescription": "Set your preferred microphone and system audio devices for recording. These will be automatically selected when starting new recordings.",
+    "deviceLockedWarning": "Device selection is locked while a recording is in progress. Connecting a new device mid-recording will not switch to it. Stop the current meeting to change devices.",
+    "preferenceSaved": "Preference saved",
+    "devicePreferencesSaved": "Device preferences saved",
+    "devicePreferencesSavedDescription": "Microphone: {{mic}}, System Audio: {{system}}",
+    "defaultDevice": "Default"
+  },
+  "recordingNotification": {
+    "title": "Recording Started",
+    "description": "Inform all participants this meeting is being recorded.",
+    "dontShowAgain": "Don't show this again",
+    "acknowledge": "I've Notified Participants"
+  },
+  "errors": {
+    "recordingInitFailed": "Failed to initialize recording. Please check the console for details.",
+    "pauseFailed": "Failed to pause recording. Please check the console for details.",
+    "resumeFailed": "Failed to resume recording. Please check the console for details.",
+    "transcriptListenerFailed": "Failed to setup transcript listener. Check console for details.",
+    "noTranscriptsToExport": "No transcripts available to export",
+    "loadRecordingPreferencesFailed": "Could not load recording preferences",
+    "savePreferenceFailed": "Failed to save preference",
+    "saveDevicePreferencesFailed": "Failed to save device preferences",
+    "loadRecordingDevicesFailed": "Could not load saved recording devices",
+    "loadOllamaModelsFailed": "Failed to load Ollama models",
+    "recoverMeetingFailed": "Failed to recover meeting",
+    "recoverMeetingUnknown": "Unknown error occurred"
+  },
+  "onboarding": {
+    "welcome": {
+      "title": "Welcome to Samobranka",
+      "description": "Record. Transcribe. Summarize. All on your device.",
+      "features": {
+        "localData": "Your data never leaves your device",
+        "summaries": "Intelligent summaries & insights",
+        "offline": "Works offline, no cloud required"
+      },
+      "getStarted": "Get Started",
+      "duration": "Takes less than 3 minutes"
+    },
+    "setupOverview": {
+      "title": "Setup Overview",
+      "description": "Samobranka requires that you download the Transcription & Summarization AI models for the software to work.",
+      "stepLabel": "Step {{number}}: {{title}}",
+      "steps": {
+        "transcription": "Download Transcription Engine",
+        "summarization": "Download Summarization Engine"
+      },
+      "externalProviders": "You can also select external AI providers like OpenAI, Claude, or Ollama for summary generation in settings.",
+      "letsGo": "Let's Go",
+      "reportIssues": "Report issues on GitHub"
+    },
+    "downloads": {
+      "title": "Getting things ready",
+      "description": "You can start using Samobranka after downloading the Transcription Engine.",
+      "cards": {
+        "transcription": "Transcription Engine",
+        "diarization": "Speaker Diarization",
+        "summary": "Summary Engine"
+      },
+      "waiting": "Waiting...",
+      "downloading": "Downloading...",
+      "failed": "Failed",
+      "cancelled": "Cancelled",
+      "cancelledTitle": "Download cancelled",
+      "errorTitle": "Download Error",
+      "tryAgain": "Try Again",
+      "speed": "{{speed}} {{unit}}/s",
+      "backgroundNotice": {
+        "title": "You can continue while this finishes",
+        "description": "Download will continue in the background."
+      },
+      "continue": "Continue",
+      "retry": {
+        "transcriptionFailed": "Transcription engine download retry failed",
+        "diarizationFailed": "Speaker diarization download retry failed",
+        "summaryFailed": "Summary model download retry failed",
+        "genericFailed": "Retry failed",
+        "connectionHint": "Please check your connection and try again."
+      },
+      "errors": {
+        "summaryModelNotReady": "Summary model recommendation is not ready yet"
+      },
+      "transcriptionRequired": "Transcription engine required",
+      "transcriptionRequiredDescription": "Please retry the download before continuing.",
+      "verifyFailed": "Could not verify the Transcription Engine",
+      "verifyFailedDescription": "Please try again in a moment.",
+      "backgroundInfo": "Downloads will continue in the background",
+      "backgroundInfoDescription": "You can start using the app. Recording will be available once speech recognition is ready.",
+      "completeFailed": "Failed to complete setup",
+      "completeFailedDescription": "Please try again."
+    },
+    "permissions": {
+      "title": "Grant Permissions",
+      "description": "Samobranka needs access to your microphone and system audio to record meetings",
+      "microphone": {
+        "title": "Microphone",
+        "description": "Required to capture your voice during meetings"
+      },
+      "systemAudio": {
+        "title": "System Audio",
+        "description": "Click Enable to grant Audio Capture permission"
+      },
+      "finish": "Finish Setup",
+      "skip": "I'll do this later",
+      "note": "Recording won't work without permissions. You can grant them later in settings.",
+      "alerts": {
+        "microphone": "Please enable microphone access in System Preferences > Security & Privacy > Microphone",
+        "systemAudio": "Please enable Audio Capture in System Settings → Privacy & Security → Audio Capture"
+      }
+    },
+    "permissionRow": {
+      "checking": "Checking...",
+      "openSettings": "Open Settings",
+      "enable": "Enable",
+      "accessGranted": "Access Granted",
+      "accessDenied": "Access Denied - Please grant in System Settings"
+    }
+  },
+  "importAudio": {
+    "title": {
+      "importing": "Importing Audio...",
+      "failed": "Import Failed",
+      "complete": "Import Complete",
+      "idle": "Import Audio File"
+    },
+    "description": {
+      "processing": "Processing audio...",
+      "error": "An error occurred during import",
+      "idle": "Import an audio file to create a new meeting with transcripts"
+    },
+    "chooseDifferentFile": "Choose Different File",
+    "validating": "Validating...",
+    "selectFile": "Select Audio File",
+    "advancedOptions": "Advanced Options",
+    "dropOverlay": "Drop audio file to import",
+    "language": {
+      "label": "Language",
+      "placeholder": "Select language",
+      "audioCppUnsupported": "Language selection isn't supported for audioCpp. GigaAM transcribes in its trained language (Russian).",
+      "parakeetUnsupported": "Language selection isn't supported for Parakeet. It always uses automatic detection."
+    },
+    "model": {
+      "label": "Model",
+      "loading": "Loading models...",
+      "placeholder": "Select model"
+    },
+    "actions": {
+      "import": "Import",
+      "retry": "Try Again"
+    },
+    "toast": {
+      "complete_one": "Import complete! {{count}} segment created.",
+      "complete_other": "Import complete! {{count}} segments created.",
+      "failed": "Import failed",
+      "cancelled": "Import cancelled"
+    }
+  },
+  "updates": {
+    "dialog": {
+      "downloadingTitle": "Downloading Update",
+      "errorTitle": "Update Error",
+      "availableTitle": "Update Available",
+      "downloadingDescription": "Downloading the latest version...",
+      "errorDescription": "An error occurred while updating",
+      "availableDescription": "A new version ({{version}}) is available",
+      "currentVersion": "Current Version:",
+      "newVersion": "New Version:",
+      "releaseDate": "Release Date:",
+      "notFound": "Update no longer available",
+      "notAvailable": "Update not available",
+      "prepareFailed": "Failed to prepare update: {{reason}}",
+      "getFailed": "Failed to get update: {{reason}}",
+      "installFailed": "Failed to download or install update",
+      "percentComplete": "{{percent}}% complete",
+      "restartNotice": "The app will restart automatically after installation",
+      "later": "Later",
+      "downloadAndInstall": "Download & Install"
+    },
+    "notification": {
+      "title": "Update Available",
+      "description": "Version {{version}} is now available",
+      "viewDetails": "View Details"
+    },
+    "toast": {
+      "installed": "Update installed successfully. The app will restart...",
+      "failed": "Update failed: {{reason}}",
+      "upToDate": "You are running the latest version",
+      "checkFailed": "Failed to check for updates: {{reason}}"
+    },
+    "checking": "Checking...",
+    "checkForUpdates": "Check for Updates",
+    "availableShort": "Update available: v{{version}}"
+  },
+  "recovery": {
+    "title": "Recover Interrupted Meetings",
+    "description_one": "We found {{count}} meeting that was interrupted. Select a meeting to preview and recover it.",
+    "description_other": "We found {{count}} meetings that were interrupted. Select a meeting to preview and recover it.",
+    "listTitle": "Interrupted Meetings",
+    "transcriptCount_one": "{{count}} transcript",
+    "transcriptCount_other": "{{count}} transcripts",
+    "audioAvailable": "Audio available",
+    "noAudio": "No audio",
+    "preview": "Preview",
+    "startedAt": "Started {{date}}",
+    "loadingPreview": "Loading preview...",
+    "showingFirst": "Showing first {{shown}} transcript segments (of {{total}} total)",
+    "moreTranscripts_one": "... and {{count}} more transcript",
+    "moreTranscripts_other": "... and {{count}} more transcripts",
+    "empty": "No transcripts to preview",
+    "selectMeeting": "Select a meeting to preview",
+    "confirmDelete": "Are you sure you want to delete this meeting? This cannot be undone.",
+    "error": {
+      "recoverFailed": "Failed to recover meeting. Please try again.",
+      "deleteFailed": "Failed to delete meeting. Please try again."
+    },
+    "actions": {
+      "recover": "Recover",
+      "recovering": "Recovering...",
+      "deleting": "Deleting..."
+    }
+  },
+  "warnings": {
+    "permissions": {
+      "bothTitle": "Permissions Required",
+      "microphoneTitle": "Microphone Permission Required",
+      "systemAudioTitle": "System Audio Permission Required",
+      "openMicrophoneSettings": "Open Microphone Settings",
+      "openScreenRecordingSettings": "Open Screen Recording Settings",
+      "recheck": "Recheck",
+      "microphoneDescription": "Samobranka needs access to your microphone to record meetings. No microphone devices were detected.",
+      "microphoneCheckTitle": "Please check:",
+      "microphoneCheckConnected": "Your microphone is connected and powered on",
+      "microphoneCheckPermission": "Microphone permission is granted in System Settings",
+      "microphoneCheckBusy": "No other app is exclusively using the microphone",
+      "systemAudioDescriptionWithMicrophone": "System audio capture is not available. You can still record with your microphone, but computer audio won't be captured.",
+      "systemAudioDescription": "System audio capture is also not available.",
+      "macOSEnableTitle": "To enable system audio on macOS:",
+      "macOSInstallVirtualDevice": "Install a virtual audio device (e.g., BlackHole 2ch)",
+      "macOSGrantScreenRecording": "Grant Screen Recording permission to Samobranka",
+      "macOSConfigureRouting": "Configure your audio routing in Audio MIDI Setup"
+    },
+    "bluetooth": {
+      "title": "Bluetooth Playback Detected",
+      "description": "You're using <strong>{{device}}</strong> for playback. Recordings may sound distorted or sped up through Bluetooth devices. For accurate review, please use <strong>computer speakers</strong> or <strong>wired headphones</strong>.",
+      "learnMore": "Learn why this happens →",
+      "dismiss": "Dismiss warning"
+    },
+    "compliance": {
+      "title": "Recording Notice",
+      "description": "Inform participants about recording.",
+      "requirement": "US compliance required",
+      "later": "Later",
+      "done": "Done"
+    }
+  },
+  "dialogs": {
+    "confirmDelete": {
+      "title": "Confirm Delete"
+    },
+    "legacyDb": {
+      "title": "Welcome to Samobranka!",
+      "description": "Do you have data from a previous Samobranka installation?",
+      "importedReloading": "Database imported successfully! Reloading...",
+      "importFailed": "Import failed: {{reason}}",
+      "initialized": "Database initialized successfully! Starting app...",
+      "initializeFailed": "Initialization failed: {{reason}}",
+      "notFoundAtLocation": "No database found at selected location. Please select the Samobranka folder, backend folder, or the database file directly.",
+      "size": "Size: {{size}}",
+      "homebrew": {
+        "title": "Previous Samobranka Installation Detected!",
+        "description": "We found an existing database from your previous Samobranka installation (Python backend version).",
+        "question": "Would you like to import your previous meetings, transcripts, and summaries?",
+        "confirm": "Yes, Import",
+        "decline": "No, Browse Manually"
+      },
+      "importing": "Importing...",
+      "browsePrompt": "Select your previous Samobranka folder, backend directory, or database file:",
+      "selecting": "Selecting...",
+      "detecting": "Detecting database...",
+      "browse": "Browse for Database",
+      "found": "Database found!",
+      "success": "Success!",
+      "importDatabase": "Import Database",
+      "or": "or",
+      "startFresh": "Start Fresh (No Import)"
+    }
+  },
+  "settingsModal": {
+    "tabs": {
+      "transcript": "Transcript",
+      "summary": "AI Summary",
+      "preferences": "Preferences",
+      "about": "About"
+    },
+    "preferences": {
+      "title": "Preferences"
+    },
+    "aiModel": {
+      "title": "AI Model Configuration",
+      "summarizationModel": "Summarization Model",
+      "builtinAi": "Built-in AI",
+      "availableOllamaModels": "Available Ollama Models",
+      "size": "Size: {{size}}",
+      "modified": "Modified: {{date}}"
+    },
+    "devices": {
+      "title": "Audio Device Settings",
+      "defaultDevice": "Default",
+      "selected": "Devices selected",
+      "selectedDescription": "Microphone: {{microphone}}, System Audio: {{systemAudio}}"
+    },
+    "language": {
+      "title": "Language Settings"
+    },
+    "modelSelector": {
+      "setupRequired": "Speech Recognition Setup Required",
+      "title": "Transcription Model Settings"
+    },
+    "confidence": {
+      "title": "Show Confidence Indicators",
+      "description": "Display colored dots showing transcription confidence quality"
+    },
+    "errorAlert": {
+      "title": "Recording Stopped"
+    },
+    "chunkDropWarning": {
+      "title": "Transcription Performance Warning"
+    },
+    "developerConsole": {
+      "label": "Developer Console",
+      "toggle": "Toggle Console",
+      "description": "Show or hide the developer console window. On Windows, this controls the console window. On macOS, this opens Terminal with app logs."
+    },
+    "done": "Done",
+    "dismiss": "Dismiss"
+  },
+  "feedback": {
+    "openLinkFailed": "Could not open this link. Please check your default browser and try again.",
+    "githubCard": {
+      "title": "Report a bug or suggest a feature",
+      "description": "Report a bug or suggest a feature on GitHub. Your feedback helps shape Samobranka.",
+      "link": "Open GitHub issues"
+    }
+  },
+  "notes": {
+    "notFound": "Note not found"
+  },
+  "misc": {
+    "unknownError": "Unknown error",
+    "openLinkFailed": "Failed to open link: {{reason}}",
+    "editSectionTitle": "Edit section title",
+    "deleteSection": "Delete section",
+    "about": {
+      "tagline": "Real-time notes and summaries that never leave your machine.",
+      "logoAlt": "Samobranka Logo"
+    },
+    "statusOverlays": {
+      "finalizingTranscription": "Finalizing transcription...",
+      "savingTranscript": "Saving transcript..."
+    }
+  },
+  "models": {
+    "common": {
+      "ready": "Ready",
+      "selected": "Selected",
+      "recommended": "Recommended",
+      "download": "Download",
+      "retry": "Retry",
+      "reDownload": "Re-download",
+      "advancedModels": "Advanced Models",
+      "deleteModelTitle": "Delete model to free up space",
+      "deleteModelAria": "Delete {{name}}",
+      "cancelDownloadTitle": "Cancel download",
+      "downloading": "Downloading...",
+      "loadingModels": "Loading models...",
+      "cancelling": "Cancelling…",
+      "cancellationRequested": "Cancellation requested",
+      "failedToLoadModels": "Failed to load models",
+      "failedToLoadTranscriptionModels": "Failed to load transcription models",
+      "unknownError": "Unknown error",
+      "modelReady": "{{name}} ready!",
+      "downloadedAndReady": "Model downloaded and ready to use",
+      "downloadFailedFor": "Failed to download {{name}}",
+      "downloadFailed": "Download failed",
+      "downloadingToast": "Downloading {{name}}...",
+      "mayTakeMinutes": "This may take a few minutes",
+      "switchedTo": "Switched to {{name}}",
+      "modelDeleted": "{{name}} deleted",
+      "modelRemoved": "Model removed to free up space",
+      "failedToDelete": "Failed to delete {{name}}",
+      "deleteFailed": "Delete failed",
+      "cancellingFor": "Cancelling {{name}}...",
+      "cancellationPending": "The download is still shutting down. Retry will be available when cleanup completes.",
+      "failedToCancelDownload": "Failed to cancel download",
+      "downloadCancelled": "{{name}} download cancelled",
+      "downloadCompletedBeforeCancel": "{{name}} download completed before cancellation",
+      "usingForTranscription": "Using {{name}} for transcription",
+      "failedToSaveSelection": "Failed to save model selection",
+      "listeningFailed": "Failed to listen for model updates",
+      "selectProvider": "Select provider",
+      "apiKey": "API Key",
+      "enterApiKey": "Enter your API key",
+      "unlockToEdit": "Unlock to edit",
+      "lockToPreventEditing": "Lock to prevent editing"
+    },
+    "whisper": {
+      "accuracyValue": "{{value}} accuracy",
+      "speedValue": "{{value}} processing",
+      "accuracy": {
+        "high": "High",
+        "good": "Good",
+        "decent": "Decent"
+      },
+      "speed": {
+        "slow": "Slow",
+        "medium": "Medium",
+        "fast": "Fast",
+        "veryFast": "Very Fast"
+      },
+      "badge": {
+        "fullPrecision": "Full Precision",
+        "balancedPlus": "Balanced+",
+        "balanced": "Balanced",
+        "fast": "Fast",
+        "standard": "Standard"
+      },
+      "tagline": {
+        "realTime": "Real time",
+        "fastProcessing": "Fast processing",
+        "moderateSpeed": "Moderate speed",
+        "slowerProcessing": "Slower processing",
+        "mostAccurate": "Most accurate",
+        "bestAccuracyWithSpeed": "Best accuracy with speed",
+        "professionalQuality": "Professional quality",
+        "balancedQuality": "Balanced quality",
+        "goodAccuracy": "Good accuracy",
+        "fastestOption": "Fastest option",
+        "optimized": ", optimized",
+        "ultraFast": ", ultra fast"
+      }
+    },
+    "parakeet": {
+      "listenFailed": "Failed to listen for Parakeet model updates",
+      "badge": {
+        "fullPrecision": "Full Precision",
+        "int8Quantized": "Int8 Quantized",
+        "standard": "Standard"
+      },
+      "tagline": {
+        "v3": "Real time • Best for speed, great accuracy",
+        "v2": "Real time • Smaller size",
+        "v3FullPrecision": "20x real-time • Higher accuracy"
+      }
+    },
+    "audioCpp": {
+      "failedToLoadModels": "Failed to load audio.cpp models",
+      "nativeLibraryUnavailable": "native library unavailable",
+      "openModelsFolder": "Open models folder",
+      "runtimeUnavailable": "Diarization engine is unavailable on this system",
+      "runtimeUnavailableDescription": "The model can still be downloaded; speaker labels will start once the native audio.cpp library is available.",
+      "taskTranscription": "Transcription",
+      "taskDiarization": "Diarization"
+    },
+    "builtIn": {
+      "downloaded": "Model {{model}} downloaded successfully",
+      "downloadCancelled": "Download of {{model}} cancelled",
+      "deleted": "Model {{model}} deleted",
+      "empty": "No models found. Download a model to get started with Built-in AI.",
+      "title": "Built-in AI Models",
+      "corrupted": "Corrupted",
+      "error": "Error",
+      "deleteTitle": "Delete model",
+      "corruptedHint": "File is corrupted. Retry download or delete.",
+      "genericError": "An error occurred",
+      "tokens_one": "{{count}} token",
+      "tokens_few": "{{count}} tokens",
+      "tokens_many": "{{count}} tokens",
+      "tokens_other": "{{count}} tokens"
+    },
+    "download": {
+      "finalizing": "Finalizing...",
+      "downloadingModel": "Downloading {{name}}",
+      "percentComplete": "{{percent}}% complete",
+      "completedLoading": "✓ Download completed, loading model...",
+      "summary": "{{downloaded}} of {{total}} models available",
+      "totalSize": "{{size}} total",
+      "localNotice": "✓ Models run locally - no internet required for transcription"
+    }
+  },
+  "modelDownload": {
+    "failed": "Download failed",
+    "complete": "Download complete",
+    "cancelled": "Download cancelled",
+    "parakeetModel": "Transcription Model (Parakeet)",
+    "summaryModel": "Summary Model ({{model}})",
+    "errors": {
+      "network": "Network error - Check your internet connection",
+      "server": "Server error - Download temporarily unavailable",
+      "storage": "Storage error - Check available disk space",
+      "validation": "File validation failed - Please retry download"
+    }
+  },
+  "devices": {
+    "title": "Audio Devices",
+    "loadFailed": "Failed to load audio devices. Please check your system audio settings.",
+    "noMicrophonesToMonitor": "No microphone devices found to monitor",
+    "monitoringStartFailed": "Failed to start audio level monitoring",
+    "microphone": "Microphone",
+    "microphoneAria": "About microphone selection",
+    "microphoneTooltip": "Choose a mic to record. Default follows your system’s selected microphone.",
+    "selectMicrophone": "Select Microphone",
+    "defaultMicrophone": "Default Microphone",
+    "unavailableDevice": "{{name}} — Unavailable — choose a device",
+    "noMicrophones": "No microphone devices found",
+    "microphoneLevels": "Microphone Levels:",
+    "microphoneInfo": "Records your voice and ambient sound",
+    "systemAudio": "System Audio",
+    "systemAudioAria": "About system audio selection",
+    "systemAudioTooltip": "Choose audio to record. Default follows your system’s selected output.",
+    "selectSystemAudio": "Select System Audio",
+    "defaultSystemAudio": "Default System Audio",
+    "noSystemAudio": "No system audio devices found",
+    "systemAudioInfo": "Records computer audio (music, calls, etc.)",
+    "backend": {
+      "title": "System Audio Backend",
+      "loadFailed": "Failed to load backend options",
+      "changeFailed": "Failed to change backend. Please try again.",
+      "methodsTitle": "Audio Capture Methods:",
+      "tryDifferent": "Try different backends to find which works best for your system.",
+      "active": "Active",
+      "disabled": "Disabled",
+      "noteSystemOnly": "Backend selection only affects system audio capture",
+      "noteMicrophone": "Microphone always uses the default method",
+      "noteNewSessions": "Changes apply to new recording sessions"
+    }
+  },
+  "settingsTranscription": {
+    "model": "Transcript Model",
+    "selectModel": "Select model",
+    "providerParakeet": "⚡ Parakeet (Recommended - Real-time / Accurate)",
+    "providerWhisper": "🏠 Local Whisper (High Accuracy)",
+    "providerAudioCpp": "🎙️ audioCpp (GigaAM — Russian)",
+    "diarization": {
+      "title": "Speaker diarization",
+      "description": "Install this model to label who said what. It works with every transcription provider above."
+    },
+    "chunkProgress": {
+      "title": "Processing Progress",
+      "paused": "Paused",
+      "pause": "Pause",
+      "resume": "Resume",
+      "chunksCompleted": "{{completed}} of {{total}} chunks completed",
+      "completed": "Completed",
+      "processing": "Processing",
+      "processingTitle": "Processing",
+      "pending": "Pending",
+      "failed": "Failed",
+      "calculating": "Calculating...",
+      "estimatedRemaining": "Estimated time remaining: {{time}}",
+      "recentChunks": "Recent Chunks ({{shown}} of {{total}})",
+      "chunk": "Chunk {{id}}",
+      "error": "Error: {{message}}",
+      "allDone_one": "Processing completed! {{count}} chunk has been transcribed.",
+      "allDone_few": "Processing completed! All {{count}} chunks have been transcribed.",
+      "allDone_many": "Processing completed! All {{count}} chunks have been transcribed.",
+      "allDone_other": "Processing completed! All {{count}} chunks have been transcribed.",
+      "chunksRatio": "{{completed}} / {{total}} chunks",
+      "processingCount": "{{count}} in progress",
+      "durationHours": "{{hours}} h {{minutes}} min {{seconds}} s",
+      "durationMinutes": "{{minutes}} min {{seconds}} s",
+      "durationSeconds": "{{seconds}} s"
+    }
+  },
+  "settingsSummary": {
+    "modelSettings": {
+      "loadFailed": "Failed to load model settings",
+      "saved": "Model settings saved successfully",
+      "saveFailed": "Failed to save model settings"
+    },
+    "autoSummary": {
+      "title": "Auto Summary",
+      "description": "Auto Generating summary after meeting completion(Stopping)"
+    },
+    "modelConfiguration": {
+      "title": "Summary Model Configuration",
+      "description": "Configure the AI model used for generating meeting summaries."
+    },
+    "language": {
+      "title": "Summary Language",
+      "description": "Pin one language as the default for new meetings. Unpinned languages remain as quick-switch options in the summary generator. Auto uses the dominant transcript language.",
+      "unpinAria": "Unpin {{language}} as default",
+      "pinAria": "Pin {{language}} as default",
+      "clickToUnset": "Click to unset as default",
+      "clickToSet": "Click to set as default",
+      "removeAria": "Remove {{language}}",
+      "add": "＋ Add language",
+      "pinnedHint": "Default: {{language}} - click it again to unset. Max 5 quick-switch options.",
+      "defaultHint": "Click any language to set it as your default. Max 5 quick-switch options."
+    },
+    "systemPrompt": {
+      "title": "Base System Prompt",
+      "description": "Sent to the AI model with every summary request. Templates that define their own system prompt override this text entirely.",
+      "ariaLabel": "Base system prompt",
+      "placeholderHint": "Available placeholders: {section_instructions} — the instructions of the selected template sections; {template} — the Markdown structure of the selected template. A template with its own system prompt replaces this one entirely.",
+      "loadFailed": "Failed to load system prompt",
+      "saved": "System prompt saved successfully",
+      "saveFailed": "Failed to save system prompt",
+      "reset": "System prompt reset to default",
+      "resetFailed": "Failed to reset system prompt",
+      "resetButton": "Reset to default",
+      "saveButton": "Save prompt"
+    },
+    "model": {
+      "title": "Model Settings",
+      "summarizationModel": "Summarization Model",
+      "providerBuiltIn": "Built-in AI (Offline, No API needed)",
+      "providerCustomServer": "Custom Server (OpenAI)",
+      "selectModel": "Select model...",
+      "searchModels": "Search models...",
+      "noModelsFound": "No models found.",
+      "endpointUrl": "Endpoint URL *",
+      "endpointUrlHint": "Base URL of the OpenAI-compatible API",
+      "modelName": "Model Name *",
+      "modelNamePlaceholder": "gpt-4, llama-3-70b, etc.",
+      "modelNameHint": "Model identifier to use for requests",
+      "apiKeyOptional": "API Key (optional)",
+      "apiKeyOptionalPlaceholder": "Leave empty if not required",
+      "advancedOptions": "Advanced Options",
+      "maxTokens": "Max Tokens",
+      "maxTokensPlaceholder": "e.g., 4096",
+      "temperature": "Temperature (0.0-2.0)",
+      "temperaturePlaceholder": "e.g., 0.7",
+      "topP": "Top P (0.0-1.0)",
+      "topPPlaceholder": "e.g., 0.9",
+      "testingConnection": "Testing Connection...",
+      "testConnection": "Test Connection",
+      "enterEndpointAndModel": "Please enter endpoint URL and model name first",
+      "connectionSuccessful": "Connection successful!",
+      "saveCustomFailed": "Failed to save custom OpenAI configuration",
+      "customEndpoint": "Custom Endpoint (optional)",
+      "customEndpointHint": "Leave empty or enter a custom endpoint (e.g., http://x.yy.zz:11434)",
+      "fetching": "Fetching...",
+      "fetchModels": "Fetch Models",
+      "endpointChangedFetch": "Endpoint changed. Please click \"Fetch Models\" to load models from the new endpoint before saving.",
+      "endpointChangedShort": "Endpoint changed. Click \"Fetch Models\" to load models from the new endpoint.",
+      "availableModels": "Available Ollama Models",
+      "usingEndpoint": "Using:",
+      "ollamaNotInstalledDescription": "Ollama is not installed or not running. Please download and install Ollama to use local models.",
+      "downloadOllama": "Download Ollama",
+      "afterInstall": "After installing Ollama, restart this application and click \"Fetch Models\" to continue.",
+      "noModels": "No models found. Download a recommended model or click \"Fetch Models\" to load available Ollama models.",
+      "downloadRecommended": "Download {{model}} (Recommended, ~800MB)",
+      "downloadingLabel": "Downloading {{model}}",
+      "withSize": "with a size of",
+      "noSearchResults": "No models found matching \"{{query}}\". Try a different search term.",
+      "alreadyDownloading": "{{model}} is already downloading",
+      "progressPercent": "Progress: {{percent}}%",
+      "ollamaNotInstalled": "Ollama is not installed",
+      "ollamaNotInstalledHint": "Please download and install Ollama before downloading models.",
+      "openLinkFailed": "Could not open this link. Please check your default browser and try again.",
+      "invalidEndpoint": "Invalid Ollama endpoint URL. Must start with http:// or https://",
+      "loadOllamaFailed": "Failed to load Ollama models",
+      "loadOpenRouterFailed": "Failed to load OpenRouter models",
+      "loadBuiltInFailed": "Failed to load Built-in AI models",
+      "downloadModelFailed": "Failed to download model",
+      "deleteModelFailed": "Failed to delete model",
+      "modelDeleted": "Model {{model}} deleted"
+    }
+  }
+}

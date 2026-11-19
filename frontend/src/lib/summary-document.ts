@@ -1,4 +1,6 @@
 import { resolveMeetingDate } from '@/lib/meeting-date';
+import { DEFAULT_LANGUAGE, type AppLanguageCode } from '@/i18n';
+import { intlLocale } from '@/lib/format-locale';
 
 /** The action word in the metadata label line (`**Copied on:**` / `**Exported on:**`). */
 export type SummaryDocumentLabel = 'Copied' | 'Exported';
@@ -22,6 +24,12 @@ export interface SummaryDocumentInput {
   label: SummaryDocumentLabel;
   /** Moment written next to the label; defaults to now. */
   timestamp?: string | Date | number;
+  /**
+   * Interface language for the date values. The metadata *labels*
+   * (`**Date:**`, `**Copied on:**`) stay English — GLOSSARY.md fixes them as
+   * the document format.
+   */
+  language?: AppLanguageCode;
 }
 
 /** Keys that are summary metadata or BlockNote payload, never legacy sections. */
@@ -31,8 +39,11 @@ const NON_SECTION_KEYS = ['markdown', 'summary_json', '_section_order', 'Meeting
  * Format a moment the way the summary metadata block always has:
  * `January 15, 2026 at 02:05 PM` (English, local time).
  */
-function formatMetadataDate(value: string | Date | number): string {
-  return new Date(value).toLocaleDateString('en-US', {
+function formatMetadataDate(
+  value: string | Date | number,
+  language: AppLanguageCode,
+): string {
+  return new Date(value).toLocaleDateString(intlLocale(language), {
     year: 'numeric',
     month: 'long',
     day: 'numeric',
@@ -45,8 +56,11 @@ function formatMetadataDate(value: string | Date | number): string {
  * Format the meeting date in the metadata block, reading it through the same
  * helper as the export file name so the two can never name different days.
  */
-function formatMeetingDate(value: string | Date | number | null | undefined): string {
-  return formatMetadataDate(resolveMeetingDate(value));
+function formatMeetingDate(
+  value: string | Date | number | null | undefined,
+  language: AppLanguageCode,
+): string {
+  return formatMetadataDate(resolveMeetingDate(value), language);
 }
 
 /**
@@ -64,11 +78,12 @@ export function buildSummaryDocument({
   meetingDate,
   label,
   timestamp = new Date(),
+  language = DEFAULT_LANGUAGE,
 }: SummaryDocumentInput): string {
   const header = `# Meeting Summary: ${meetingTitle}\n\n`;
   const metadata = `**Meeting ID:** ${meetingId}\n`
-    + `**Date:** ${formatMeetingDate(meetingDate)}\n`
-    + `**${label} on:** ${formatMetadataDate(timestamp)}\n\n---\n\n`;
+    + `**Date:** ${formatMeetingDate(meetingDate, language)}\n`
+    + `**${label} on:** ${formatMetadataDate(timestamp, language)}\n\n---\n\n`;
 
   return header + metadata + markdown;
 }

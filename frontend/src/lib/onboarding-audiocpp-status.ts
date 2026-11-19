@@ -12,6 +12,8 @@
  * loader resolves that relative import through the same transpiler.
  */
 
+import i18n, { type AppLanguageCode } from '@/i18n';
+import { formatMegabytes } from '@/lib/format-locale';
 import {
   downloadProgress,
   isAvailableStatus,
@@ -259,15 +261,14 @@ export function isContinueEnabled(states: AudioCppModelStates): boolean {
  * Size label under a card title, taken from the reported/catalogued size.
  *
  * The `~` is intentional: the catalogued size is an estimate of the download.
- * The model manager's `formatModelSize` prints the exact figure ("422MB"), so
+ * The model manager's `formatModelSize` prints the exact figure ("422 MB"), so
  * the two labels differ by design. Returns an empty string while no size is
  * known yet, so the card shows just its title until the size is seeded from
  * the catalog or the first progress event arrives.
  */
 export function formatAudioCppModelSizeLabel(sizeMb: number): string {
   if (!Number.isFinite(sizeMb) || sizeMb <= 0) return '';
-  if (sizeMb >= 1000) return `~${(sizeMb / 1000).toFixed(1)} GB`;
-  return `~${Math.round(sizeMb)} MB`;
+  return `~${formatMegabytes(sizeMb, i18n.language as AppLanguageCode)}`;
 }
 
 /** Where a card's "Try Again" button sends its download request. */

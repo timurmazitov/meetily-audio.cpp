@@ -1,4 +1,7 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
+import i18n, { type AppLanguageCode } from '@/i18n';
+import { formatMegabytes } from '@/lib/format-locale';
 import { ModelStatus } from '../lib/whisper';
 import { Button } from './ui/button';
 
@@ -9,6 +12,8 @@ interface ModelDownloadProgressProps {
 }
 
 export function ModelDownloadProgress({ status, modelName, onCancel }: ModelDownloadProgressProps) {
+  const { t } = useTranslation();
+
   if (typeof status !== 'object' || !('Downloading' in status)) {
     return null;
   }
@@ -22,7 +27,7 @@ export function ModelDownloadProgress({ status, modelName, onCancel }: ModelDown
         <div className="flex items-center space-x-2">
           <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
           <span className="text-sm font-medium text-blue-900">
-            {isCompleted ? 'Finalizing...' : `Downloading ${modelName}`}
+            {isCompleted ? t('models.download.finalizing') : t('models.download.downloadingModel', { name: modelName })}
           </span>
         </div>
       </div>
@@ -35,16 +40,16 @@ export function ModelDownloadProgress({ status, modelName, onCancel }: ModelDown
           />
         </div>
         <div className="flex justify-between text-xs text-blue-700 mt-1">
-          <span>{Math.round(progress)}% complete</span>
+          <span>{t('models.download.percentComplete', { percent: Math.round(progress) })}</span>
           {!isCompleted && (
-            <span className="animate-pulse">Downloading...</span>
+            <span className="animate-pulse">{t('models.common.downloading')}</span>
           )}
         </div>
       </div>
       
       {isCompleted && (
         <div className="mt-2 text-xs text-green-700">
-          ✓ Download completed, loading model...
+          {t('models.download.completedLoading')}
         </div>
       )}
     </div>
@@ -105,24 +110,22 @@ interface DownloadSummaryProps {
 }
 
 export function DownloadSummary({ totalModels, downloadedModels, totalSizeMb }: DownloadSummaryProps) {
-  const formatSize = (mb: number) => {
-    if (mb >= 1000) return `${(mb / 1000).toFixed(1)}GB`;
-    return `${mb}MB`;
-  };
+  const { t } = useTranslation();
+  const language = i18n.language as AppLanguageCode;
 
   return (
     <div className="bg-gray-50 rounded-lg p-3 text-sm">
       <div className="flex items-center justify-between">
         <span className="text-gray-700">
-          📦 {downloadedModels} of {totalModels} models available
+          📦 {t('models.download.summary', { downloaded: downloadedModels, total: totalModels })}
         </span>
         <span className="text-gray-600">
-          💾 {formatSize(totalSizeMb)} total
+          💾 {t('models.download.totalSize', { size: formatMegabytes(totalSizeMb, language) })}
         </span>
       </div>
       {downloadedModels > 0 && (
         <div className="mt-1 text-xs text-green-600">
-          ✓ Models run locally - no internet required for transcription
+          {t('models.download.localNotice')}
         </div>
       )}
     </div>

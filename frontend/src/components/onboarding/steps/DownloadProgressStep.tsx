@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { Mic, Users, Sparkles, Check, Loader2, Download } from 'lucide-react';
@@ -7,11 +8,12 @@ import { OnboardingContainer } from '../OnboardingContainer';
 import { useOnboarding } from '@/contexts/OnboardingContext';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'framer-motion';
-import { getSummaryModelSizeLabel, getSummaryModelSizeMb } from '@/lib/onboarding-summary-model';
+import { getSummaryModelSizeMb } from '@/lib/onboarding-summary-model';
+import { formatDecimal, formatMegabytes } from '@/lib/format-locale';
+import type { AppLanguageCode } from '@/i18n';
 import { AUDIOCPP_COMMANDS } from '@/lib/audiocpp';
 import {
   audioCppRetryModelName,
-  formatAudioCppModelSizeLabel,
   isContinueEnabled,
   onboardingDownloadRetryTarget,
   resolveTranscriptionGate,
@@ -67,6 +69,8 @@ function DownloadCard({
   sizeUnit,
   onRetry,
 }: DownloadCardProps) {
+  const { t, i18n } = useTranslation();
+  const language = i18n.language as AppLanguageCode;
   const hasSizes = state.progress.totalMb > 0;
 
   return (
@@ -83,7 +87,7 @@ function DownloadCard({
         </div>
         <div>
           {state.status === 'waiting' && (
-            <span className="text-sm text-gray-500">Waiting...</span>
+            <span className="text-sm text-gray-500">{t('onboarding.downloads.waiting')}</span>
           )}
           {state.status === 'downloading' && (
             <Loader2 className="w-5 h-5 text-gray-700 animate-spin" />
@@ -94,10 +98,10 @@ function DownloadCard({
             </div>
           )}
           {state.status === 'error' && (
-            <span className="text-sm text-red-500">Failed</span>
+            <span className="text-sm text-red-500">{t('onboarding.downloads.failed')}</span>
           )}
           {state.status === 'cancelled' && (
-            <span className="text-sm text-gray-500">Cancelled</span>
+            <span className="text-sm text-gray-500">{t('onboarding.downloads.cancelled')}</span>
           )}
         </div>
       </div>
@@ -114,13 +118,16 @@ function DownloadCard({
           <div className="flex items-center justify-between text-sm">
             <span className="text-gray-600">
               {hasSizes
-                ? `${state.progress.downloadedMb.toFixed(1)} ${sizeUnit} / ${state.progress.totalMb.toFixed(1)} ${sizeUnit}`
-                : 'Downloading...'}
+                ? `${formatDecimal(state.progress.downloadedMb, language)} ${sizeUnit} / ${formatDecimal(state.progress.totalMb, language)} ${sizeUnit}`
+                : t('onboarding.downloads.downloading')}
             </span>
             <div className="flex items-center gap-2">
               {hasSizes && state.progress.speedMbps > 0 && (
                 <span className="text-gray-500">
-                  {state.progress.speedMbps.toFixed(1)} {sizeUnit}/s
+                  {t('onboarding.downloads.speed', {
+                    speed: formatDecimal(state.progress.speedMbps, language),
+                    unit: sizeUnit,
+                  })}
                 </span>
               )}
               <span className="font-semibold text-gray-900">
@@ -134,7 +141,9 @@ function DownloadCard({
       {(state.status === 'error' || state.status === 'cancelled') && (
         <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded-md">
           <p className="text-sm text-red-600 font-medium">
-            {state.status === 'cancelled' ? 'Download cancelled' : 'Download Error'}
+            {state.status === 'cancelled'
+              ? t('onboarding.downloads.cancelledTitle')
+              : t('onboarding.downloads.errorTitle')}
           </p>
           {state.error && <p className="text-xs text-red-500 mt-1">{state.error}</p>}
           {onRetry && (
@@ -146,7 +155,7 @@ function DownloadCard({
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                       d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
-              Try Again
+              {t('onboarding.downloads.tryAgain')}
             </button>
           )}
         </div>
@@ -156,6 +165,8 @@ function DownloadCard({
 }
 
 export function DownloadProgressStep() {
+  const { t, i18n } = useTranslation();
+  const language = i18n.language as AppLanguageCode;
   const {
     goNext,
     selectedSummaryModel,
@@ -247,10 +258,10 @@ export function DownloadProgressStep() {
       );
       toast.error(
         role === 'transcription'
-          ? 'Transcription engine download retry failed'
-          : 'Speaker diarization download retry failed',
+          ? t('onboarding.downloads.retry.transcriptionFailed')
+          : t('onboarding.downloads.retry.diarizationFailed'),
         {
-          description: 'Please check your connection and try again.',
+          description: t('onboarding.downloads.retry.connectionHint'),
         }
       );
     } finally {
@@ -289,7 +300,7 @@ export function DownloadProgressStep() {
       // Call download command directly (no retry command exists for built-in AI)
       const modelName = selectedSummaryModel;
       if (!modelName) {
-        throw new Error('Summary model recommendation is not ready yet');
+        throw new Error(t('onboarding.downloads.errors.summaryModelNotReady'));
       }
       await invoke('builtin_ai_download_model', { modelName });
     } catch (error) {
@@ -297,11 +308,11 @@ export function DownloadProgressStep() {
       setSummaryState((prev) => ({
         ...prev,
         status: 'error',
-        error: error instanceof Error ? error.message : 'Retry failed',
+        error: error instanceof Error ? error.message : t('onboarding.downloads.retry.genericFailed'),
       }));
 
-      toast.error('Summary model download retry failed', {
-        description: 'Please check your connection and try again.',
+      toast.error(t('onboarding.downloads.retry.summaryFailed'), {
+        description: t('onboarding.downloads.retry.connectionHint'),
       });
     } finally {
       // Allow retry again after 2 seconds
@@ -455,8 +466,8 @@ export function DownloadProgressStep() {
         setTranscriptionModelDownloaded(true);
         transcriptionReady = true;
       } else if (gate === 'blocked') {
-        toast.error('Transcription engine required', {
-          description: 'Please retry the download before continuing.',
+        toast.error(t('onboarding.downloads.transcriptionRequired'), {
+          description: t('onboarding.downloads.transcriptionRequiredDescription'),
         });
         return;
       }
@@ -464,8 +475,8 @@ export function DownloadProgressStep() {
       // A failed check must not fall through: completing onboarding would
       // write the audioCpp transcript config without the model on disk.
       console.warn('[DownloadProgressStep] Failed to verify model:', error);
-      toast.error('Could not verify the Transcription Engine', {
-        description: 'Please try again in a moment.',
+      toast.error(t('onboarding.downloads.verifyFailed'), {
+        description: t('onboarding.downloads.verifyFailedDescription'),
       });
       return;
     }
@@ -478,8 +489,8 @@ export function DownloadProgressStep() {
 
     // Show toast if downloads still in progress
     if (!downloadsComplete) {
-      toast.info('Downloads will continue in the background', {
-        description: 'You can start using the app. Recording will be available once speech recognition is ready.',
+      toast.info(t('onboarding.downloads.backgroundInfo'), {
+        description: t('onboarding.downloads.backgroundInfoDescription'),
         duration: 5000,
       });
     }
@@ -499,8 +510,8 @@ export function DownloadProgressStep() {
         window.location.reload();
       } catch (error) {
         console.error('Failed to complete onboarding:', error);
-        toast.error('Failed to complete setup', {
-          description: 'Please try again.',
+        toast.error(t('onboarding.downloads.completeFailed'), {
+          description: t('onboarding.downloads.completeFailedDescription'),
         });
         setIsCompleting(false);
       }
@@ -526,11 +537,14 @@ export function DownloadProgressStep() {
     diarizationDownloaded: diarizationModelDownloaded,
     summaryDownloaded: summaryModelDownloaded,
   });
+  const summaryModelSizeMb = getSummaryModelSizeMb(
+    selectedSummaryModel || recommendedSummaryModel
+  );
 
   return (
     <OnboardingContainer
-      title="Getting things ready"
-      description="You can start using Samobranka after downloading the Transcription Engine."
+      title={t('onboarding.downloads.title')}
+      description={t('onboarding.downloads.description')}
       step={3}
       totalSteps={isMac ? 4 : 3}
     >
@@ -538,28 +552,40 @@ export function DownloadProgressStep() {
         {/* Download Cards */}
         <div className="w-full max-w-lg space-y-4">
           <DownloadCard
-            title="Transcription Engine"
+            title={t('onboarding.downloads.cards.transcription')}
             icon={<Mic className="w-5 h-5 text-gray-600" />}
             state={transcriptionCard}
-            modelSize={formatAudioCppModelSizeLabel(transcriptionCard.progress.totalMb)}
+            modelSize={
+              transcriptionCard.progress.totalMb > 0
+                ? `~${formatMegabytes(transcriptionCard.progress.totalMb, language)}`
+                : ''
+            }
             sizeUnit="MB"
             onRetry={retryHandlerFor('transcription')}
           />
 
           <DownloadCard
-            title="Speaker Diarization"
+            title={t('onboarding.downloads.cards.diarization')}
             icon={<Users className="w-5 h-5 text-gray-600" />}
             state={diarizationCard}
-            modelSize={formatAudioCppModelSizeLabel(diarizationCard.progress.totalMb)}
+            modelSize={
+              diarizationCard.progress.totalMb > 0
+                ? `~${formatMegabytes(diarizationCard.progress.totalMb, language)}`
+                : ''
+            }
             sizeUnit="MB"
             onRetry={retryHandlerFor('diarization')}
           />
 
           <DownloadCard
-            title="Summary Engine"
+            title={t('onboarding.downloads.cards.summary')}
             icon={<Sparkles className="w-5 h-5 text-gray-600" />}
             state={summaryState}
-            modelSize={getSummaryModelSizeLabel(selectedSummaryModel || recommendedSummaryModel)}
+            modelSize={
+              summaryModelSizeMb > 0
+                ? `~${formatMegabytes(summaryModelSizeMb, language)}`
+                : ''
+            }
             sizeUnit="MiB"
             onRetry={retryHandlerFor('summary')}
           />
@@ -578,9 +604,9 @@ export function DownloadProgressStep() {
               <div className="flex items-start gap-3">
                 <Download className="w-5 h-5 text-gray-600 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium">You can continue while this finishes</p>
+                  <p className="font-medium">{t('onboarding.downloads.backgroundNotice.title')}</p>
                   <p className="text-gray-700 mt-1">
-                    Download will continue in the background.
+                    {t('onboarding.downloads.backgroundNotice.description')}
                   </p>
                 </div>
               </div>
@@ -598,7 +624,7 @@ export function DownloadProgressStep() {
             {(isCompleting || !continueEnabled) ? (
               <Loader2 className="w-4 h-4 mr-2 animate-spin" />
             ) : (
-              'Continue'
+              t('onboarding.downloads.continue')
             )}
           </Button>
         </div>

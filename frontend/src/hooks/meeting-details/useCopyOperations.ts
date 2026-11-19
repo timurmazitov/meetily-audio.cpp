@@ -12,6 +12,7 @@ import {
 import { formatTranscriptText } from '@/lib/transcript-format';
 import { resolveMeetingDate } from '@/lib/meeting-date';
 import { buildExportFileName, exportFileWithDialog } from '@/lib/export-file';
+import { useAppLanguage } from '@/contexts/LanguageContext';
 
 interface UseCopyOperationsProps {
   meeting: any;
@@ -28,6 +29,8 @@ export function useCopyOperations({
   aiSummary,
   blockNoteSummaryRef,
 }: UseCopyOperationsProps) {
+  const { language } = useAppLanguage();
+
   // The meeting title the user is looking at, falling back to the saved meeting
   // name. Both exports and both file names go through it, so Copy, Export and
   // the saved file always agree on what the meeting is called.
@@ -187,13 +190,14 @@ export function useCopyOperations({
         meetingId: meeting.id,
         meetingDate,
         label,
+        language,
       });
     } catch (error) {
       console.error(`❌ Failed to ${verb} summary:`, error);
       toast.error(`Failed to ${verb} summary`);
       return null;
     }
-  }, [aiSummary, exportTitle, meeting.id, meetingDate, resolveSummaryMarkdown]);
+  }, [aiSummary, exportTitle, meeting.id, meetingDate, resolveSummaryMarkdown, language]);
 
   // Copy summary to clipboard
   const handleCopySummary = useCallback(async () => {

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { RefreshCw, Mic, Speaker, CircleHelp } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { AudioLevelMeter, CompactAudioLevelMeter } from './AudioLevelMeter';
 import { AudioBackendSelector } from './AudioBackendSelector';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -40,6 +41,7 @@ interface DeviceSelectionProps {
 }
 
 export function DeviceSelection({ selectedDevices, onDeviceChange, disabled = false }: DeviceSelectionProps) {
+  const { t } = useTranslation();
   const [devices, setDevices] = useState<AudioDevice[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -61,7 +63,7 @@ export function DeviceSelection({ selectedDevices, onDeviceChange, disabled = fa
       console.log('Fetched audio devices:', result);
     } catch (err) {
       console.error('Failed to fetch audio devices:', err);
-      setError('Failed to load audio devices. Please check your system audio settings.');
+      setError(t('devices.loadFailed'));
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -142,7 +144,7 @@ export function DeviceSelection({ selectedDevices, onDeviceChange, disabled = fa
       // Only monitor input devices for now (microphones)
       const deviceNames = inputDevices.map(device => device.name);
       if (deviceNames.length === 0) {
-        setError('No microphone devices found to monitor');
+        setError(t('devices.noMicrophonesToMonitor'));
         return;
       }
 
@@ -152,7 +154,7 @@ export function DeviceSelection({ selectedDevices, onDeviceChange, disabled = fa
       console.log('Started audio level monitoring for input devices:', deviceNames);
     } catch (err) {
       console.error('Failed to start audio level monitoring:', err);
-      setError('Failed to start audio level monitoring');
+      setError(t('devices.monitoringStartFailed'));
     }
   };
 
@@ -192,7 +194,7 @@ export function DeviceSelection({ selectedDevices, onDeviceChange, disabled = fa
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h4 className="text-sm font-medium text-gray-900">Audio Devices</h4>
+        <h4 className="text-sm font-medium text-gray-900">{t('devices.title')}</h4>
         <div className="flex items-center space-x-2">
           {/* TODO: Monitoring */}
           {/* <button */}
@@ -229,20 +231,20 @@ export function DeviceSelection({ selectedDevices, onDeviceChange, disabled = fa
           <div className="flex items-center gap-2">
             <Mic className="h-4 w-4 text-gray-600" />
             <Label htmlFor="mic-selection" className="text-sm font-medium text-gray-700">
-              Microphone
+              {t('devices.microphone')}
             </Label>
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
                   type="button"
-                  aria-label="About microphone selection"
+                  aria-label={t('devices.microphoneAria')}
                   className="text-gray-400 hover:text-gray-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded-full"
                 >
                   <CircleHelp aria-hidden="true" className="h-4 w-4" />
                 </button>
               </TooltipTrigger>
               <TooltipContent className="max-w-xs">
-                Choose a mic to record. Default follows your system’s selected microphone.
+                {t('devices.microphoneTooltip')}
               </TooltipContent>
             </Tooltip>
           </div>
@@ -252,14 +254,14 @@ export function DeviceSelection({ selectedDevices, onDeviceChange, disabled = fa
             disabled={disabled}
           >
             <SelectTrigger id="mic-selection" className="w-full">
-              <SelectValue placeholder="Select Microphone" />
+              <SelectValue placeholder={t('devices.selectMicrophone')} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={encodeDeviceOption(null)}>Default Microphone</SelectItem>
+              <SelectItem value={encodeDeviceOption(null)}>{t('devices.defaultMicrophone')}</SelectItem>
               {selectedDevices.micDevice &&
                 !isDeviceAvailable(devices, 'Input', selectedDevices.micDevice) && (
                   <SelectItem value={encodeDeviceOption(selectedDevices.micDevice)}>
-                    {cachedDeviceLabel(selectedDevices.micDevice)} — Unavailable — choose a device
+                    {t('devices.unavailableDevice', { name: cachedDeviceLabel(selectedDevices.micDevice) })}
                   </SelectItem>
                 )}
               {inputDevices.map((device) => (
@@ -273,13 +275,13 @@ export function DeviceSelection({ selectedDevices, onDeviceChange, disabled = fa
             </SelectContent>
           </Select>
           {inputDevices.length === 0 && (
-            <p className="text-xs text-gray-500">No microphone devices found</p>
+            <p className="text-xs text-gray-500">{t('devices.noMicrophones')}</p>
           )}
 
           {/* Audio Level Meters for Input Devices */}
           {showLevels && inputDevices.length > 0 && (
             <div className="space-y-2 pt-2 border-t border-gray-100">
-              <p className="text-xs text-gray-600 font-medium">Microphone Levels:</p>
+              <p className="text-xs text-gray-600 font-medium">{t('devices.microphoneLevels')}</p>
               {inputDevices.map((device) => {
                 const levelData = audioLevels.get(device.name);
                 return (
@@ -317,20 +319,20 @@ export function DeviceSelection({ selectedDevices, onDeviceChange, disabled = fa
           <div className="flex items-center gap-2">
             <Speaker className="h-4 w-4 text-gray-600" />
             <Label htmlFor="system-selection" className="text-sm font-medium text-gray-700">
-              System Audio
+              {t('devices.systemAudio')}
             </Label>
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
                   type="button"
-                  aria-label="About system audio selection"
+                  aria-label={t('devices.systemAudioAria')}
                   className="text-gray-400 hover:text-gray-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded-full"
                 >
                   <CircleHelp aria-hidden="true" className="h-4 w-4" />
                 </button>
               </TooltipTrigger>
               <TooltipContent className="max-w-xs">
-                Choose audio to record. Default follows your system’s selected output.
+                {t('devices.systemAudioTooltip')}
               </TooltipContent>
             </Tooltip>
           </div>
@@ -341,14 +343,14 @@ export function DeviceSelection({ selectedDevices, onDeviceChange, disabled = fa
             disabled={disabled}
           >
             <SelectTrigger id="system-selection" className="w-full">
-              <SelectValue placeholder="Select System Audio" />
+              <SelectValue placeholder={t('devices.selectSystemAudio')} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={encodeDeviceOption(null)}>Default System Audio</SelectItem>
+              <SelectItem value={encodeDeviceOption(null)}>{t('devices.defaultSystemAudio')}</SelectItem>
               {selectedDevices.systemDevice &&
                 !isDeviceAvailable(devices, 'Output', selectedDevices.systemDevice) && (
                   <SelectItem value={encodeDeviceOption(selectedDevices.systemDevice)}>
-                    {cachedDeviceLabel(selectedDevices.systemDevice)} — Unavailable — choose a device
+                    {t('devices.unavailableDevice', { name: cachedDeviceLabel(selectedDevices.systemDevice) })}
                   </SelectItem>
                 )}
               {outputDevices.map((device) => (
@@ -363,7 +365,7 @@ export function DeviceSelection({ selectedDevices, onDeviceChange, disabled = fa
           </Select>
 
           {outputDevices.length === 0 && (
-            <p className="text-xs text-gray-500">No system audio devices found</p>
+            <p className="text-xs text-gray-500">{t('devices.noSystemAudio')}</p>
           )}
 
           {/* Backend Selection - available on all platforms */}
@@ -377,8 +379,8 @@ export function DeviceSelection({ selectedDevices, onDeviceChange, disabled = fa
 
       {/* Info text */}
       <div className="text-xs text-gray-500 space-y-1">
-        <p>• <strong>Microphone:</strong> Records your voice and ambient sound</p>
-        <p>• <strong>System Audio:</strong> Records computer audio (music, calls, etc.)</p>
+        <p>• <strong>{t('devices.microphone')}:</strong> {t('devices.microphoneInfo')}</p>
+        <p>• <strong>{t('devices.systemAudio')}:</strong> {t('devices.systemAudioInfo')}</p>
       </div>
     </div>
   );
