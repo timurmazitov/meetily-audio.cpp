@@ -1,103 +1,104 @@
-# Meeting Summary Templates
+# Шаблоны для итогов встреч
 
-This directory contains template definitions for meeting summary generation.
+В этой директории находятся определения шаблонов для генерации итогов встреч.
 
-## Available Templates
+## Доступные шаблоны
 
 ### 1. `daily_standup.json`
-Time-boxed daily updates template designed for engineering/product teams.
 
-**Sections:**
-- Date
-- Attendees
-- Yesterday (completed work)
-- Today (planned work)
-- Blockers
-- Notes
+Шаблон для ежедневных обновлений с привязкой ко времени, предназначенный для инженерных и продуктовых команд.
+
+**Разделы:**
+- Дата
+- Участники
+- Вчера (выполненная работа)
+- Сегодня (запланированная работа)
+- Блокеры
+- Примечания
 
 ### 2. `standard_meeting.json`
-General-purpose meeting notes template focusing on key outcomes and actions.
 
-**Sections:**
-- Summary
-- Key Decisions
-- Action Items
-- Discussion Highlights
+Универсальный шаблон протокола встречи, ориентированный на ключевые результаты и задачи.
 
-## Template Structure
+**Разделы:**
+- Резюме
+- Ключевые решения
+- Задачи (Action Items)
+- Основные моменты обсуждения
 
-Each template JSON file follows this schema:
+## Структура шаблона
+
+Каждый JSON-файл шаблона соответствует следующей схеме:
 
 ```json
 {
-  "name": "Template Name",
-  "description": "Brief description of the template's purpose",
-  "system_prompt": "Optional: replaces the base system prompt. Supports {section_instructions} and {template}.",
+  "name": "Название шаблона",
+  "description": "Краткое описание назначения шаблона",
+  "system_prompt": "Необязательно: заменяет базовый системный промпт. Поддерживает {section_instructions} и {template}.",
   "sections": [
     {
-      "title": "Section Title",
-      "instruction": "Instructions for the LLM on what to extract/include",
+      "title": "Заголовок раздела",
+      "instruction": "Инструкции для LLM о том, что извлекать/включать",
       "format": "paragraph|list|string",
-      "item_format": "Optional: Markdown table format for list items"
+      "item_format": "Необязательно: формат Markdown-таблицы для элементов списка"
     }
   ]
 }
 ```
 
-## Custom Templates
+## Пользовательские шаблоны
 
-Users can add custom templates to the application data directory:
+Пользователи могут добавлять собственные шаблоны в директорию данных приложения:
 
-- **macOS**: `~/Library/Application Support/Samobranka/templates/`
 - **Windows**: `%APPDATA%\Samobranka\templates\`
 - **Linux**: `~/.config/Samobranka/templates/`
 
-Custom templates override built-in templates with the same filename.
+Пользовательские шаблоны переопределяют встроенные шаблоны с тем же именем файла.
 
-## Template Fields
+## Поля шаблона
 
-### Root Level
-- `name` (required): Display name for the template
-- `description` (required): Brief explanation of the template's use case
-- `sections` (required): Array of section definitions
-- `system_prompt` (optional): Custom system prompt for this template. When set, it replaces the base system prompt configured in Settings → Summary. Both `{section_instructions}` and `{template}` placeholders are supported (same as the base prompt).
+### Корневой уровень
+- `name` (обязательно): Отображаемое имя шаблона
+- `description` (обязательно): Краткое объяснение случая использования шаблона
+- `sections` (обязательно): Массив определений разделов
+- `system_prompt` (необязательно): Пользовательский системный промпт для этого шаблона. При задании заменяет базовый системный промпт, настроенный в Настройки → Итоги. Поддерживаются плейсхолдеры `{section_instructions}` и `{template}` (те же, что и в базовом промпте).
 
-### Section Object
-- `title` (required): Section heading text
-- `instruction` (required): LLM guidance for this section
-- `format` (required): One of `"paragraph"`, `"list"`, or `"string"`
-- `item_format` (optional): Markdown formatting hint for list items (e.g., table structure)
-- `example_item_format` (optional): Alternative formatting hint
+### Объект раздела
+- `title` (обязательно): Текст заголовка раздела
+- `instruction` (обязательно): Руководство для LLM для этого раздела
+- `format` (обязательно): Одно из `"paragraph"`, `"list"` или `"string"`
+- `item_format` (необязательно): Подсказка по форматированию Markdown для элементов списка (например, структура таблицы)
+- `example_item_format` (необязательно): Альтернативная подсказка по форматированию
 
-## Usage in Code
+## Использование в коде
 
-Templates are loaded using the `templates` module:
+Шаблоны загружаются через модуль `templates`:
 
 ```rust
 use crate::summary::templates;
 
-// Get a specific template
+// Получить конкретный шаблон
 let template = templates::get_template("daily_standup")?;
 
-// List available templates
+// Получить список доступных шаблонов
 let available = templates::list_templates();
 
-// Validate custom template JSON
+// Проверить валидность пользовательского JSON-шаблона
 let custom_json = std::fs::read_to_string("custom.json")?;
 let validated = templates::validate_template(&custom_json)?;
 ```
 
-## Meeting Date in Report Sections
+## Дата встречи в разделах отчёта
 
-Sections that report the meeting date (`Date` in `daily_standup.json`, `Meeting Date & Time` in
-`project_sync.json`, `Session Metadata` in `psychatric_session.json`, `Meeting Metadata` in
-`sales_marketing_client_call.json`) take it from the `<meeting_date>...</meeting_date>` block at
-the start of the final generation request, not from the transcript. Each instruction states that a
-missing block must not be invented around: the report says the date is unknown instead.
+Разделы, которые отображают дату встречи (`Date` в `daily_standup.json`, `Meeting Date & Time` в
+`project_sync.json`, `Session Metadata` в `psychatric_session.json`, `Meeting Metadata` в
+`sales_marketing_client_call.json`) берут её из блока `<meeting_date>...</meeting_date>` в начале
+финального запроса на генерацию, а не из транскрипта. В каждом руководстве указано, что отсутствующий
+блок нельзя придумывать: в отчёте говорится, что дата неизвестна.
 
-`Sprint` in `retrospective.json` is different: it asks for a sprint date range, which still comes
-from the transcript. The meeting date is explicitly not a substitute for that range.
+`sprint` в `retrospective.json` устроен иначе: он запрашивает диапазон дат спринта, который берётся
+из транскрипта. Дата встречи явно не является заменой для этого диапазона.
 
-Note for release notes: this change only touches the bundled templates. A user who already copied a
-template into their own templates directory keeps their copy (custom templates win over bundled
-ones), so the updated date instructions do not reach it.
+Примечание для release notes: это изменение затрагивает только встроенные шаблоны. Пользователь,
+который уже скопировал шаблон в собственную директорию шаблонов, сохраняет свою копию (пользовательские
+шаблоны имеют приоритет над встроенными), поэтому обновлённые инструкции по дате до неё не доходят.
