@@ -1,6 +1,6 @@
 # Translate hook/context toasts and leftovers in already-swept files
 
-Status: needs-triage
+Status: resolved
 Type: task
 
 ## Context
