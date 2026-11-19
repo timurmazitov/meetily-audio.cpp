@@ -54,8 +54,19 @@ mock.module('../../src/components/ui/command', () => ({
   CommandList: Container,
   CommandEmpty: Container,
   CommandGroup: Container,
-  CommandItem: ({ children, onSelect }: any) => (
-    <button type="button" onClick={() => onSelect?.()}>
+  // Mirrors cmdk: a disabled item is not clickable and never fires `onSelect`
+  // (cmdk drops the click handler and marks the node aria-disabled).
+  CommandItem: ({ children, onSelect, disabled, className }: any) => (
+    <button
+      type="button"
+      disabled={disabled}
+      aria-disabled={disabled || undefined}
+      className={className}
+      onClick={() => {
+        if (disabled) return;
+        onSelect?.();
+      }}
+    >
       {children}
     </button>
   ),
@@ -296,16 +307,48 @@ function directoryCalls() {
   return invoke.mock.calls.filter(([command]) => command === 'api_get_speaker_names');
 }
 
+interface PickerOption {
+  /** The option's own label, without the "which speaker holds it" hint. */
+  text: string;
+  /** The speaker that holds this name in the draft, when the option is blocked. */
+  owner: string | null;
+  /** cmdk marks a disabled item aria-disabled and drops its select handler. */
+  disabled: boolean;
+  className: string | undefined;
+}
+
 /**
- * The option labels of one row's name picker, in render order. The first button
- * of a row is the picker trigger; the rest are the "No name", "Create" and
+ * The options of one row's name picker, in render order. The first button of a
+ * row is the picker trigger; the rest are the "No name", "Create" and
  * directory entries.
  */
-function pickerOptions(instance: ReactTestRenderer, label: string): string[] {
+function pickerOptionEntries(
+  instance: ReactTestRenderer,
+  label: string,
+): PickerOption[] {
   return speakerRow(instance, label)
     .findAll((n: any) => n.type === 'button')
     .slice(1)
-    .map((button: any) => instanceText(button));
+    .map((button: any) => {
+      const spans = button.findAll((n: any) => n.type === 'span');
+      const owner = spans.find(
+        (span: any) => span.props?.['data-testid'] === 'name-owner',
+      );
+      return {
+        text: spans[0] ? instanceText(spans[0]) : instanceText(button),
+        owner: owner ? instanceText(owner) : null,
+        disabled:
+          Boolean(button.props.disabled) ||
+          button.props['aria-disabled'] === true ||
+          button.props['aria-disabled'] === 'true',
+        className: button.props.className,
+      };
+    });
+}
+
+/** The option labels of one row's name picker, in render order. */
+function pickerOptions(instance: ReactTestRenderer, label: string): string[] {
+  return pickerOptionEntries(instance, label).map((option) => option.text);
 }
 
 test('rows show the Speaker N placeholder, segment count and current name', async () => {
@@ -601,6 +644,156 @@ test('a saved name is in the list on the next open, because the directory is re-
   expect(pickerOptions(instance, 'speaker_0')).toEqual(['No name', 'Мария']);
 });
 
+// --- Names already taken by another speaker ------------------------------
+
+test('a name assigned to another speaker is listed but not selectable, and names its owner', async () => {
+  speakers = [
+    { label: 'speaker_0', speaker_name: 'Alex', segment_count: 2, first_start_time: 0 },
+    { label: 'speaker_1', speaker_name: null, segment_count: 1, first_start_time: 20 },
+  ];
+  directory = ['Alex', 'Zoe'];
+
+  const instance = await render();
+  await openPanel(instance);
+
+  const alex = pickerOptionEntries(instance, 'speaker_1').find((option) =>
+    option.text.includes('Alex'),
+  );
+
+  // Still listed, genuinely non-selectable, and it says who holds the name.
+  expect(alex).toBeDefined();
+  expect(alex!.disabled).toBeTrue();
+  expect(alex!.owner).toBe('Speaker 1');
+
+  // Disabled means disabled: clicking it changes nothing on Done.
+  await clickButton(speakerRow(instance, 'speaker_1'), 'Alex');
+  await clickButton(instance, 'Done');
+  expect(assignCalls()).toHaveLength(0);
+});
+
+test('an unavailable name is visually distinct from an available one', async () => {
+  speakers = [
+    { label: 'speaker_0', speaker_name: 'Alex', segment_count: 2, first_start_time: 0 },
+    { label: 'speaker_1', speaker_name: null, segment_count: 1, first_start_time: 20 },
+  ];
+  directory = ['Alex', 'Zoe'];
+
+  const instance = await render();
+  await openPanel(instance);
+
+  const options = pickerOptionEntries(instance, 'speaker_1');
+  const alex = options.find((option) => option.text.includes('Alex'))!;
+  const zoe = options.find((option) => option.text.includes('Zoe'))!;
+
+  // The unavailable row is greyed out; the available one is not.
+  expect(alex.className).not.toBe(zoe.className);
+  expect(String(alex.className)).toContain('opacity-50');
+  expect(String(zoe.className ?? '')).not.toContain('opacity-50');
+});
+
+test('the speaker that owns a name in the draft keeps it selectable', async () => {
+  speakers = [
+    { label: 'speaker_0', speaker_name: 'Alex', segment_count: 2, first_start_time: 0 },
+    { label: 'speaker_1', speaker_name: null, segment_count: 1, first_start_time: 20 },
+  ];
+  directory = ['Alex', 'Zoe'];
+
+  const instance = await render();
+  await openPanel(instance);
+
+  const own = pickerOptionEntries(instance, 'speaker_0').find((option) =>
+    option.text.includes('Alex'),
+  );
+  expect(own!.disabled).toBeFalse();
+  expect(own!.owner).toBeNull();
+});
+
+test('a name can be handed over between two rows of the draft', async () => {
+  speakers = [
+    { label: 'speaker_0', speaker_name: 'Alex', segment_count: 2, first_start_time: 0 },
+    { label: 'speaker_1', speaker_name: null, segment_count: 1, first_start_time: 20 },
+  ];
+  directory = ['Alex', 'Zoe'];
+
+  const instance = await render();
+  await openPanel(instance);
+
+  const blockedFor = (label: string) =>
+    pickerOptionEntries(instance, label).find((option) =>
+      option.text.includes('Alex'),
+    )!.disabled;
+
+  expect(blockedFor('speaker_1')).toBeTrue();
+
+  // Ownership follows the draft, not only what was saved: once speaker_0 lets
+  // the name go, speaker_1 may take it. A swap is one batch.
+  await clickButton(speakerRow(instance, 'speaker_0'), 'Zoe');
+  expect(blockedFor('speaker_1')).toBeFalse();
+
+  await clickButton(speakerRow(instance, 'speaker_1'), 'Alex');
+  await clickButton(instance, 'Done');
+
+  expect(assignCalls()).toEqual([
+    [
+      'api_assign_meeting_speakers',
+      {
+        meetingId: 'meeting-a',
+        assignments: [
+          { label: 'speaker_0', name: 'Zoe' },
+          { label: 'speaker_1', name: 'Alex' },
+        ],
+      },
+    ],
+  ]);
+});
+
+test('blocked names still filter and keep the alphabetical order', async () => {
+  speakers = [
+    { label: 'speaker_0', speaker_name: 'Мария', segment_count: 2, first_start_time: 0 },
+    { label: 'speaker_1', speaker_name: null, segment_count: 1, first_start_time: 20 },
+  ];
+  directory = ['Мария', 'Максим', 'Alex', 'анна'];
+
+  const instance = await render();
+  await openPanel(instance);
+
+  expect(pickerOptions(instance, 'speaker_1')).toEqual([
+    'No name',
+    'анна',
+    'Максим',
+    'Мария',
+    'Alex',
+  ]);
+  const blocked = (option: { text: string }) => option.text.includes('Мария');
+
+  await typeName(instance, 'speaker_1', 'ма');
+  expect(pickerOptions(instance, 'speaker_1')).toEqual([
+    'No name',
+    'Create „ма“',
+    'Максим',
+    'Мария',
+  ]);
+  expect(
+    pickerOptionEntries(instance, 'speaker_1').filter(blocked)[0]!.disabled,
+  ).toBeTrue();
+});
+
+test('occupancy ignores case and surrounding whitespace, including Cyrillic', async () => {
+  speakers = [
+    { label: 'speaker_0', speaker_name: '  АЛЕКС ', segment_count: 2, first_start_time: 0 },
+    { label: 'speaker_1', speaker_name: null, segment_count: 1, first_start_time: 20 },
+  ];
+  directory = ['Алекс', 'Zoe'];
+
+  const instance = await render();
+  await openPanel(instance);
+
+  const alex = pickerOptionEntries(instance, 'speaker_1').find((option) =>
+    option.text.includes('Алекс'),
+  );
+  expect(alex!.disabled).toBeTrue();
+});
+
 test('No name is sent as null', async () => {
   speakers = [
     {
@@ -878,6 +1071,11 @@ test('the manual run does not toast: the panel itself answers the action', async
 test('a conflict lands on the edited row, not on the speaker number from the message', async () => {
   // The backend says "already assigned to Speaker 1", but the row the user
   // edited in this batch is the second one. The message must land there.
+  //
+  // The conflict is staged by typing a name the directory does not list (so
+  // the picker cannot block it beforehand) in a different case than the saved
+  // name: the backend still rejects the pair, and the panel must place its
+  // message on the row the user edited.
   speakers = [
     {
       label: 'speaker_0',
@@ -892,15 +1090,14 @@ test('a conflict lands on the edited row, not on the speaker number from the mes
       first_start_time: 20,
     },
   ];
-  directory = ['Alex', 'Zoe'];
+  directory = [];
   assignError = 'this person is already assigned to Speaker 1';
 
   const instance = await render();
   await openPanel(instance);
 
-  // Only the second row is edited, typed in a different case than the saved name.
   await typeName(instance, 'speaker_1', '  aLeX ');
-  await clickButton(speakerRow(instance, 'speaker_1'), 'Alex');
+  await clickButton(speakerRow(instance, 'speaker_1'), 'Create „aLeX“');
   await clickButton(instance, 'Done');
 
   const edited = instanceText(speakerRow(instance, 'speaker_1'));
