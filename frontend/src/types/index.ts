@@ -156,15 +156,6 @@ export interface MeetingSpeaker {
   segment_count: number;
   /** Start time of the first segment; `null` when unknown. */
   first_start_time: number | null;
-  /** Directory names suggested while picking, most-used first. */
-  top_speaker_names: string[];
-}
-
-/** One entry of the global speaker-name directory (`api_get_speaker_names`). */
-export interface SpeakerNameEntry {
-  id: string;
-  name: string;
-  meeting_count: number;
 }
 
 /** One item of the batch assignment sent by the panel's Done button. */

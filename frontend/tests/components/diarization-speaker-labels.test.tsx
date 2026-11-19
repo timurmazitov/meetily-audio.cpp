@@ -111,8 +111,8 @@ type MeetingSpeaker = import('../../src/types').MeetingSpeaker;
 type ViewProps = import('../../src/components/VirtualizedTranscriptView').VirtualizedTranscriptViewProps;
 
 const speakers: MeetingSpeaker[] = [
-  { label: 'speaker_0', speaker_name: 'Alex', segment_count: 3, first_start_time: 0, top_speaker_names: [] },
-  { label: 'speaker_1', speaker_name: null, segment_count: 1, first_start_time: 12, top_speaker_names: [] },
+  { label: 'speaker_0', speaker_name: 'Alex', segment_count: 3, first_start_time: 0 },
+  { label: 'speaker_1', speaker_name: null, segment_count: 1, first_start_time: 12 },
 ];
 
 let renderer: ReactTestRenderer | undefined;
