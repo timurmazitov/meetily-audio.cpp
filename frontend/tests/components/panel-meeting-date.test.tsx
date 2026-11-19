@@ -263,8 +263,18 @@ test('the summary text window shows the meeting date and time in its top-right c
   expect(textOf(corner[0].props.children)).toBe(expectedDate);
   // Grey, tabular figures, and pinned right by its wrapper.
   expect(String(corner[0].props.className)).toContain('tabular-nums');
+  expect(String(corner[0].props.className)).toContain('whitespace-nowrap');
   const wrapper = corner[0].parent!;
-  expect(String(wrapper.props.className)).toContain('justify-end');
+  expect(String(wrapper.props.className)).toContain('justify-between');
+
+  // The title and the date share one row, with the title first: left title,
+  // right date, aligned at the top so a wrapped title never lifts the date.
+  const title = headings(view, 'h1')[0];
+  expect(title.parent).toBe(wrapper);
+  const rowChildren = (wrapper.children as any[]).filter((child) => typeof child !== 'string');
+  expect(rowChildren).toHaveLength(2);
+  expect(rowChildren[0].props.className).toContain('text-2xl');
+  expect(String(wrapper.props.className)).toContain('items-start');
 });
 
 test('the corner date comes from the meeting moment, not the row creation time', async () => {
@@ -342,4 +352,112 @@ test('the date appears exactly once across both tabs', async () => {
   expect(textOf(dates[0].props.children)).toBe(expectedDate);
   expect(dateRows(view, SUMMARY_ROOT)).toHaveLength(0);
   expect(dateRows(view, TRANSCRIPT_ROOT)).toHaveLength(0);
+});
+
+// --- Slice 5: the full meeting title heads the summary text window ---------
+
+/** The heading elements rendered anywhere in a tree. */
+function headings(instance: ReactTestRenderer, tag: string) {
+  return instance.root.findAll(
+    (node) => typeof node.type === 'string' && node.type === tag,
+  );
+}
+
+test('the summary text window shows the full meeting title as its main heading', async () => {
+  const view = await render(
+    <SummaryPanel {...summaryProps({ meetingDate, aiSummary: visibleSummary })} />,
+  );
+
+  const titles = headings(view, 'h1');
+  expect(titles).toHaveLength(1);
+  expect(textOf(titles[0].props.children)).toBe('Planning call');
+
+  // Same size and weight as the accepted meeting title heading
+  // (EditableTitle), black, and wrapping instead of any clipping.
+  const classes = String(titles[0].props.className);
+  expect(classes).toContain('text-2xl');
+  expect(classes).toContain('font-bold');
+  expect(classes).toContain('text-black');
+  expect(classes).not.toContain('line-clamp');
+  expect(classes).not.toContain('truncate');
+});
+
+test('a long title is rendered in full, wrapping instead of clipping', async () => {
+  const longTitle = 'Кросс-функциональный разбор инцидента в платёжном шлюзе '
+    + 'с участием команд платформы, поддержки и аналитики данных, 18 ноября 2026';
+  const view = await render(
+    <SummaryPanel
+      {...summaryProps({ meetingDate, meetingTitle: longTitle, aiSummary: visibleSummary })}
+    />,
+  );
+
+  const titles = headings(view, 'h1');
+  expect(titles).toHaveLength(1);
+  // The whole title reaches the text window: no truncation, and it may break
+  // across lines (`break-words`), so nothing is lost.
+  expect(textOf(titles[0].props.children)).toBe(longTitle);
+  expect(viewText(view)).toContain(longTitle);
+  expect(String(titles[0].props.className)).toContain('break-words');
+});
+
+test('the title shows and the date stays away when the meeting date is unknown', async () => {
+  const unknown = await render(
+    <SummaryPanel {...summaryProps({ meetingDate: null, aiSummary: visibleSummary })} />,
+  );
+
+  const unknownTitles = headings(unknown, 'h1');
+  expect(unknownTitles).toHaveLength(1);
+  expect(textOf(unknownTitles[0].props.children)).toBe('Planning call');
+  // No date, no placeholder, and never the current moment (ADR-0005).
+  expect(viewText(unknown)).not.toContain(expectedDate);
+  const unknownCorners = unknown.root.findAll(
+    (node) => typeof node.type === 'string' && String(node.props.className).includes('tabular-nums'),
+  );
+  expect(unknownCorners).toHaveLength(0);
+
+  if (renderer) await act(async () => renderer!.unmount());
+  const unusable = await render(
+    <SummaryPanel {...summaryProps({ meetingDate: 'not-a-date', aiSummary: visibleSummary })} />,
+  );
+  const unusableTitles = headings(unusable, 'h1');
+  expect(unusableTitles).toHaveLength(1);
+  expect(textOf(unusableTitles[0].props.children)).toBe('Planning call');
+  expect(viewText(unusable)).not.toContain(expectedDate);
+  const unusableCorners = unusable.root.findAll(
+    (node) => typeof node.type === 'string' && String(node.props.className).includes('tabular-nums'),
+  );
+  expect(unusableCorners).toHaveLength(0);
+});
+
+test('the title never appears in the transcript panel and never duplicates in split view', async () => {
+  const transcriptOnly = await render(<TranscriptPanel {...transcriptProps()} />);
+  expect(headings(transcriptOnly, 'h1')).toHaveLength(0);
+  expect(viewText(transcriptOnly)).not.toContain('Planning call');
+  if (renderer) await act(async () => renderer!.unmount());
+
+  // The split view mounts both tabs (`forceMount`), like the desktop layout:
+  // the title must be read once, next to the summary, nowhere else.
+  const { MeetingDetailsSplitView } = await import(
+    '../../src/components/MeetingDetails/MeetingDetailsSplitView'
+  );
+
+  const view = await render(
+    <MeetingDetailsSplitView
+      activeTab="transcript"
+      onTabChange={() => {}}
+      transcript={<TranscriptPanel {...transcriptProps()} />}
+      summary={
+        <SummaryPanel {...summaryProps({ meetingDate, aiSummary: visibleSummary })} />
+      }
+    />,
+  );
+
+  const titles = headings(view, 'h1');
+  expect(titles).toHaveLength(1);
+  expect(textOf(titles[0].props.children)).toBe('Planning call');
+  // The date remains the only element with tabular figures in the row.
+  const corners = view.root.findAll(
+    (node) => typeof node.type === 'string' && String(node.props.className).includes('tabular-nums'),
+  );
+  expect(corners).toHaveLength(1);
 });
