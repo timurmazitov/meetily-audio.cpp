@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { toast } from 'sonner';
+import i18n from '@/i18n';
 
 import {
   SPEAKER_NAMES_RESET_EVENT,
@@ -58,7 +59,7 @@ export function useSpeakerNamesResetListener(
         // Every save path now recounts on a saved meeting and names it, so the
         // id is always present; the optional check stays for an older payload.
         if (event.payload.meeting_id && event.payload.meeting_id !== meetingId) return;
-        toast.info('Speaker names were reset', {
+        toast.info(i18n.t('toasts.speakerNames.reset'), {
           description: event.payload.message ?? SPEAKER_NAMES_RESET_HINT,
         });
         onResetRef.current();

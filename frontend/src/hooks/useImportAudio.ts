@@ -8,6 +8,7 @@ import {
   type DiarizationUnavailablePayload,
 } from '@/lib/diarization';
 import { toast } from 'sonner';
+import i18n from '@/i18n';
 
 export interface AudioFileInfo {
   path: string;
@@ -121,8 +122,8 @@ export function useImportAudio({
             await applyPinnedSummaryLanguageToMeeting(event.payload.meeting_id);
           } catch (error) {
             console.warn('Failed to apply pinned summary language to imported meeting:', error);
-            toast.warning('Could not apply default summary language', {
-              description: 'The imported meeting was saved, but the default summary language was not applied.',
+            toast.warning(i18n.t('toasts.summaryLanguage.pinned'), {
+              description: i18n.t('toasts.summaryLanguage.pinnedDescriptionImported'),
             });
           }
           onCompleteRef.current?.(event.payload);

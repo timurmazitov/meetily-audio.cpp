@@ -27,7 +27,7 @@ export default function FeedbackLink({ isCollapsed }: { isCollapsed: boolean }) 
       }`}
     >
       <MessagesSquare aria-hidden="true" className={isCollapsed ? 'w-5 h-5' : 'w-4 h-4'} />
-      {!isCollapsed && <span className="ml-2">Send Feedback</span>}
+      {!isCollapsed && <span className="ml-2">{t('nav.feedback')}</span>}
     </Link>
   );
 

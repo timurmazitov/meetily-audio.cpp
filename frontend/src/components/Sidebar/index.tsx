@@ -337,7 +337,7 @@ const Sidebar: React.FC = () => {
       }
     } catch (error) {
       console.error('Failed to delete meeting:', error);
-      toast.error("Failed to delete meeting", {
+      toast.error(t('sidebar.toast.deleteFailed'), {
         description: error instanceof Error ? error.message : String(error)
       });
     }
@@ -370,7 +370,7 @@ const Sidebar: React.FC = () => {
 
     // Prevent empty titles
     if (!newTitle) {
-      toast.error("Meeting title cannot be empty");
+      toast.error(t('sidebar.toast.titleEmpty'));
       return;
     }
 
@@ -384,7 +384,7 @@ const Sidebar: React.FC = () => {
       : null;
 
     if (dateEdited && editingDateTime.trim() && nextRecordedAt === null) {
-      toast.error("Please enter a valid date and time");
+      toast.error(t('sidebar.toast.invalidDateTime'));
       return;
     }
 
@@ -431,7 +431,7 @@ const Sidebar: React.FC = () => {
       setInitialDateTime('');
     } catch (error) {
       console.error('Failed to update meeting details:', error);
-      toast.error("Failed to update meeting details", {
+      toast.error(t('sidebar.toast.updateFailed'), {
         description: error instanceof Error ? error.message : String(error)
       });
     }
@@ -523,7 +523,7 @@ const Sidebar: React.FC = () => {
               </button>
             </TooltipTrigger>
             <TooltipContent side="right">
-              <p>Import Audio</p>
+              <p>{t('nav.importAudio')}</p>
             </TooltipContent>
           </Tooltip>
 

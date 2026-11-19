@@ -2,6 +2,7 @@ import { useCallback, RefObject } from 'react';
 import { MeetingSummary, Transcript } from '@/types';
 import { BlockNoteSummaryViewRef } from '@/components/AISummary/BlockNoteSummaryView';
 import { toast } from 'sonner';
+import i18n from '@/i18n';
 import { invoke as invokeTauri } from '@tauri-apps/api/core';
 import { hasVisibleSummaryContent } from '@/lib/summary-content';
 import {
@@ -77,7 +78,7 @@ export function useCopyOperations({
       return allData.transcripts;
     } catch (error) {
       console.error('❌ Error fetching all transcripts:', error);
-      toast.error('Failed to fetch transcripts for copying');
+      toast.error(i18n.t('toasts.copy.fetchForCopyFailed'));
       return [];
     }
   }, []);
@@ -89,7 +90,7 @@ export function useCopyOperations({
     const allTranscripts = await fetchAllTranscripts(meeting.id);
 
     if (!allTranscripts.length) {
-      const error_msg = 'No transcripts available to copy';
+      const error_msg = i18n.t('toasts.copy.noTranscriptsToCopy');
       console.log(error_msg);
       toast.error(error_msg);
       return null;
@@ -113,7 +114,7 @@ export function useCopyOperations({
     if (!text) return;
 
     await navigator.clipboard.writeText(text);
-    toast.success("Transcript copied to clipboard");
+    toast.success(i18n.t('recording.transcriptCopied'));
   }, [buildTranscriptText]);
 
   // Export transcript to a file via the native save dialog.
@@ -169,18 +170,18 @@ export function useCopyOperations({
   const buildSummaryText = useCallback(async (
     label: SummaryDocumentLabel,
   ): Promise<string | null> => {
-    const verb = label === 'Copied' ? 'copy' : 'export';
+    const noContentMessage = i18n.t(label === 'Copied' ? 'toasts.copy.noSummaryContentCopy' : 'toasts.copy.noSummaryContentExport');
 
     if (!hasVisibleSummaryContent(aiSummary)) {
-      toast.error(`No summary content available to ${verb}`);
+      toast.error(noContentMessage);
       return null;
     }
 
     try {
       const summaryMarkdown = await resolveSummaryMarkdown();
       if (!summaryMarkdown) {
-        console.error(`❌ No summary content available to ${verb}`);
-        toast.error(`No summary content available to ${verb}`);
+        console.error(`❌ No summary content available to ${label === 'Copied' ? 'copy' : 'export'}`);
+        toast.error(noContentMessage);
         return null;
       }
 
@@ -193,8 +194,8 @@ export function useCopyOperations({
         language,
       });
     } catch (error) {
-      console.error(`❌ Failed to ${verb} summary:`, error);
-      toast.error(`Failed to ${verb} summary`);
+      console.error(`❌ Failed to ${label === 'Copied' ? 'copy' : 'export'} summary:`, error);
+      toast.error(i18n.t(label === 'Copied' ? 'toasts.copy.failedCopySummary' : 'toasts.copy.failedExportSummary'));
       return null;
     }
   }, [aiSummary, exportTitle, meeting.id, meetingDate, resolveSummaryMarkdown, language]);
@@ -208,10 +209,10 @@ export function useCopyOperations({
       await navigator.clipboard.writeText(fullMarkdown);
 
       console.log('✅ Successfully copied to clipboard!');
-      toast.success("Summary copied to clipboard");
+      toast.success(i18n.t('toasts.copy.summaryCopied'));
     } catch (error) {
       console.error('❌ Failed to copy summary:', error);
-      toast.error("Failed to copy summary");
+      toast.error(i18n.t('toasts.copy.failedCopySummary'));
     }
   }, [buildSummaryText]);
 

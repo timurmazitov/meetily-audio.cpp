@@ -93,7 +93,7 @@ export function MeetingFileItem({
 
       {matchContext && (
         <div className="mt-1 ml-8 text-xs text-gray-500 bg-yellow-50 p-1.5 rounded border border-yellow-100 line-clamp-2">
-          <span className="font-medium text-yellow-600">Match:</span> {matchContext}
+          <span className="font-medium text-yellow-600">{t('sidebar.matchPrefix')}</span> {matchContext}
         </div>
       )}
     </div>

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { listen } from '@tauri-apps/api/event';
 import { toast } from 'sonner';
+import i18n from '@/i18n';
 import { useTranscripts } from '@/contexts/TranscriptContext';
 import { useSidebar } from '@/components/Sidebar/SidebarProvider';
 import { useRecordingState, RecordingStatus } from '@/contexts/RecordingStateContext';
@@ -283,8 +284,8 @@ export function useRecordingStop(
             shouldDetectSummaryLanguage = !(await applyPinnedSummaryLanguageToMeeting(meetingId));
           } catch (error) {
             console.warn('Failed to apply pinned summary language preference for new meeting:', error);
-            toast.warning('Could not apply default summary language', {
-              description: 'The meeting was saved, but the default summary language was not applied.',
+            toast.warning(i18n.t('toasts.summaryLanguage.pinned'), {
+              description: i18n.t('toasts.summaryLanguage.pinnedDescriptionRecording'),
             });
           }
 
@@ -296,8 +297,8 @@ export function useRecordingStop(
               );
             } catch (error) {
               console.warn('Failed to detect summary language for new meeting:', error);
-              toast.warning('Could not detect summary language', {
-                description: 'The meeting was saved, but Auto could not detect the summary language.',
+              toast.warning(i18n.t('toasts.summaryLanguage.detect'), {
+                description: i18n.t('toasts.summaryLanguage.detectDescription'),
               });
             }
           }
@@ -340,10 +341,10 @@ export function useRecordingStop(
           setStatus(RecordingStatus.COMPLETED);
 
           // Show success toast with navigation option
-          toast.success('Recording saved successfully!', {
-            description: `${freshTranscripts.length} transcript segments saved.`,
+          toast.success(i18n.t('toasts.recording.saved'), {
+            description: i18n.t('toasts.recording.segmentsSaved', { count: freshTranscripts.length }),
             action: {
-              label: 'View Meeting',
+              label: i18n.t('recording.recovery.viewMeeting'),
               onClick: () => {
                 router.push(`/meeting-details?id=${meetingId}`);
               }
@@ -362,7 +363,7 @@ export function useRecordingStop(
         } catch (saveError) {
           console.error('Failed to save meeting to database:', saveError);
           setStatus(RecordingStatus.ERROR, saveError instanceof Error ? saveError.message : 'Unknown error');
-          toast.error('Failed to save meeting', {
+          toast.error(i18n.t('toasts.recording.saveFailed'), {
             description: saveError instanceof Error ? saveError.message : 'Unknown error'
           });
           throw saveError;

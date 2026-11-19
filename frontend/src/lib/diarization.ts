@@ -15,6 +15,8 @@
  * test that never touches it does not need the native bridge.
  */
 
+import i18n from '@/i18n';
+
 import type { AudioCppModelInfo } from './audiocpp';
 
 /**
@@ -174,7 +176,7 @@ export function showDiarizationFailure(
   toast: DiarizationToast,
   message?: string,
 ): void {
-  toast.error('Diarization failed', {
+  toast.error(i18n.t('toasts.diarization.failed'), {
     description: message ?? DIARIZATION_FAILED_MESSAGE,
   });
 }

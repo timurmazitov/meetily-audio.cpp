@@ -4,6 +4,7 @@ import { BlockNoteSummaryViewRef } from '@/components/AISummary/BlockNoteSummary
 import { CurrentMeeting, useSidebar } from '@/components/Sidebar/SidebarProvider';
 import { invoke as invokeTauri } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
+import i18n from '@/i18n';
 import { hasVisibleSummaryContent } from '@/lib/summary-content';
 
 interface UseMeetingDataProps {
@@ -64,10 +65,10 @@ export function useMeetingData({ meeting, summaryData, onMeetingUpdated }: UseMe
         await handleSaveSummary(aiSummary);
       }
 
-      toast.success("Changes saved successfully");
+      toast.success(i18n.t('toasts.meetingData.changesSaved'));
     } catch (error) {
       console.error('Failed to save changes:', error);
-      toast.error("Failed to save changes", { description: String(error) });
+      toast.error(i18n.t('toasts.meetingData.changesSaveFailed'), { description: String(error) });
     } finally {
       setIsSaving(false);
     }
