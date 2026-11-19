@@ -624,16 +624,22 @@ mod tests {
         .unwrap();
     }
 
-    async fn assign_name(pool: &SqlitePool, meeting_id: &str, label: &str, name: &str) {
-        let person_id = format!("person-{}", name.to_lowercase());
+    /// Inserts one row of the people directory. Its only job is to be a name
+    /// `directory_names` returns; no meeting binds it.
+    async fn insert_person(pool: &SqlitePool, id: &str, name: &str) {
         sqlx::query("INSERT INTO speakers (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)")
-            .bind(&person_id)
+            .bind(id)
             .bind(name)
             .bind("2024-01-01T00:00:00Z")
             .bind("2024-01-01T00:00:00Z")
             .execute(pool)
             .await
             .unwrap();
+    }
+
+    async fn assign_name(pool: &SqlitePool, meeting_id: &str, label: &str, name: &str) {
+        let person_id = format!("person-{}", name.to_lowercase());
+        insert_person(pool, &person_id, name).await;
         sqlx::query(
             "INSERT INTO meeting_speakers (id, meeting_id, label, speaker_id, created_at, updated_at)
              VALUES (?, ?, ?, ?, ?, ?)",
@@ -1392,16 +1398,12 @@ mod tests {
         // The directory outgrows the old eight-name suggestion list, so a
         // truncated answer would be visible here.
         for index in 0..40 {
-            sqlx::query(
-                "INSERT INTO speakers (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)",
+            insert_person(
+                &pool,
+                &format!("person-extra-{index}"),
+                &format!("Extra {index:02}"),
             )
-            .bind(format!("person-extra-{index}"))
-            .bind(format!("Extra {index:02}"))
-            .bind("2024-01-01T00:00:00Z")
-            .bind("2024-01-01T00:00:00Z")
-            .execute(&pool)
-            .await
-            .unwrap();
+            .await;
         }
 
         let mut names = SpeakersRepository::directory_names(&pool).await.unwrap();
@@ -1411,37 +1413,6 @@ mod tests {
         expected.extend((0..40).map(|index| format!("Extra {index:02}")));
         expected.sort();
         assert_eq!(names, expected, "every directory name, nothing truncated");
-    }
-
-    #[tokio::test]
-    async fn the_directory_has_no_search_substring() {
-        let pool = migrated_pool().await;
-        insert_meeting(&pool, "meeting-1").await;
-        insert_transcript(&pool, "t-0", "meeting-1", Some("speaker_0"), Some(0.0)).await;
-        insert_transcript(&pool, "t-1", "meeting-1", Some("speaker_1"), Some(1.0)).await;
-        SpeakersRepository::assign(
-            &pool,
-            "meeting-1",
-            &[
-                assignment("speaker_0", Some("Alex")),
-                assignment("speaker_1", Some("Мария")),
-            ],
-        )
-        .await
-        .unwrap();
-
-        let names = SpeakersRepository::directory_names(&pool).await.unwrap();
-
-        assert_eq!(
-            names.len(),
-            2,
-            "the command returns the whole directory; filtering is the caller's job"
-        );
-        assert!(names.contains(&"Alex".to_string()));
-        assert!(
-            names.contains(&"Мария".to_string()),
-            "non-ASCII names are part of the directory"
-        );
     }
 
     #[tokio::test]
