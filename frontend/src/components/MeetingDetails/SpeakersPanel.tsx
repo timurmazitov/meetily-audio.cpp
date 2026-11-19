@@ -31,13 +31,9 @@ import {
 import type { AudioCppModelClient } from '@/lib/audiocpp';
 import { audioCppClient } from '@/lib/audiocppClient';
 import { diarizationClient as defaultDiarizationClient } from '@/lib/diarizationClient';
+import { comparePersonNames } from '@/lib/person-sort';
 import { formatSpeakerDisplayLabel } from '@/lib/transcript-format';
-import type { MeetingSpeaker, SpeakerAssignment, SpeakerNameEntry } from '@/types';
-
-/** How long the name picker waits for more typing before searching. */
-const DIRECTORY_DEBOUNCE_MS = 200;
-/** Page size requested from the name directory. */
-const DIRECTORY_LIMIT = 20;
+import type { MeetingSpeaker, SpeakerAssignment } from '@/types';
 
 /** `speaker_0` → `Speaker 1`; anything else is shown as-is. */
 function displayLabel(label: string): string {
@@ -57,66 +53,44 @@ function segmentCountLabel(count: number): string {
 interface SpeakerNamePickerProps {
   label: string;
   value: string | null;
-  suggestions: string[];
+  /** The whole people directory, already in the shared alphabetical order. */
+  names: string[];
+  /** Why the directory could not be read, shown inside the open list. */
+  directoryError?: string | null;
   disabled?: boolean;
   onValueChange: (name: string | null) => void;
 }
 
 /**
  * Popover + Command combobox for one speaker row: "No name", the (optional)
- * create row and the matching directory entries, in that order.
+ * create row and the directory names, in that order.
+ *
+ * The whole directory is handed in once by the panel, already sorted. Typing
+ * only filters that list in place — no request, no debounce — so a subset
+ * always keeps the alphabetical order of the full list.
  */
 function SpeakerNamePicker({
   label,
   value,
-  suggestions,
+  names,
+  directoryError,
   disabled,
   onValueChange,
 }: SpeakerNamePickerProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<string[]>(suggestions);
 
   // Drop a previous search when the picker closes, so reopening starts fresh.
   useEffect(() => {
     if (!open) setQuery('');
   }, [open]);
 
-  // The backend already ships a handful of most-used names per row, so an empty
-  // query is served locally (opening a picker must not fire a request). Typing
-  // searches the global directory, debounced.
-  useEffect(() => {
-    const trimmed = query.trim();
-    if (!trimmed) {
-      setResults(suggestions);
-      return;
-    }
-
-    let cancelled = false;
-    const timer = setTimeout(async () => {
-      try {
-        const entries = await invoke<SpeakerNameEntry[]>('api_get_speaker_names', {
-          query: trimmed,
-          limit: DIRECTORY_LIMIT,
-        });
-        if (!cancelled) setResults(entries.map((entry) => entry.name));
-      } catch {
-        // Keep the previous list; an autocomplete hiccup must not break the panel.
-      }
-    }, DIRECTORY_DEBOUNCE_MS);
-
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [query, suggestions]);
-
   const trimmed = query.trim();
-  const lowered = trimmed.toLowerCase();
-  const exactMatch = results.some((name) => name.toLowerCase() === lowered);
-  const matches = lowered
-    ? results.filter((name) => name.toLowerCase().includes(lowered))
-    : results;
+  const needle = trimmed.toLowerCase();
+  const matches = needle
+    ? names.filter((name) => name.toLowerCase().includes(needle))
+    : names;
+  const exactMatch = names.some((name) => name.trim().toLowerCase() === needle);
   const canCreate = trimmed.length > 0 && !exactMatch;
 
   const choose = (name: string | null) => {
@@ -171,7 +145,10 @@ function SpeakerNamePicker({
                   <span className="truncate">{name}</span>
                 </CommandItem>
               ))}
-              {matches.length === 0 && !canCreate && (
+              {directoryError && (
+                <div className="px-2 py-2 text-xs text-red-600">{directoryError}</div>
+              )}
+              {matches.length === 0 && !canCreate && !directoryError && (
                 <div className="py-4 text-center text-sm text-muted-foreground">
                   No people found.
                 </div>
@@ -219,6 +196,10 @@ export function SpeakersPanel({
   const [isSaving, setIsSaving] = useState(false);
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
   const [panelError, setPanelError] = useState<string | null>(null);
+  // The whole people directory, read once per panel open and handed to every
+  // row. A failed read is reported inside each picker and blocks nothing else.
+  const [directoryNames, setDirectoryNames] = useState<string[]>([]);
+  const [directoryError, setDirectoryError] = useState<string | null>(null);
   // Whether a manual run can start: `true` for an installed model, `false`
   // for a catalog that answered without one, and `null` when the catalog could
   // not be read. `null` is deliberately not `false`: an unreadable list is not
@@ -248,17 +229,38 @@ export function SpeakersPanel({
     }
   }, [meetingId]);
 
+  /**
+   * Reads the whole people directory. Called once per panel open and again
+   * after a successful Done, because saving may have created a person.
+   *
+   * A failed read is not fatal: the names list stays empty, `No name` and
+   * "create from what was typed" keep working, and the error is shown inside
+   * the open picker.
+   */
+  const loadDirectory = useCallback(async () => {
+    try {
+      const names = await invoke<string[]>('api_get_speaker_names');
+      // One sort for the whole panel: every row filters the same ordered list.
+      setDirectoryNames([...names].sort(comparePersonNames));
+      setDirectoryError(null);
+    } catch (error) {
+      setDirectoryNames([]);
+      setDirectoryError(String(error));
+    }
+  }, []);
+
   // Load on open only (and drop the draft when the sheet closes).
   useEffect(() => {
     if (open) {
       void loadSpeakers();
+      void loadDirectory();
     } else {
       setDraft({});
       setRowErrors({});
       setPanelError(null);
       setDiarizationReason(null);
     }
-  }, [open, loadSpeakers]);
+  }, [open, loadSpeakers, loadDirectory]);
 
   // Whether a manual run can work at all: an installed diarization model. The
   // catalog is the same one the settings section lists, so a downloaded model is
@@ -417,6 +419,9 @@ export function SpeakersPanel({
       // Close directly: `handleOpenChange` blocks while a save is in flight.
       resetDraft();
       onOpenChange(false);
+      // Saving may have created a person, so the next open reads the directory
+      // again (and in the meantime the fresh copy is already loaded).
+      void loadDirectory();
       // Re-read the paginated transcripts so speaker chips show the new names
       // without a page reload.
       await onRefetchTranscripts?.();
@@ -526,7 +531,8 @@ export function SpeakersPanel({
                   <SpeakerNamePicker
                     label={row.label}
                     value={draft[row.label] ?? null}
-                    suggestions={row.top_speaker_names}
+                    names={directoryNames}
+                    directoryError={directoryError}
                     disabled={isSaving}
                     onValueChange={(name) => setRowValue(row.label, name)}
                   />

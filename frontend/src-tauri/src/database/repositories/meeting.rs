@@ -610,12 +610,14 @@ mod tests {
 
         // The directory is read back through the command the picker uses, so an
         // orphan would show up there.
-        let directory = crate::database::repositories::speaker::SpeakersRepository::search_names(
-            &pool, "", 20,
-        )
-        .await
-        .unwrap();
-        assert!(directory.is_empty(), "the orphan would be suggested again");
+        let directory =
+            crate::database::repositories::speaker::SpeakersRepository::directory_names(&pool)
+                .await
+                .unwrap();
+        assert!(
+            directory.is_empty(),
+            "the orphan would be listed again in the picker"
+        );
     }
 
     #[tokio::test]
