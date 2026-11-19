@@ -545,6 +545,26 @@ test('an unreadable directory keeps No name and Create, and says so inside the l
   expect(text(instance)).not.toContain('Create „');
 
   // Removing the name still works: a broken read is not a broken panel.
+  await clickButton(speakerRow(instance, 'speaker_0'), 'No name');
+  await clickButton(instance, 'Done');
+
+  expect(assignCalls()).toEqual([
+    [
+      'api_assign_meeting_speakers',
+      { meetingId: 'meeting-a', assignments: [{ label: 'speaker_0', name: null }] },
+    ],
+  ]);
+});
+
+test('a broken directory still allows creating a new person from what was typed', async () => {
+  speakers = [
+    { label: 'speaker_0', speaker_name: 'Alex', segment_count: 2, first_start_time: 0 },
+  ];
+  directoryError = 'database is locked';
+
+  const instance = await render();
+  await openPanel(instance);
+
   await typeName(instance, 'speaker_0', 'Ghost');
   await clickButton(speakerRow(instance, 'speaker_0'), 'Create „Ghost“');
   await clickButton(instance, 'Done');
