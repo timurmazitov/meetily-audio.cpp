@@ -201,8 +201,8 @@ test('lists every catalogued model with its purpose and size', async () => {
   expect(text).toContain('Nemotron-3 Diarization');
   expect(text).toContain('Transcription');
   expect(text).toContain('Diarization');
-  expect(text).toContain('422MB');
-  expect(text).toContain('190MB');
+  expect(text).toContain('422 MB');
+  expect(text).toContain('190 MB');
   expect(text).toContain('F16');
   expect(text).toContain('BF16');
 });

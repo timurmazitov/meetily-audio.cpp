@@ -1,9 +1,13 @@
 import React from 'react';
-import { afterAll, afterEach, expect, mock, test } from 'bun:test';
+import { afterAll, afterEach, beforeEach, expect, mock, test } from 'bun:test';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 const originals = await Promise.all(['@tauri-apps/api/core', '@tauri-apps/api/path', '@tauri-apps/api/event', '../../src/contexts/RecordingStateContext', '../../src/components/ui/tooltip'].map(async path =>
   [path, { ...await import(path) }] as const));
 afterAll(() => { for (const [path, exports] of originals) mock.module(path, () => exports); });
+// Initializes the shared i18next instance with the catalogs: RecordingControls
+// renders `t('recording.controls.processing')`, and without this import the
+// suite alone would render the raw key.
+await import('../../src/i18n');
 
 
 let outcome = 'stopped';
@@ -18,16 +22,40 @@ const invoke = mock(async (command: string) => {
   if (outcome === 'failure') throw new Error('Save failed');
   return outcome;
 });
-mock.module('@tauri-apps/api/core', () => ({ invoke }));
-mock.module('@tauri-apps/api/path', () => ({ appDataDir: async () => '/tmp' }));
-mock.module('@tauri-apps/api/event', () => ({ listen: async () => () => {} }));
-mock.module('../../src/contexts/RecordingStateContext', () => ({
-  useRecordingState: () => ({ isPaused: false, isStartingRecording: false, isStopping: globalStopping }),
-}));
 const Container = ({ children }: any) => <div>{children}</div>;
-mock.module('../../src/components/ui/tooltip', () => ({
-  Tooltip: Container, TooltipTrigger: Container, TooltipContent: Container, TooltipProvider: Container,
-}));
+/**
+ * Re-applied before every test: bun installs every file's load-time mocks
+ * before running any test, so a later-loaded suite's `invoke` fake (the copy /
+ * export suites, for instance) otherwise stays in place while this file's
+ * tests run. Same pattern as `swept-components-i18n.test.tsx`. The
+ * `window.__TAURI_INTERNALS__` shim covers the case where `RecordingControls`
+ * is bound to the REAL `invoke`, which delegates to that global (it is the
+ * same shim `copy-export-operations.test.tsx` installs for its own tests and
+ * restores in its `afterAll`).
+ */
+const globalWithWindow = globalThis as unknown as { window?: Record<string, unknown> };
+const hadWindow = 'window' in globalWithWindow;
+const originalWindow = globalWithWindow.window;
+function applyTestMocks() {
+  mock.module('@tauri-apps/api/core', () => ({ invoke }));
+  mock.module('@tauri-apps/api/path', () => ({ appDataDir: async () => '/tmp' }));
+  mock.module('@tauri-apps/api/event', () => ({ listen: async () => () => {} }));
+  mock.module('../../src/contexts/RecordingStateContext', () => ({
+    useRecordingState: () => ({ isPaused: false, isStartingRecording: false, isStopping: globalStopping }),
+  }));
+  mock.module('../../src/components/ui/tooltip', () => ({
+    Tooltip: Container, TooltipTrigger: Container, TooltipContent: Container, TooltipProvider: Container,
+  }));
+  globalWithWindow.window ??= {};
+  globalWithWindow.window.__TAURI_INTERNALS__ = { invoke };
+}
+applyTestMocks();
+beforeEach(applyTestMocks);
+afterAll(() => {
+  // Suites that rely on the absence of `window` must not see our shim.
+  if (hadWindow) globalWithWindow.window = originalWindow;
+  else Reflect.deleteProperty(globalWithWindow, 'window');
+});
 const { RecordingControls } = await import('../../src/components/RecordingControls');
 let renderer: ReactTestRenderer | undefined;
 afterEach(async () => { if (renderer) await act(async () => renderer!.unmount()); });
