@@ -111,8 +111,8 @@ type MeetingSpeaker = import('../../src/types').MeetingSpeaker;
 type ViewProps = import('../../src/components/VirtualizedTranscriptView').VirtualizedTranscriptViewProps;
 
 const speakers: MeetingSpeaker[] = [
-  { label: 'speaker_0', speaker_name: 'Alex', segment_count: 3, first_start_time: 0, top_speaker_names: [] },
-  { label: 'speaker_1', speaker_name: null, segment_count: 1, first_start_time: 12, top_speaker_names: [] },
+  { label: 'speaker_0', speaker_name: 'Alex', segment_count: 3, first_start_time: 0 },
+  { label: 'speaker_1', speaker_name: null, segment_count: 1, first_start_time: 12 },
 ];
 
 let renderer: ReactTestRenderer | undefined;
@@ -341,6 +341,106 @@ test('a failed save leaves the row unchanged and toasts an error', async () => {
   expect(nodeText(chip(view).props.children)).toContain('Speaker 1');
   expect(changed).not.toHaveBeenCalled();
   expect(errorNotify).toHaveBeenCalled();
+});
+
+// --- Dropdown order ------------------------------------------------------
+//
+// The dropdown lists the meeting's own speakers only, but in alphabetical
+// order by the label the user sees: Cyrillic before Latin, case-insensitive
+// (the shared `comparePersonNames` rule). Unnamed speakers follow, ordered by
+// their label number rather than by where the page happened to put them, and
+// No speaker stays the last item.
+
+const namedSpeakers: MeetingSpeaker[] = [
+  { label: 'speaker_0', speaker_name: 'Zoe', segment_count: 2, first_start_time: 0 },
+  { label: 'speaker_1', speaker_name: 'анна', segment_count: 2, first_start_time: 5 },
+  { label: 'speaker_2', speaker_name: 'Alex', segment_count: 2, first_start_time: 9 },
+];
+
+// First-appearance order of the loaded page: the unnamed speaker_1 was seen
+// before the unnamed speaker_2, and both before the named one.
+const pageOrderedSpeakers: MeetingSpeaker[] = [
+  { label: 'speaker_2', speaker_name: null, segment_count: 1, first_start_time: 0 },
+  { label: 'speaker_1', speaker_name: null, segment_count: 1, first_start_time: 3 },
+  { label: 'speaker_0', speaker_name: 'Alex', segment_count: 1, first_start_time: 7 },
+];
+
+test('named speakers are listed alphabetically by their visible label', async () => {
+  const view = await render(
+    [{ id: 't1', timestamp: 0, text: 'Hello', speaker: 'speaker_0', speaker_name: 'Zoe' }],
+    { meetingSpeakers: namedSpeakers, onSpeakerChange: async () => {} },
+  );
+
+  // Cyrillic first, then Latin, case-insensitively: the same rule as the
+  // Speakers panel's name list.
+  expect(menuLabels(view)).toEqual(['анна', 'Alex', 'Zoe', 'No speaker']);
+});
+
+test('unnamed speakers come after named ones, ordered by label number', async () => {
+  const view = await render(
+    [{ id: 't1', timestamp: 0, text: 'Hello', speaker: 'speaker_0', speaker_name: 'Alex' }],
+    { meetingSpeakers: pageOrderedSpeakers, onSpeakerChange: async () => {} },
+  );
+
+  // speaker_1 is "Speaker 2" and speaker_2 is "Speaker 3", whatever order the
+  // page listed them in.
+  expect(menuLabels(view)).toEqual(['Alex', 'Speaker 2', 'Speaker 3', 'No speaker']);
+});
+
+test('the dropdown order does not depend on the order of the loaded page', async () => {
+  const view = await render(
+    [{ id: 't1', timestamp: 0, text: 'Hello', speaker: 'speaker_0', speaker_name: 'Alex' }],
+    {
+      meetingSpeakers: [...pageOrderedSpeakers].reverse(),
+      onSpeakerChange: async () => {},
+    },
+  );
+
+  expect(menuLabels(view)).toEqual(['Alex', 'Speaker 2', 'Speaker 3', 'No speaker']);
+});
+
+test('No speaker stays the last item in both directions of the page order', async () => {
+  const forward = await render(
+    [{ id: 't1', timestamp: 0, text: 'One', speaker: 'speaker_0', speaker_name: 'Alex' }],
+    { meetingSpeakers: namedSpeakers, onSpeakerChange: async () => {} },
+  );
+  expect(menuLabels(forward).at(-1)).toBe('No speaker');
+
+  await act(async () => forward.unmount());
+  renderer = undefined;
+
+  const backward = await render(
+    [{ id: 't1', timestamp: 0, text: 'Two', speaker: 'speaker_0', speaker_name: 'Alex' }],
+    {
+      meetingSpeakers: [...namedSpeakers].reverse(),
+      onSpeakerChange: async () => {},
+    },
+  );
+  expect(menuLabels(backward).at(-1)).toBe('No speaker');
+});
+
+test('the dropdown still lists only this meeting\'s speakers plus No speaker', async () => {
+  const view = await render(
+    [{ id: 't1', timestamp: 0, text: 'Hello', speaker: 'speaker_0', speaker_name: 'Alex' }],
+    { meetingSpeakers: namedSpeakers, onSpeakerChange: async () => {} },
+  );
+
+  // Exactly the meeting's three speakers and the trailing "No speaker": no
+  // directory people who did not appear in this meeting.
+  expect(menuLabels(view)).toEqual(['анна', 'Alex', 'Zoe', 'No speaker']);
+  expect(menuLabels(view)).toHaveLength(namedSpeakers.length + 1);
+});
+
+test('sorting the dropdown leaves the meeting speaker order untouched', async () => {
+  const inputOrder = pageOrderedSpeakers.map(speaker => speaker.label);
+
+  await render(
+    [{ id: 't1', timestamp: 0, text: 'Hello', speaker: 'speaker_0', speaker_name: 'Alex' }],
+    { meetingSpeakers: pageOrderedSpeakers, onSpeakerChange: async () => {} },
+  );
+
+  // The panel keeps first-appearance order; the chip sorts a copy.
+  expect(pageOrderedSpeakers.map(speaker => speaker.label)).toEqual(inputOrder);
 });
 
 // --- Live panel stays non-interactive ------------------------------------

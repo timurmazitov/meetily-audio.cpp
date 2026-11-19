@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useRef, useReducer, startTransition, useEffect, useState, memo } from "react";
+import { useCallback, useRef, useReducer, startTransition, useEffect, useMemo, useState, memo } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
@@ -19,7 +19,11 @@ import {
 import { RecordingStatusBar } from "./RecordingStatusBar";
 import { motion, AnimatePresence } from "framer-motion";
 import { MeetingSpeaker, TranscriptSegmentData } from "@/types";
-import { formatSpeakerDisplayLabel, isDiarizationSpeakerLabel } from "@/lib/transcript-format";
+import {
+    formatSpeakerDisplayLabel,
+    isDiarizationSpeakerLabel,
+    orderMeetingSpeakersForChip,
+} from "@/lib/transcript-format";
 
 export interface VirtualizedTranscriptViewProps {
     /** Transcript segments to display */
@@ -266,6 +270,13 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
     // Force re-render without flushSync (avoids React warning)
     const [, rerender] = useReducer((x: number) => x + 1, 0);
 
+    // One dropdown order for every row; the panel's own speaker order (first
+    // appearance) is untouched because the sort works on a copy.
+    const dropdownSpeakers = useMemo(
+        () => (meetingSpeakers ? orderMeetingSpeakersForChip(meetingSpeakers) : undefined),
+        [meetingSpeakers],
+    );
+
     // Setup virtualizer for efficient rendering of large lists
     const virtualizer = useVirtualizer({
         count: segments.length,
@@ -431,7 +442,7 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                                         speakerName={segment.speaker_name}
                                         isStreaming={isStreaming}
                                         showConfidence={showConfidence}
-                                        meetingSpeakers={meetingSpeakers}
+                                        meetingSpeakers={dropdownSpeakers}
                                         onSpeakerChange={onSpeakerChange}
                                         allowSpeakerEdit={!isRecording}
                                     />
@@ -492,7 +503,7 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                                         speakerName={segment.speaker_name}
                                         isStreaming={isStreaming}
                                         showConfidence={showConfidence}
-                                        meetingSpeakers={meetingSpeakers}
+                                        meetingSpeakers={dropdownSpeakers}
                                         onSpeakerChange={onSpeakerChange}
                                         allowSpeakerEdit={!isRecording}
                                     />

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { Check, ChevronsUpDown, Loader2, Sparkles, Users } from 'lucide-react';
 import { toast } from 'sonner';
@@ -31,23 +31,13 @@ import {
 import type { AudioCppModelClient } from '@/lib/audiocpp';
 import { audioCppClient } from '@/lib/audiocppClient';
 import { diarizationClient as defaultDiarizationClient } from '@/lib/diarizationClient';
+import { comparePersonNames, foldPersonName, personNameKey } from '@/lib/person-sort';
 import { formatSpeakerDisplayLabel } from '@/lib/transcript-format';
-import type { MeetingSpeaker, SpeakerAssignment, SpeakerNameEntry } from '@/types';
-
-/** How long the name picker waits for more typing before searching. */
-const DIRECTORY_DEBOUNCE_MS = 200;
-/** Page size requested from the name directory. */
-const DIRECTORY_LIMIT = 20;
+import type { MeetingSpeaker, SpeakerAssignment } from '@/types';
 
 /** `speaker_0` → `Speaker 1`; anything else is shown as-is. */
 function displayLabel(label: string): string {
   return formatSpeakerDisplayLabel(label, undefined) ?? label;
-}
-
-/** Names are compared the way the backend compares them: trimmed, case-folded. */
-function foldName(name: string | null | undefined): string | null {
-  const folded = name?.trim().toLowerCase();
-  return folded ? folded : null;
 }
 
 function segmentCountLabel(count: number): string {
@@ -57,66 +47,66 @@ function segmentCountLabel(count: number): string {
 interface SpeakerNamePickerProps {
   label: string;
   value: string | null;
-  suggestions: string[];
+  /** The whole people directory, already in the shared alphabetical order. */
+  names: string[];
+  /** Why the directory could not be read, shown inside the open list. */
+  directoryError?: string | null;
+  /**
+   * Folded names already claimed by a row of this panel's draft, mapped to the
+   * row labels that claim them. A name is unavailable only when every claimant
+   * is another row: the row that holds it in the draft keeps it selectable, so
+   * a name can be handed over between rows.
+   */
+  nameOwners?: ReadonlyMap<string, readonly string[]>;
   disabled?: boolean;
   onValueChange: (name: string | null) => void;
 }
 
 /**
  * Popover + Command combobox for one speaker row: "No name", the (optional)
- * create row and the matching directory entries, in that order.
+ * create row and the directory names, in that order.
+ *
+ * The whole directory is handed in once by the panel, already sorted. Typing
+ * only filters that list in place — no request, no debounce — so a subset
+ * always keeps the alphabetical order of the full list.
+ *
+ * A person this meeting already gave to another speaker stays in the list but
+ * is genuinely unavailable — disabled in cmdk, so it is skipped by the keyboard
+ * and fires no selection — and says which speaker holds it. The rule is checked
+ * before Done, not left to the backend's error message.
  */
 function SpeakerNamePicker({
   label,
   value,
-  suggestions,
+  names,
+  directoryError,
+  nameOwners,
   disabled,
   onValueChange,
 }: SpeakerNamePickerProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<string[]>(suggestions);
 
   // Drop a previous search when the picker closes, so reopening starts fresh.
   useEffect(() => {
     if (!open) setQuery('');
   }, [open]);
 
-  // The backend already ships a handful of most-used names per row, so an empty
-  // query is served locally (opening a picker must not fire a request). Typing
-  // searches the global directory, debounced.
-  useEffect(() => {
-    const trimmed = query.trim();
-    if (!trimmed) {
-      setResults(suggestions);
-      return;
-    }
-
-    let cancelled = false;
-    const timer = setTimeout(async () => {
-      try {
-        const entries = await invoke<SpeakerNameEntry[]>('api_get_speaker_names', {
-          query: trimmed,
-          limit: DIRECTORY_LIMIT,
-        });
-        if (!cancelled) setResults(entries.map((entry) => entry.name));
-      } catch {
-        // Keep the previous list; an autocomplete hiccup must not break the panel.
-      }
-    }, DIRECTORY_DEBOUNCE_MS);
-
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [query, suggestions]);
+  /** The other speaker holding this name in the draft, if any. */
+  const ownerOf = (name: string): string | null => {
+    const folded = personNameKey(name);
+    if (!folded) return null;
+    const owners = nameOwners?.get(folded);
+    if (!owners || owners.length === 0 || owners.includes(label)) return null;
+    return displayLabel(owners[0]);
+  };
 
   const trimmed = query.trim();
-  const lowered = trimmed.toLowerCase();
-  const exactMatch = results.some((name) => name.toLowerCase() === lowered);
-  const matches = lowered
-    ? results.filter((name) => name.toLowerCase().includes(lowered))
-    : results;
+  const needle = foldPersonName(trimmed);
+  const matches = needle
+    ? names.filter((name) => foldPersonName(name).includes(needle))
+    : names;
+  const exactMatch = names.some((name) => personNameKey(name) === needle);
   const canCreate = trimmed.length > 0 && !exactMatch;
 
   const choose = (name: string | null) => {
@@ -161,17 +151,37 @@ function SpeakerNamePicker({
                   <span className="truncate">Create „{trimmed}“</span>
                 </CommandItem>
               )}
-              {matches.map((name) => (
-                <CommandItem key={name} value={name} onSelect={() => choose(name)}>
-                  <Check
-                    className={`mr-2 h-4 w-4 ${
-                      value?.toLowerCase() === name.toLowerCase() ? 'opacity-100' : 'opacity-0'
-                    }`}
-                  />
-                  <span className="truncate">{name}</span>
-                </CommandItem>
-              ))}
-              {matches.length === 0 && !canCreate && (
+              {matches.map((name) => {
+                const owner = ownerOf(name);
+                const isCurrent = personNameKey(value) === personNameKey(name);
+                return (
+                  <CommandItem
+                    key={name}
+                    value={name}
+                    disabled={owner !== null}
+                    className={owner ? 'opacity-50' : undefined}
+                    onSelect={() => choose(name)}
+                  >
+                    <Check
+                      className={`mr-2 h-4 w-4 ${isCurrent ? 'opacity-100' : 'opacity-0'}`}
+                    />
+                    <span className="truncate">{name}</span>
+                    {owner && (
+                      <span
+                        data-testid="name-owner"
+                        className="ml-auto shrink-0 text-xs text-muted-foreground"
+                        title={`Already assigned to ${owner}`}
+                      >
+                        {owner}
+                      </span>
+                    )}
+                  </CommandItem>
+                );
+              })}
+              {directoryError && (
+                <div className="px-2 py-2 text-xs text-red-600">{directoryError}</div>
+              )}
+              {matches.length === 0 && !canCreate && !directoryError && (
                 <div className="py-4 text-center text-sm text-muted-foreground">
                   No people found.
                 </div>
@@ -219,6 +229,10 @@ export function SpeakersPanel({
   const [isSaving, setIsSaving] = useState(false);
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
   const [panelError, setPanelError] = useState<string | null>(null);
+  // The whole people directory, read once per panel open and handed to every
+  // row. A failed read is reported inside each picker and blocks nothing else.
+  const [directoryNames, setDirectoryNames] = useState<string[]>([]);
+  const [directoryError, setDirectoryError] = useState<string | null>(null);
   // Whether a manual run can start: `true` for an installed model, `false`
   // for a catalog that answered without one, and `null` when the catalog could
   // not be read. `null` is deliberately not `false`: an unreadable list is not
@@ -248,17 +262,40 @@ export function SpeakersPanel({
     }
   }, [meetingId]);
 
+  /**
+   * Reads the whole people directory. Called once per panel open and again
+   * after a successful Done, because saving may have created a person.
+   *
+   * A failed read is not fatal: the names list stays empty, `No name` and
+   * "create from what was typed" keep working, and the error is shown inside
+   * the open picker. The user sees a plain sentence; the backend detail stays
+   * in the diagnostic log.
+   */
+  const loadDirectory = useCallback(async () => {
+    try {
+      const names = await invoke<string[]>('api_get_speaker_names');
+      // One sort for the whole panel: every row filters the same ordered list.
+      setDirectoryNames([...names].sort(comparePersonNames));
+      setDirectoryError(null);
+    } catch (error) {
+      console.warn('Failed to read the speaker directory:', error);
+      setDirectoryNames([]);
+      setDirectoryError('Could not read the people directory.');
+    }
+  }, []);
+
   // Load on open only (and drop the draft when the sheet closes).
   useEffect(() => {
     if (open) {
       void loadSpeakers();
+      void loadDirectory();
     } else {
       setDraft({});
       setRowErrors({});
       setPanelError(null);
       setDiarizationReason(null);
     }
-  }, [open, loadSpeakers]);
+  }, [open, loadSpeakers, loadDirectory]);
 
   // Whether a manual run can work at all: an installed diarization model. The
   // catalog is the same one the settings section lists, so a downloaded model is
@@ -368,6 +405,27 @@ export function SpeakersPanel({
   };
 
   /**
+   * Who holds each folded name in the current draft, per row label.
+   *
+   * Ownership is read from the draft rather than the saved rows so that a name
+   * can be handed over: clearing one row frees the name immediately, and a row
+   * that already owns a name keeps it selectable. A name with more than one
+   * claimant (only reachable by typing it twice) stays blocked for a row that
+   * is not among the claimants.
+   */
+  const nameOwners = useMemo(() => {
+    const owners = new Map<string, string[]>();
+    for (const row of speakers) {
+      const folded = personNameKey(draft[row.label] ?? null);
+      if (!folded) continue;
+      const claimants = owners.get(folded);
+      if (claimants) claimants.push(row.label);
+      else owners.set(folded, [row.label]);
+    }
+    return owners;
+  }, [speakers, draft]);
+
+  /**
    * Finds the rows a "this person is already assigned to…" error is about.
    *
    * Within one meeting a person holds only one label, so the conflict is a pair
@@ -380,7 +438,7 @@ export function SpeakersPanel({
   const conflictLabels = (): string[] => {
     const names = speakers.map((row) => ({
       label: row.label,
-      name: foldName(draft[row.label] ?? null),
+      name: personNameKey(draft[row.label] ?? null),
       changed: (draft[row.label] ?? null) !== (row.speaker_name ?? null),
     }));
     return names
@@ -417,6 +475,9 @@ export function SpeakersPanel({
       // Close directly: `handleOpenChange` blocks while a save is in flight.
       resetDraft();
       onOpenChange(false);
+      // Saving may have created a person, so the next open reads the directory
+      // again (and in the meantime the fresh copy is already loaded).
+      void loadDirectory();
       // Re-read the paginated transcripts so speaker chips show the new names
       // without a page reload.
       await onRefetchTranscripts?.();
@@ -526,7 +587,9 @@ export function SpeakersPanel({
                   <SpeakerNamePicker
                     label={row.label}
                     value={draft[row.label] ?? null}
-                    suggestions={row.top_speaker_names}
+                    names={directoryNames}
+                    directoryError={directoryError}
+                    nameOwners={nameOwners}
                     disabled={isSaving}
                     onValueChange={(name) => setRowValue(row.label, name)}
                   />

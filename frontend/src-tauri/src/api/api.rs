@@ -199,8 +199,9 @@ pub struct SaveMeetingTitleRequest {
     pub recorded_at: Option<String>,
 }
 
-/// One row of the meeting's speaker panel: a diarization label, its assigned
-/// person (if any) and the directory names suggested while typing.
+/// One row of the meeting's speaker panel: a diarization label and its
+/// assigned person (if any). The people directory is a separate command, so a
+/// row carries no name suggestions.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MeetingSpeaker {
     pub label: String,
@@ -209,17 +210,6 @@ pub struct MeetingSpeaker {
     pub segment_count: i64,
     /// `null` when every segment of the label lacks a start time.
     pub first_start_time: Option<f64>,
-    /// Bounded list of existing directory names, most-used first.
-    pub top_speaker_names: Vec<String>,
-}
-
-/// One directory row for the name suggestions of the speaker panel.
-#[derive(Debug, Serialize, Deserialize)]
-pub struct SpeakerNameEntry {
-    pub id: String,
-    pub name: String,
-    /// Number of distinct meetings currently referencing this person.
-    pub meeting_count: i64,
 }
 
 /// One item of the batch assignment sent by the panel's Done button.
@@ -1120,29 +1110,23 @@ pub async fn api_set_transcript_speaker<R: Runtime>(
     }
 }
 
-/// Search the global speaker directory for the panel's name suggestions.
-/// `query` is a case-insensitive substring; an empty query lists the directory.
+/// Every name of the global people directory: no query, no limit, and no
+/// guarantee of order (sorting lives in one place, on the frontend).
 #[tauri::command]
 pub async fn api_get_speaker_names<R: Runtime>(
     _app: AppHandle<R>,
     state: tauri::State<'_, AppState>,
-    query: String,
-    limit: i64,
-) -> Result<Vec<SpeakerNameEntry>, String> {
-    log_info!(
-        "api_get_speaker_names called with query: {:?}, limit: {}",
-        query,
-        limit
-    );
+) -> Result<Vec<String>, String> {
+    log_info!("api_get_speaker_names called");
     let pool = state.db_manager.pool();
-    match SpeakersRepository::search_names(pool, &query, limit).await {
+    match SpeakersRepository::directory_names(pool).await {
         Ok(names) => {
             log_info!("Successfully retrieved {} speaker names", names.len());
             Ok(names)
         }
         Err(e) => {
-            log_error!("Failed to search speaker names: {}", e);
-            Err(format!("Failed to search speaker names: {}", e))
+            log_error!("Failed to read speaker names: {}", e);
+            Err(format!("Failed to read speaker names: {}", e))
         }
     }
 }
@@ -1759,16 +1743,15 @@ mod meeting_metadata_contract_tests {
 
 #[cfg(test)]
 mod speaker_panel_contract_tests {
-    use super::{MeetingSpeaker, SpeakerAssignment, SpeakerNameEntry};
+    use super::{MeetingSpeaker, SpeakerAssignment};
 
     #[test]
-    fn a_panel_row_carries_a_null_name_and_its_suggestions() {
+    fn a_panel_row_carries_a_null_name_and_no_suggestions() {
         let row = MeetingSpeaker {
             label: "speaker_0".into(),
             speaker_name: None,
             segment_count: 3,
             first_start_time: Some(12.5),
-            top_speaker_names: vec!["Alex".into(), "Zoe".into()],
         };
 
         let json = serde_json::to_value(row).unwrap();
@@ -1776,9 +1759,9 @@ mod speaker_panel_contract_tests {
         assert_eq!(json["label"], "speaker_0");
         assert_eq!(json["segment_count"], 3);
         assert_eq!(json["first_start_time"], 12.5);
-        assert_eq!(
-            json["top_speaker_names"],
-            serde_json::json!(["Alex", "Zoe"])
+        assert!(
+            json.get("top_speaker_names").is_none(),
+            "the bounded suggestion list is gone from the panel contract"
         );
         assert!(
             json["speaker_name"].is_null(),
@@ -1793,29 +1776,12 @@ mod speaker_panel_contract_tests {
             speaker_name: Some("Alex".into()),
             segment_count: 1,
             first_start_time: None,
-            top_speaker_names: Vec::new(),
         };
 
         let json = serde_json::to_value(row).unwrap();
 
         assert_eq!(json["speaker_name"], "Alex");
         assert!(json["first_start_time"].is_null());
-        assert_eq!(json["top_speaker_names"], serde_json::json!([]));
-    }
-
-    #[test]
-    fn a_directory_row_reports_its_meeting_count() {
-        let json = serde_json::to_value(SpeakerNameEntry {
-            id: "person-1".into(),
-            name: "Alex".into(),
-            meeting_count: 4,
-        })
-        .unwrap();
-
-        assert_eq!(
-            json,
-            serde_json::json!({"id": "person-1", "name": "Alex", "meeting_count": 4})
-        );
     }
 
     #[test]

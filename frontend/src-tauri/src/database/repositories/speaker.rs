@@ -10,7 +10,7 @@ use sqlx::{
 use std::collections::{BTreeMap, HashMap, HashSet};
 use uuid::Uuid;
 
-use crate::api::{MeetingSpeaker, SpeakerAssignment, SpeakerNameEntry};
+use crate::api::{MeetingSpeaker, SpeakerAssignment};
 
 /// Maximum number of characters allowed in a person's name, after trimming.
 const MAX_NAME_CHARS: usize = 100;
@@ -79,13 +79,6 @@ fn is_speaker_label(label: &str) -> bool {
         None => false,
     }
 }
-
-/// How many directory names the speaker panel offers as suggestions.
-const TOP_SPEAKER_NAMES_LIMIT: i64 = 8;
-/// Page size of the name directory when the caller does not ask for one.
-const DEFAULT_DIRECTORY_LIMIT: i64 = 20;
-/// Hard cap for the name directory page size.
-const MAX_DIRECTORY_LIMIT: i64 = 50;
 
 /// Renders a label as the user sees it: `speaker_0` → `Speaker 1`.
 fn display_label(label: &str) -> String {
@@ -266,15 +259,14 @@ impl SpeakersRepository {
         Ok(rows.into_iter().collect())
     }
 
-    /// The whole speaker panel of one meeting: one row per label plus the
-    /// directory names offered as suggestions. Suggestions are global (not
-    /// limited to this meeting) and most-used first.
+    /// The whole speaker panel of one meeting: one row per label. The name
+    /// directory is a separate command, so the panel never guesses which names
+    /// matter.
     pub async fn meeting_speakers(
         pool: &SqlitePool,
         meeting_id: &str,
     ) -> Result<Vec<MeetingSpeaker>, SpeakerError> {
         let rows = Self::list_meeting_speakers(pool, meeting_id).await?;
-        let top_names = Self::top_speaker_names(pool).await?;
 
         Ok(rows
             .into_iter()
@@ -283,83 +275,20 @@ impl SpeakersRepository {
                 speaker_name: row.speaker_name,
                 segment_count: row.segment_count,
                 first_start_time: row.first_start_time,
-                top_speaker_names: top_names.clone(),
             })
             .collect())
     }
 
-    /// Directory names for the panel's autocomplete, most-used first.
-    async fn top_speaker_names(pool: &SqlitePool) -> Result<Vec<String>, SpeakerError> {
-        let rows: Vec<(String,)> = sqlx::query_as(
-            "SELECT s.name
-             FROM speakers s
-             LEFT JOIN meeting_speakers ms ON ms.speaker_id = s.id
-             GROUP BY s.id, s.name
-             ORDER BY COUNT(DISTINCT ms.meeting_id) DESC,
-                      s.name COLLATE NOCASE ASC
-             LIMIT ?",
-        )
-        .bind(TOP_SPEAKER_NAMES_LIMIT)
-        .fetch_all(pool)
-        .await?;
+    /// Every name of the global people directory, with no search substring and
+    /// no limit. The order is deliberately unspecified: sorting has exactly one
+    /// implementation, on the frontend, so the panel and the transcript chip
+    /// cannot drift apart.
+    pub async fn directory_names(pool: &SqlitePool) -> Result<Vec<String>, SpeakerError> {
+        let rows: Vec<(String,)> = sqlx::query_as("SELECT name FROM speakers")
+            .fetch_all(pool)
+            .await?;
 
         Ok(rows.into_iter().map(|(name,)| name).collect())
-    }
-
-    /// Searches the global directory for the panel's autocomplete. The query
-    /// is a case-insensitive substring match after trimming (an empty query
-    /// lists everything).
-    ///
-    /// An exact (trimmed, case-insensitive) match is always listed first, even
-    /// when other names contain the query and are used more often: the panel
-    /// decides "this person already exists" from the first page, so the exact
-    /// hit must not fall outside it. Everything else keeps the documented
-    /// usage-then-name order.
-    ///
-    /// Filtering happens in Rust so that non-ASCII names (Cyrillic, accented
-    /// letters) match case-insensitively, which SQLite's ASCII-only `LIKE`
-    /// and `NOCASE` cannot do.
-    pub async fn search_names(
-        pool: &SqlitePool,
-        query: &str,
-        limit: i64,
-    ) -> Result<Vec<SpeakerNameEntry>, SpeakerError> {
-        let limit = if limit <= 0 {
-            DEFAULT_DIRECTORY_LIMIT
-        } else {
-            limit.min(MAX_DIRECTORY_LIMIT)
-        };
-        let needle = query.trim().to_lowercase();
-
-        let rows: Vec<(String, String, i64)> = sqlx::query_as(
-            "SELECT s.id, s.name, COUNT(DISTINCT ms.meeting_id) AS meeting_count
-             FROM speakers s
-             LEFT JOIN meeting_speakers ms ON ms.speaker_id = s.id
-             GROUP BY s.id, s.name
-             ORDER BY meeting_count DESC, s.name COLLATE NOCASE ASC",
-        )
-        .fetch_all(pool)
-        .await?;
-
-        let mut entries: Vec<SpeakerNameEntry> = rows
-            .into_iter()
-            .map(|(id, name, meeting_count)| SpeakerNameEntry {
-                id,
-                name,
-                meeting_count,
-            })
-            .filter(|row| needle.is_empty() || row.name.to_lowercase().contains(&needle))
-            .collect();
-
-        // The SQL order above already is usage-then-name; a stable sort on the
-        // exact-hit flag only lifts the exact match (case folded in Rust, like
-        // the filter) to the front.
-        entries.sort_by_key(|entry| {
-            !(!needle.is_empty() && entry.name.trim().to_lowercase() == needle)
-        });
-
-        entries.truncate(limit as usize);
-        Ok(entries)
     }
 
     /// Applies a batch of panel assignments atomically: either every assignment
@@ -695,16 +624,22 @@ mod tests {
         .unwrap();
     }
 
-    async fn assign_name(pool: &SqlitePool, meeting_id: &str, label: &str, name: &str) {
-        let person_id = format!("person-{}", name.to_lowercase());
+    /// Inserts one row of the people directory. Its only job is to be a name
+    /// `directory_names` returns; no meeting binds it.
+    async fn insert_person(pool: &SqlitePool, id: &str, name: &str) {
         sqlx::query("INSERT INTO speakers (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)")
-            .bind(&person_id)
+            .bind(id)
             .bind(name)
             .bind("2024-01-01T00:00:00Z")
             .bind("2024-01-01T00:00:00Z")
             .execute(pool)
             .await
             .unwrap();
+    }
+
+    async fn assign_name(pool: &SqlitePool, meeting_id: &str, label: &str, name: &str) {
+        let person_id = format!("person-{}", name.to_lowercase());
+        insert_person(pool, &person_id, name).await;
         sqlx::query(
             "INSERT INTO meeting_speakers (id, meeting_id, label, speaker_id, created_at, updated_at)
              VALUES (?, ?, ?, ?, ?, ?)",
@@ -1445,7 +1380,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_directory_matches_substrings_case_insensitively() {
+    async fn the_directory_lists_every_name_without_a_query_or_a_limit() {
         let pool = migrated_pool().await;
         insert_meeting(&pool, "meeting-1").await;
         insert_transcript(&pool, "t-0", "meeting-1", Some("speaker_0"), Some(0.0)).await;
@@ -1460,240 +1395,34 @@ mod tests {
         )
         .await
         .unwrap();
+        // The directory outgrows the old eight-name suggestion list, so a
+        // truncated answer would be visible here.
+        for index in 0..40 {
+            insert_person(
+                &pool,
+                &format!("person-extra-{index}"),
+                &format!("Extra {index:02}"),
+            )
+            .await;
+        }
 
-        let names = |rows: Vec<crate::api::SpeakerNameEntry>| -> Vec<String> {
-            rows.into_iter().map(|row| row.name).collect()
-        };
+        let mut names = SpeakersRepository::directory_names(&pool).await.unwrap();
 
-        assert_eq!(
-            names(
-                SpeakersRepository::search_names(&pool, "lex", 20)
-                    .await
-                    .unwrap()
-            ),
-            ["Alex"],
-            "substring in any case"
-        );
-        assert_eq!(
-            names(
-                SpeakersRepository::search_names(&pool, "  AL  ", 20)
-                    .await
-                    .unwrap()
-            ),
-            ["Alex"],
-            "the query is trimmed and matched case-insensitively"
-        );
-        assert_eq!(
-            names(
-                SpeakersRepository::search_names(&pool, "мария", 20)
-                    .await
-                    .unwrap()
-            ),
-            ["Мария"],
-            "non-ASCII names match too"
-        );
-        assert!(SpeakersRepository::search_names(&pool, "bob", 20)
+        names.sort();
+        let mut expected: Vec<String> = vec!["Alex".to_string(), "Мария".to_string()];
+        expected.extend((0..40).map(|index| format!("Extra {index:02}")));
+        expected.sort();
+        assert_eq!(names, expected, "every directory name, nothing truncated");
+    }
+
+    #[tokio::test]
+    async fn an_empty_directory_is_an_empty_answer() {
+        let pool = migrated_pool().await;
+
+        assert!(SpeakersRepository::directory_names(&pool)
             .await
             .unwrap()
             .is_empty());
-        assert_eq!(
-            names(
-                SpeakersRepository::search_names(&pool, "  ", 20)
-                    .await
-                    .unwrap()
-            )
-            .len(),
-            2,
-            "an empty query lists the whole directory"
-        );
-    }
-
-    #[tokio::test]
-    async fn the_directory_counts_meetings_and_orders_by_usage_then_name() {
-        let pool = migrated_pool().await;
-        insert_meeting(&pool, "meeting-1").await;
-        insert_meeting(&pool, "meeting-2").await;
-        insert_transcript(&pool, "t-0", "meeting-1", Some("speaker_0"), Some(0.0)).await;
-        insert_transcript(&pool, "t-1", "meeting-1", Some("speaker_1"), Some(1.0)).await;
-        insert_transcript(&pool, "t-2", "meeting-2", Some("speaker_0"), Some(0.0)).await;
-        insert_transcript(&pool, "t-3", "meeting-2", Some("speaker_1"), Some(1.0)).await;
-        SpeakersRepository::assign(
-            &pool,
-            "meeting-1",
-            &[
-                assignment("speaker_0", Some("Alex")),
-                assignment("speaker_1", Some("Zoe")),
-            ],
-        )
-        .await
-        .unwrap();
-        SpeakersRepository::assign(&pool, "meeting-2", &[assignment("speaker_0", Some("Alex"))])
-            .await
-            .unwrap();
-
-        let rows = SpeakersRepository::search_names(&pool, "", 20)
-            .await
-            .unwrap();
-
-        let summary: Vec<(&str, i64)> = rows
-            .iter()
-            .map(|row| (row.name.as_str(), row.meeting_count))
-            .collect();
-        assert_eq!(
-            summary,
-            [("Alex", 2), ("Zoe", 1)],
-            "most used first, then by name"
-        );
-        let directory = speaker_rows(&pool).await;
-        let alex_id = directory
-            .iter()
-            .find(|(_, name)| name == "Alex")
-            .map(|(id, _)| id.clone())
-            .expect("Alex is in the directory");
-        assert_eq!(rows[0].id, alex_id, "the row carries the directory id");
-    }
-
-    #[tokio::test]
-    async fn an_exact_match_is_listed_first_even_with_no_meetings() {
-        let pool = migrated_pool().await;
-        insert_meeting(&pool, "meeting-1").await;
-        insert_transcript(&pool, "t-0", "meeting-1", Some("speaker_0"), Some(0.0)).await;
-        insert_transcript(&pool, "t-1", "meeting-1", Some("speaker_1"), Some(1.0)).await;
-        SpeakersRepository::assign(
-            &pool,
-            "meeting-1",
-            &[
-                assignment("speaker_0", Some("Alexandra")),
-                assignment("speaker_1", Some("Alexander")),
-            ],
-        )
-        .await
-        .unwrap();
-        // A directory row nobody uses yet, e.g. created by a discarded panel draft.
-        sqlx::query("INSERT INTO speakers (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)")
-            .bind("person-unused")
-            .bind("Alex")
-            .bind("2024-01-01T00:00:00Z")
-            .bind("2024-01-01T00:00:00Z")
-            .execute(&pool)
-            .await
-            .unwrap();
-
-        let rows = SpeakersRepository::search_names(&pool, "alex", 20)
-            .await
-            .unwrap();
-
-        let summary: Vec<(&str, i64)> = rows
-            .iter()
-            .map(|row| (row.name.as_str(), row.meeting_count))
-            .collect();
-        assert_eq!(
-            summary,
-            [("Alex", 0), ("Alexander", 1), ("Alexandra", 1)],
-            "the exact match comes first even though it is unused; \
-             the rest keep usage-then-name order"
-        );
-
-        let rows = SpeakersRepository::search_names(&pool, "  ALEX ", 20)
-            .await
-            .unwrap();
-        assert_eq!(rows[0].name, "Alex", "trimmed, case-insensitive exact match");
-    }
-
-    #[tokio::test]
-    async fn the_directory_limit_is_clamped_and_defaults() {
-        let pool = migrated_pool().await;
-        insert_meeting(&pool, "meeting-1").await;
-        let names: Vec<String> = (0..60).map(|n| format!("Person {n:02}")).collect();
-        for (index, name) in names.iter().enumerate() {
-            sqlx::query(
-                "INSERT INTO speakers (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)",
-            )
-            .bind(format!("person-{index}"))
-            .bind(name)
-            .bind("2024-01-01T00:00:00Z")
-            .bind("2024-01-01T00:00:00Z")
-            .execute(&pool)
-            .await
-            .unwrap();
-        }
-
-        assert_eq!(
-            SpeakersRepository::search_names(&pool, "", 5)
-                .await
-                .unwrap()
-                .len(),
-            5
-        );
-        assert_eq!(
-            SpeakersRepository::search_names(&pool, "", 500)
-                .await
-                .unwrap()
-                .len(),
-            50,
-            "the page size is capped"
-        );
-        assert_eq!(
-            SpeakersRepository::search_names(&pool, "", 0)
-                .await
-                .unwrap()
-                .len(),
-            20,
-            "a non-positive limit falls back to the default"
-        );
-    }
-
-    #[tokio::test]
-    async fn the_panel_offers_bounded_most_used_names_regardless_of_the_meeting() {
-        let pool = migrated_pool().await;
-        insert_meeting(&pool, "meeting-1").await;
-        insert_meeting(&pool, "meeting-2").await;
-        insert_meeting(&pool, "meeting-3").await;
-        insert_transcript(&pool, "t-0", "meeting-1", Some("speaker_0"), Some(0.0)).await;
-        insert_transcript(&pool, "t-1", "meeting-2", Some("speaker_0"), Some(0.0)).await;
-        insert_transcript(&pool, "t-2", "meeting-3", Some("speaker_0"), Some(0.0)).await;
-        SpeakersRepository::assign(&pool, "meeting-1", &[assignment("speaker_0", Some("Alex"))])
-            .await
-            .unwrap();
-        SpeakersRepository::assign(&pool, "meeting-2", &[assignment("speaker_0", Some("Alex"))])
-            .await
-            .unwrap();
-        SpeakersRepository::assign(&pool, "meeting-3", &[assignment("speaker_0", Some("Zoe"))])
-            .await
-            .unwrap();
-        for index in 0..12 {
-            sqlx::query(
-                "INSERT INTO speakers (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)",
-            )
-            .bind(format!("person-extra-{index}"))
-            .bind(format!("Extra {index:02}"))
-            .bind("2024-01-01T00:00:00Z")
-            .bind("2024-01-01T00:00:00Z")
-            .execute(&pool)
-            .await
-            .unwrap();
-        }
-
-        let panel = SpeakersRepository::meeting_speakers(&pool, "meeting-1")
-            .await
-            .unwrap();
-
-        assert_eq!(panel.len(), 1);
-        let suggestions = &panel[0].top_speaker_names;
-        assert_eq!(
-            suggestions,
-            &[
-                "Alex".to_string(),
-                "Zoe".to_string(),
-                "Extra 00".to_string(),
-                "Extra 01".to_string(),
-                "Extra 02".to_string(),
-                "Extra 03".to_string(),
-                "Extra 04".to_string(),
-                "Extra 05".to_string(),
-            ],
-            "used names first, then the alphabet, capped at 8"
-        );
     }
 
     /// Runs the reconcile inside a transaction owned by the caller, the way the
