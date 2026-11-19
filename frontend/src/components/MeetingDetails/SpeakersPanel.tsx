@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { Check, ChevronsUpDown, Loader2, Sparkles, Users } from 'lucide-react';
 import { toast } from 'sonner';
@@ -57,6 +57,13 @@ interface SpeakerNamePickerProps {
   names: string[];
   /** Why the directory could not be read, shown inside the open list. */
   directoryError?: string | null;
+  /**
+   * Folded names already claimed by a row of this panel's draft, mapped to the
+   * row labels that claim them. A name is unavailable only when every claimant
+   * is another row: the row that holds it in the draft keeps it selectable, so
+   * a name can be handed over between rows.
+   */
+  nameOwners?: ReadonlyMap<string, readonly string[]>;
   disabled?: boolean;
   onValueChange: (name: string | null) => void;
 }
@@ -68,12 +75,18 @@ interface SpeakerNamePickerProps {
  * The whole directory is handed in once by the panel, already sorted. Typing
  * only filters that list in place — no request, no debounce — so a subset
  * always keeps the alphabetical order of the full list.
+ *
+ * A person this meeting already gave to another speaker stays in the list but
+ * is genuinely unavailable — disabled in cmdk, so it is skipped by the keyboard
+ * and fires no selection — and says which speaker holds it. The rule is checked
+ * before Done, not left to the backend's error message.
  */
 function SpeakerNamePicker({
   label,
   value,
   names,
   directoryError,
+  nameOwners,
   disabled,
   onValueChange,
 }: SpeakerNamePickerProps) {
@@ -84,6 +97,15 @@ function SpeakerNamePicker({
   useEffect(() => {
     if (!open) setQuery('');
   }, [open]);
+
+  /** The other speaker holding this name in the draft, if any. */
+  const ownerOf = (name: string): string | null => {
+    const folded = foldName(name);
+    if (!folded) return null;
+    const owners = nameOwners?.get(folded);
+    if (!owners || owners.length === 0 || owners.includes(label)) return null;
+    return displayLabel(owners[0]);
+  };
 
   const trimmed = query.trim();
   const needle = trimmed.toLowerCase();
@@ -135,16 +157,33 @@ function SpeakerNamePicker({
                   <span className="truncate">Create „{trimmed}“</span>
                 </CommandItem>
               )}
-              {matches.map((name) => (
-                <CommandItem key={name} value={name} onSelect={() => choose(name)}>
-                  <Check
-                    className={`mr-2 h-4 w-4 ${
-                      value?.toLowerCase() === name.toLowerCase() ? 'opacity-100' : 'opacity-0'
-                    }`}
-                  />
-                  <span className="truncate">{name}</span>
-                </CommandItem>
-              ))}
+              {matches.map((name) => {
+                const owner = ownerOf(name);
+                const isCurrent = foldName(value) === foldName(name);
+                return (
+                  <CommandItem
+                    key={name}
+                    value={name}
+                    disabled={owner !== null}
+                    className={owner ? 'opacity-50' : undefined}
+                    onSelect={() => choose(name)}
+                  >
+                    <Check
+                      className={`mr-2 h-4 w-4 ${isCurrent ? 'opacity-100' : 'opacity-0'}`}
+                    />
+                    <span className="truncate">{name}</span>
+                    {owner && (
+                      <span
+                        data-testid="name-owner"
+                        className="ml-auto shrink-0 text-xs text-muted-foreground"
+                        title={`Already assigned to ${owner}`}
+                      >
+                        {owner}
+                      </span>
+                    )}
+                  </CommandItem>
+                );
+              })}
               {directoryError && (
                 <div className="px-2 py-2 text-xs text-red-600">{directoryError}</div>
               )}
@@ -370,6 +409,27 @@ export function SpeakersPanel({
   };
 
   /**
+   * Who holds each folded name in the current draft, per row label.
+   *
+   * Ownership is read from the draft rather than the saved rows so that a name
+   * can be handed over: clearing one row frees the name immediately, and a row
+   * that already owns a name keeps it selectable. A name with more than one
+   * claimant (only reachable by typing it twice) stays blocked for a row that
+   * is not among the claimants.
+   */
+  const nameOwners = useMemo(() => {
+    const owners = new Map<string, string[]>();
+    for (const row of speakers) {
+      const folded = foldName(draft[row.label] ?? null);
+      if (!folded) continue;
+      const claimants = owners.get(folded);
+      if (claimants) claimants.push(row.label);
+      else owners.set(folded, [row.label]);
+    }
+    return owners;
+  }, [speakers, draft]);
+
+  /**
    * Finds the rows a "this person is already assigned to…" error is about.
    *
    * Within one meeting a person holds only one label, so the conflict is a pair
@@ -533,6 +593,7 @@ export function SpeakersPanel({
                     value={draft[row.label] ?? null}
                     names={directoryNames}
                     directoryError={directoryError}
+                    nameOwners={nameOwners}
                     disabled={isSaving}
                     onValueChange={(name) => setRowValue(row.label, name)}
                   />
