@@ -10,6 +10,8 @@ import { usePermissionCheck } from '@/hooks/usePermissionCheck';
 import { ModalType } from '@/hooks/useModalState';
 import { useIsLinux } from '@/hooks/usePlatform';
 import { useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
+import '@/i18n';
 
 /**
  * TranscriptPanel Component
@@ -36,6 +38,7 @@ export function TranscriptPanel({
   const { isRecording, isPaused } = useRecordingState();
   const { checkPermissions, isChecking, hasSystemAudio, hasMicrophone } = usePermissionCheck();
   const isLinux = useIsLinux();
+  const { t } = useTranslation();
 
   // Convert transcripts to segments for virtualized view
   const segments = useMemo(() =>
@@ -63,11 +66,11 @@ export function TranscriptPanel({
                     variant="outline"
                     size="sm"
                     onClick={copyTranscript}
-                    title="Copy Transcript"
+                    title={t('transcript.homeCopyTitle')}
                   >
                     <Copy />
                     <span className='hidden md:inline'>
-                      Copy
+                      {t('common.copy')}
                     </span>
                   </Button>
                 )}
@@ -76,11 +79,11 @@ export function TranscriptPanel({
                     variant="outline"
                     size="sm"
                     onClick={exportTranscript}
-                    title="Export Transcript"
+                    title={t('transcript.homeExportTitle')}
                   >
                     <Download />
                     <span className='hidden md:inline'>
-                      Export
+                      {t('transcript.homeExport')}
                     </span>
                   </Button>
                 )}
@@ -89,11 +92,11 @@ export function TranscriptPanel({
                     variant="outline"
                     size="sm"
                     onClick={() => showModal('languageSettings')}
-                    title="Language"
+                    title={t('transcript.homeLanguageTitle')}
                   >
                     <GlobeIcon />
                     <span className='hidden md:inline'>
-                      Language
+                      {t('transcript.homeLanguage')}
                     </span>
                   </Button>
                 }

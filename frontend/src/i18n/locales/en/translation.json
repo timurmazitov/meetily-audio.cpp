@@ -167,6 +167,29 @@
     "dontShowAgain": "Don't show this again",
     "acknowledge": "I've Notified Participants"
   },
+  "retranscribe": {
+    "title": "Retranscribe Meeting",
+    "titleProcessing": "Retranscribing...",
+    "titleFailed": "Retranscription Failed",
+    "description": "Re-process the audio with different language settings",
+    "descriptionProcessing": "Processing audio...",
+    "descriptionFailed": "An error occurred during retranscription",
+    "folderPathMissing": "Meeting folder path not available",
+    "completeToast_one": "Retranscription complete! {{count}} segment created.",
+    "completeToast_other": "Retranscription complete! {{count}} segments created.",
+    "cancelledToast": "Retranscription cancelled",
+    "languageLabel": "Language",
+    "selectLanguage": "Select language",
+    "languageHint": "Select a specific language to improve accuracy, or use auto-detect",
+    "languageAudioCppHint": "Language selection isn't supported for audioCpp. GigaAM transcribes in its trained language (Russian).",
+    "languageParakeetHint": "Language selection isn't supported for Parakeet. It always uses automatic detection.",
+    "modelLabel": "Model",
+    "selectModel": "Select model",
+    "loadingModels": "Loading models...",
+    "modelHint": "Choose a transcription model",
+    "start": "Start Retranscription",
+    "tryAgain": "Try Again"
+  },
   "errors": {
     "recordingInitFailed": "Failed to initialize recording. Please check the console for details.",
     "pauseFailed": "Failed to pause recording. Please check the console for details.",
@@ -821,6 +844,90 @@
       "downloadModelFailed": "Failed to download model",
       "deleteModelFailed": "Failed to delete model",
       "modelDeleted": "Model {{model}} deleted"
+    }
+  },
+  "transcript": {
+    "listening": "Listening...",
+    "listeningForSpeech": "Listening for speech...",
+    "recordingPaused": "Recording paused",
+    "pausedHint": "Click resume to continue recording",
+    "speakHint": "Speak to see live transcription",
+    "welcomeTitle": "Welcome to Samobranka!",
+    "welcomeHint": "Start recording to see live transcription",
+    "silence": "[Silence]",
+    "loadingMore": "Loading more...",
+    "showingOf_one": "Showing {{loaded}} of {{count}} segment",
+    "showingOf_other": "Showing {{loaded}} of {{count}} segments",
+    "noSpeaker": "No speaker",
+    "noSpeakerAttributed": "No speaker attributed",
+    "speakerAttributedDiarization": "Speaker attributed by diarization ({{speaker}})",
+    "speakerChipClickToChange": "{{title}} — click to change",
+    "updateSpeakerFailed": "Failed to update speaker",
+    "homeCopyTitle": "Copy Transcript",
+    "homeExportTitle": "Export Transcript",
+    "homeLanguageTitle": "Language",
+    "homeExport": "Export",
+    "homeLanguage": "Language"
+  },
+  "confidence": {
+    "aria": "Transcription confidence: {{percent}}%",
+    "title": "{{percent}}% confidence - {{label}}",
+    "high": "High confidence",
+    "good": "Good confidence",
+    "medium": "Medium confidence",
+    "low": "Low confidence"
+  },
+  "meetingDetails": {
+    "split": {
+      "resizeAria": "Resize transcript and summary",
+      "tabTranscript": "Transcript",
+      "tabSummary": "Summary",
+      "valueText": "Transcript panel {{percent}} percent"
+    }
+  },
+  "summary": {
+    "updater": {
+      "savingTitle": "Saving",
+      "saveTitle": "Save Changes",
+      "saving": "Saving...",
+      "copyTitle": "Copy Summary",
+      "exportTitle": "Export Summary",
+      "export": "Export"
+    },
+    "emptyState": {
+      "title": "No Summary Generated Yet",
+      "description": "Generate an AI-powered summary of your meeting transcript to get key points, action items, and decisions.",
+      "generating": "Generating...",
+      "retry": "Retry summary",
+      "generate": "Generate Summary",
+      "selectModelHint": "Please select a model in Settings first"
+    },
+    "ai": {
+      "errorTitle": "Error Generating Summary",
+      "errorHint": "Please check your model configuration and API keys, or try again.",
+      "processingTranscript": "Processing Transcript",
+      "generatingSummary": "Generating Summary",
+      "analyzingTranscript": "Analyzing your transcript...",
+      "creatingSummary": "Creating a detailed summary of your meeting...",
+      "noContent": "No summary content available.",
+      "tryGenerating": "Try generating a new summary.",
+      "copyBlocks_one": "Copy block",
+      "copyBlocks_other": "Copy {{count}} blocks",
+      "deleteBlocks_one": "Delete block",
+      "deleteBlocks_other": "Delete {{count}} blocks"
+    },
+    "editor": {
+      "placeholder": "Type '/' for commands...",
+      "cmd": {
+        "textLabel": "Text",
+        "textDescription": "Just start writing with plain text",
+        "bulletLabel": "Bullet List",
+        "bulletDescription": "Create a bulleted list",
+        "h1Label": "Heading 1",
+        "h1Description": "Big section heading",
+        "h2Label": "Heading 2",
+        "h2Description": "Medium section heading"
+      }
     }
   }
 }

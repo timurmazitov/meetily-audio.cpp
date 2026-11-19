@@ -2,6 +2,7 @@
 
 import { useCallback, useRef, useReducer, startTransition, useEffect, useMemo, useState, memo } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
 import { Check } from "lucide-react";
@@ -24,6 +25,7 @@ import {
     isDiarizationSpeakerLabel,
     orderMeetingSpeakersForChip,
 } from "@/lib/transcript-format";
+import '@/i18n';
 
 export interface VirtualizedTranscriptViewProps {
     /** Transcript segments to display */
@@ -121,7 +123,8 @@ const TranscriptSegment = memo(function TranscriptSegment({
     /** False while recording and when the host does not support row edits. */
     allowSpeakerEdit: boolean;
 }) {
-    const displayText = cleanStopWords(text) || (text.trim() === '' ? '[Silence]' : text);
+    const { t } = useTranslation();
+    const displayText = cleanStopWords(text) || (text.trim() === '' ? t('transcript.silence') : text);
 
     // Optimistic row state: set as soon as the user picks an item, cleared
     // once the refetched segment arrives (or on failure).
@@ -159,7 +162,7 @@ const TranscriptSegment = memo(function TranscriptSegment({
             await onSpeakerChange(id, label);
         } catch (error) {
             setOverride(null);
-            toast.error('Failed to update speaker', { description: String(error) });
+            toast.error(t('transcript.updateSpeakerFailed'), { description: String(error) });
         }
     };
 
@@ -167,8 +170,8 @@ const TranscriptSegment = memo(function TranscriptSegment({
     const noSpeakerChipClassName = "inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500";
 
     const chipTitle = effectiveSpeaker
-        ? `Speaker attributed by diarization (${effectiveSpeaker})`
-        : 'No speaker attributed';
+        ? t('transcript.speakerAttributedDiarization', { speaker: effectiveSpeaker })
+        : t('transcript.noSpeakerAttributed');
 
     const chip = interactive ? (
         <DropdownMenu>
@@ -176,9 +179,9 @@ const TranscriptSegment = memo(function TranscriptSegment({
                 <button
                     type="button"
                     className={`${speakerLabel ? chipClassName : noSpeakerChipClassName} cursor-pointer hover:bg-indigo-100`}
-                    title={`${chipTitle} — click to change`}
+                    title={t('transcript.speakerChipClickToChange', { title: chipTitle })}
                 >
-                    {speakerLabel ?? 'No speaker'}
+                    {speakerLabel ?? t('transcript.noSpeaker')}
                 </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start">
@@ -200,7 +203,7 @@ const TranscriptSegment = memo(function TranscriptSegment({
                     onSelect={() => { void handleSelect(null); }}
                     className="flex items-center justify-between gap-2"
                 >
-                    <span>No speaker</span>
+                    <span>{t('transcript.noSpeaker')}</span>
                     {!effectiveSpeaker && <Check className="h-4 w-4 text-green-600" />}
                 </DropdownMenuItem>
             </DropdownMenuContent>
@@ -262,6 +265,7 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
     meetingSpeakers,
     onSpeakerChange,
 }) => {
+    const { t } = useTranslation();
     // Create scroll ref first - shared between virtualizer and auto-scroll hook
     const scrollRef = useRef<HTMLDivElement>(null);
     // Ref for infinite scroll trigger element
@@ -393,16 +397,16 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                                 <div className={`w-3 h-3 rounded-full ${isPaused ? 'bg-orange-500' : 'bg-blue-500 animate-pulse'}`}></div>
                             </div>
                             <p className="text-sm text-gray-600">
-                                {isPaused ? 'Recording paused' : 'Listening for speech...'}
+                                {isPaused ? t('transcript.recordingPaused') : t('transcript.listeningForSpeech')}
                             </p>
                             <p className="text-xs mt-1 text-gray-400">
-                                {isPaused ? 'Click resume to continue recording' : 'Speak to see live transcription'}
+                                {isPaused ? t('transcript.pausedHint') : t('transcript.speakHint')}
                             </p>
                         </>
                     ) : (
                         <>
-                            <p className="text-lg font-semibold">Welcome to Samobranka!</p>
-                            <p className="text-xs mt-1">Start recording to see live transcription</p>
+                            <p className="text-lg font-semibold">{t('transcript.welcomeTitle')}</p>
+                            <p className="text-xs mt-1">{t('transcript.welcomeHint')}</p>
                         </>
                     )}
                 </motion.div>
@@ -457,11 +461,11 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                             {isLoadingMore ? (
                                 <div className="flex items-center gap-2 text-gray-500">
                                     <div className="w-4 h-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
-                                    <span className="text-sm">Loading more...</span>
+                                    <span className="text-sm">{t('transcript.loadingMore')}</span>
                                 </div>
                             ) : hasMore && totalCount > 0 ? (
                                 <span className="text-sm text-gray-400">
-                                    Showing {loadedCount} of {totalCount} segments
+                                    {t('transcript.showingOf', { loaded: loadedCount, count: totalCount })}
                                 </span>
                             ) : null}
                         </div>
@@ -476,7 +480,7 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                             className="flex items-center gap-2 mt-4 text-gray-500"
                         >
                             <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
-                            <span className="text-sm">Listening...</span>
+                            <span className="text-sm">{t('transcript.listening')}</span>
                         </motion.div>
                     )}
                 </>
@@ -518,11 +522,11 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                             {isLoadingMore ? (
                                 <div className="flex items-center gap-2 text-gray-500">
                                     <div className="w-4 h-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
-                                    <span className="text-sm">Loading more...</span>
+                                    <span className="text-sm">{t('transcript.loadingMore')}</span>
                                 </div>
                             ) : hasMore && totalCount > 0 ? (
                                 <span className="text-sm text-gray-400">
-                                    Showing {loadedCount} of {totalCount} segments
+                                    {t('transcript.showingOf', { loaded: loadedCount, count: totalCount })}
                                 </span>
                             ) : null}
                         </div>
@@ -537,7 +541,7 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                             className="flex items-center gap-2 mt-4 text-gray-500"
                         >
                             <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
-                            <span className="text-sm">Listening...</span>
+                            <span className="text-sm">{t('transcript.listening')}</span>
                         </motion.div>
                     )}
                 </>
