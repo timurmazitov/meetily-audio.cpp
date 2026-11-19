@@ -822,5 +822,65 @@
       "deleteModelFailed": "Failed to delete model",
       "modelDeleted": "Model {{model}} deleted"
     }
+  },
+  "speakers": {
+    "nameFor": "Name for {{speaker}}",
+    "noName": "No name",
+    "searchPeople": "Search people…",
+    "createName": "Create „{{name}}“",
+    "alreadyAssigned": "Already assigned to {{owner}}",
+    "noPeopleFound": "No people found.",
+    "directoryUnavailable": "Could not read the people directory.",
+    "saved": "Speaker names saved",
+    "title": "Speakers",
+    "description": "Give this meeting's speakers a name. Names are reused across meetings.",
+    "loading": "Loading speakers…",
+    "runTooltip": "Run speaker diarization for this meeting",
+    "run": "Run diarization",
+    "running": "Running diarization…",
+    "catalogWarning": "Could not read the diarization model list. A run will report the real status.",
+    "segmentCount_one": "{{count}} segment",
+    "segmentCount_other": "{{count}} segments",
+    "done": "Done"
+  },
+  "transcript": {
+    "noTranscript": "No transcript available",
+    "copyTooltip": "Copy Transcript",
+    "exportTitle": "Export Transcript",
+    "exportButton": "Export",
+    "openRecordingFolder": "Open Recording Folder",
+    "recording": "Recording",
+    "enhanceTitle": "Retranscribe to enhance your recorded audio",
+    "enhance": "Enhance"
+  },
+  "summary": {
+    "stopTooltip": "Stop summary generation",
+    "stop": "Stop",
+    "loadingModelConfig": "Loading model configuration...",
+    "generateTooltip": "Generate AI Summary",
+    "regenerateTooltip": "Regenerate AI Summary",
+    "processing": "Processing...",
+    "generate": "Generate Summary",
+    "regenerate": "Regenerate Summary",
+    "settingsTooltip": "Summary Settings",
+    "aiModel": "AI Model",
+    "modelSettings": "Model Settings",
+    "selectTemplate": "Select summary template",
+    "template": "Template",
+    "promptPlaceholder": "Add context for AI summary. For example people involved, meeting overview, objective etc...",
+    "generating": "Generating AI Summary...",
+    "language": {
+      "auto": "Auto",
+      "savedOnDevice": "Saved on this device for folderless meetings",
+      "usesDominant": "Uses dominant transcript language",
+      "loadFailed": "Could not load saved summary language",
+      "loadFailedDescription": "Using Auto until meeting metadata can be read.",
+      "savedLocally": "Summary language saved on this device",
+      "savedLocallyDescription": "This meeting has no recording folder, so the preference cannot be written to meeting metadata.",
+      "saveFailed": "Failed to save summary language",
+      "buttonTitle": "Summary language: {{language}}",
+      "buttonTitleLocal": "Summary language: {{language}} (saved on this device)",
+      "setAria": "Set summary language"
+    }
   }
 }
