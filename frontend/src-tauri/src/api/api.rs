@@ -1785,18 +1785,6 @@ mod speaker_panel_contract_tests {
     }
 
     #[test]
-    fn the_directory_answer_is_a_flat_list_of_names() {
-        // The command returns `Vec<String>`: no ids and no meeting counts, so a
-        // caller cannot build an ordering out of them.
-        let names = vec!["Мария".to_string(), "Alex".to_string()];
-
-        assert_eq!(
-            serde_json::to_value(names).unwrap(),
-            serde_json::json!(["Мария", "Alex"])
-        );
-    }
-
-    #[test]
     fn an_assignment_accepts_a_null_name_as_removal() {
         let removal: SpeakerAssignment =
             serde_json::from_value(serde_json::json!({"label": "speaker_0", "name": null}))

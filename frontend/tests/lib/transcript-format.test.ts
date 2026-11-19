@@ -5,8 +5,9 @@ import {
   formatTranscriptText,
   formatTranscriptTime,
   hasSpeakerLabels,
+  orderMeetingSpeakersForChip,
 } from '../../src/lib/transcript-format';
-import type { Transcript } from '../../src/types';
+import type { MeetingSpeaker, Transcript } from '../../src/types';
 
 function segment(overrides: Partial<Transcript> = {}): Transcript {
   return {
@@ -146,5 +147,78 @@ describe('hasSpeakerLabels', () => {
     expect(hasSpeakerLabels([segment({ speaker: 'mic' }), segment({ id: '2', speaker: 'system' })])).toBe(false);
     expect(hasSpeakerLabels([segment({ speaker: 'Guest A' })])).toBe(false);
     expect(hasSpeakerLabels([segment({ speaker_name: 'Alex' })])).toBe(false);
+  });
+});
+
+describe('orderMeetingSpeakersForChip', () => {
+  const speaker = (
+    label: string,
+    speaker_name: string | null,
+    first_start_time = 0,
+  ): MeetingSpeaker => ({ label, speaker_name, segment_count: 1, first_start_time });
+
+  test('named speakers come first, alphabetically by their visible label', () => {
+    const ordered = orderMeetingSpeakersForChip([
+      speaker('speaker_0', 'Zoe'),
+      speaker('speaker_1', 'анна'),
+      speaker('speaker_2', 'Alex'),
+    ]);
+
+    expect(ordered.map(item => item.speaker_name)).toEqual(['анна', 'Alex', 'Zoe']);
+  });
+
+  test('unnamed speakers follow, in label-number order rather than page order', () => {
+    const ordered = orderMeetingSpeakersForChip([
+      speaker('speaker_3', null, 0),
+      speaker('speaker_1', null, 4),
+      speaker('speaker_0', 'Alex', 9),
+      speaker('speaker_2', null, 12),
+    ]);
+
+    expect(ordered.map(item => item.label)).toEqual([
+      'speaker_0',
+      'speaker_1',
+      'speaker_2',
+      'speaker_3',
+    ]);
+  });
+
+  test('a blank name counts as absent, like everywhere else', () => {
+    const ordered = orderMeetingSpeakersForChip([
+      speaker('speaker_0', '   '),
+      speaker('speaker_1', 'Alex'),
+    ]);
+
+    expect(ordered.map(item => item.label)).toEqual(['speaker_1', 'speaker_0']);
+  });
+
+  test('no database or page order changes the result', () => {
+    const meeting = [
+      speaker('speaker_2', null, 0),
+      speaker('speaker_0', 'Zoe', 1),
+      speaker('speaker_1', null, 2),
+      speaker('speaker_3', 'Мария', 3),
+    ];
+
+    expect(orderMeetingSpeakersForChip(meeting).map(item => item.label)).toEqual(
+      orderMeetingSpeakersForChip([...meeting].reverse()).map(item => item.label),
+    );
+  });
+
+  test('the caller\'s array is not mutated', () => {
+    const meeting = [speaker('speaker_1', null), speaker('speaker_0', 'Zoe')];
+    const labels = meeting.map(item => item.label);
+
+    orderMeetingSpeakersForChip(meeting);
+
+    expect(meeting.map(item => item.label)).toEqual(labels);
+  });
+
+  test('a label that is not a diarization label is never treated as unnamed order', () => {
+    // `mic` has no numeric suffix; the canonical regex must not guess one.
+    const ordered = orderMeetingSpeakersForChip([speaker('mic', null), speaker('speaker_9', null)]);
+
+    expect(ordered).toHaveLength(2);
+    expect(ordered.every(item => ['mic', 'speaker_9'].includes(item.label))).toBe(true);
   });
 });

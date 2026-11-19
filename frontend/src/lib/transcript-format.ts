@@ -1,4 +1,5 @@
-import { Transcript } from '@/types';
+import { Transcript, MeetingSpeaker } from '@/types';
+import { comparePersonNames } from '@/lib/person-sort';
 
 /** Matches the only values the diarization pass writes (`speaker_0`, `speaker_1`, …). */
 const DIARIZATION_LABEL = /^speaker_(\d+)$/;
@@ -56,6 +57,60 @@ export function formatSpeakerDisplayLabel(
  */
 export function hasSpeakerLabels(transcripts: Transcript[]): boolean {
   return transcripts.some(t => isDiarizationSpeakerLabel(t.speaker));
+}
+
+/** Display label for a meeting speaker: the name, else `Speaker N`, else the raw label. */
+function meetingSpeakerDisplayLabel(speaker: MeetingSpeaker): string {
+  return formatSpeakerDisplayLabel(speaker.label, speaker.speaker_name ?? undefined) ?? speaker.label;
+}
+
+/**
+ * Whether the speaker already carries a person's name. An empty or
+ * whitespace-only name counts as absent, the same rule as
+ * `formatSpeakerDisplayLabel`.
+ */
+function hasPersonName(speaker: MeetingSpeaker): boolean {
+  return !!speaker.speaker_name && speaker.speaker_name.trim().length > 0;
+}
+
+/**
+ * Numeric suffix of a diarization label; unnamed speakers are ordered by it.
+ * Only the canonical `speaker_N` shape yields a number, so a legacy value such
+ * as `mic` never pretends to have one.
+ */
+function labelNumber(label: string): number {
+  const match = DIARIZATION_LABEL.exec(label);
+  return match ? Number(match[1]) : Number.MAX_SAFE_INTEGER;
+}
+
+/**
+ * The order of the transcript chip's speaker dropdown.
+ *
+ * Named speakers come first, sorted by the shared people comparator on the
+ * label the user actually sees; unnamed ones (`Speaker 1`, `Speaker 2`, …)
+ * follow in label-number order rather than in page order, so the list is the
+ * same whatever page of the transcript happens to be loaded. "No speaker" is
+ * rendered outside this list and stays last. The caller's array is copied, not
+ * sorted in place: the panel's rows keep their first-appearance order.
+ *
+ * This lives here, not in `person-sort.ts`: that comparator deliberately knows
+ * nothing about meetings or about "unnamed" speakers.
+ */
+export function orderMeetingSpeakersForChip(speakers: MeetingSpeaker[]): MeetingSpeaker[] {
+  return [...speakers].sort((a, b) => {
+    const aNamed = hasPersonName(a);
+    const bNamed = hasPersonName(b);
+    if (aNamed !== bNamed) return aNamed ? -1 : 1;
+    if (aNamed) {
+      return comparePersonNames(
+        meetingSpeakerDisplayLabel(a),
+        meetingSpeakerDisplayLabel(b),
+      );
+    }
+    const byNumber = labelNumber(a.label) - labelNumber(b.label);
+    if (byNumber !== 0) return byNumber;
+    return a.label < b.label ? -1 : a.label > b.label ? 1 : 0;
+  });
 }
 
 export interface FormatTranscriptOptions {
