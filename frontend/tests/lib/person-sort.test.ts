@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { comparePersonNames } from '../../src/lib/person-sort';
+import { comparePersonNames, foldPersonName, personNameKey } from '../../src/lib/person-sort';
 
 // The expectations are the rule from the spec, not a second copy of the
 // implementation: Cyrillic А-Я first, then Latin A-Z, then everything else,
@@ -48,6 +48,23 @@ describe('comparePersonNames', () => {
     ]);
   });
 
+  test('a letter outside the Russian alphabet still lands in the Cyrillic group, after it', () => {
+    // `Ї` is Cyrillic but not Russian, so it has no place in the familiar
+    // alphabet. It still belongs to group 0, and its position is fixed by the
+    // rule rather than by whatever collation data the host happens to carry.
+    expect(sorted(['яна', 'Їжа', 'Анна'])).toEqual(['Анна', 'яна', 'Їжа']);
+    expect(sorted(['Їжа', 'Анна', 'яна'])).toEqual(['Анна', 'яна', 'Їжа']);
+  });
+
+  test('every letter of the Russian alphabet keeps its familiar slot', () => {
+    // The alphabet itself is the source of truth here: Ё after Е, Й after И,
+    // and the whole list in the order a Russian speaker recites it.
+    const alphabet = 'абвгдеёжзийклмнопрстуфхцчшщъыьэюя'.split('');
+    const shuffled = [...alphabet].reverse().map(letter => letter.toUpperCase() + 'ина');
+
+    expect(sorted(shuffled).map(name => name.charAt(0).toLowerCase())).toEqual(alphabet);
+  });
+
   test('a mixed list sorts the same whatever the input order', () => {
     const names = ['Мария', 'Zoe', 'анна', 'Alex', 'Иван', '2B'];
     const expected = sorted(names);
@@ -60,5 +77,28 @@ describe('comparePersonNames', () => {
     expect(comparePersonNames('Анна', 'Анна')).toBe(0);
     expect(comparePersonNames('Анна', 'Zoe')).toBeLessThan(0);
     expect(comparePersonNames('Zoe', 'Анна')).toBeGreaterThan(0);
+  });
+});
+
+describe('foldPersonName', () => {
+  test('is the one case fold for names: lower-cased, nothing else', () => {
+    expect(foldPersonName('Анна')).toBe('анна');
+    expect(foldPersonName('ALEX')).toBe('alex');
+    expect(foldPersonName('  Anna')).toBe('  anna');
+  });
+});
+
+describe('personNameKey', () => {
+  test('trims, folds, and treats blank as absent', () => {
+    expect(personNameKey('  Anna ')).toBe('anna');
+    expect(personNameKey('ЁЖИК')).toBe('ёжик');
+    expect(personNameKey('   ')).toBeNull();
+    expect(personNameKey('')).toBeNull();
+    expect(personNameKey(null)).toBeNull();
+    expect(personNameKey(undefined)).toBeNull();
+  });
+
+  test('names that differ only by case and spacing share one key', () => {
+    expect(personNameKey(' Alex ')).toBe(personNameKey('alex'));
   });
 });
