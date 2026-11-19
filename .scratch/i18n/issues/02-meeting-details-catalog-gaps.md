@@ -1,6 +1,6 @@
 # Add missing speakers/summary/transcript catalog namespaces
 
-Status: needs-triage
+Status: resolved
 Type: task
 
 ## Context

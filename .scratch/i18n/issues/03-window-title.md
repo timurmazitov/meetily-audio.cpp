@@ -1,6 +1,6 @@
 # Update the window title from the client
 
-Status: needs-triage
+Status: resolved
 Type: task
 
 ## Context
