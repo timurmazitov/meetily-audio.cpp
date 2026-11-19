@@ -3,10 +3,19 @@
  *
  * To add a language:
  * 1. Create `src/i18n/locales/{code}/translation.json`
- * 2. Register it in `RESOURCES` in `src/i18n/index.ts`
+ * 2. Register it in `RESOURCES` in `src/i18n/index.ts` and add its code to
+ *    `AppLanguageCode` below
  * 3. Add an entry here with the English name, the native name and a priority
  *    (lower = higher in the picker)
  */
+/**
+ * The supported interface language codes. Kept here (not derived from
+ * `RESOURCES` in `index.ts`) so `LANGUAGE_METADATA` can be typed against it
+ * without a circular import; `index.ts` re-exports it for existing consumers.
+ * Must stay in step with the `RESOURCES` keys and the entries below.
+ */
+export type AppLanguageCode = 'en' | 'ru';
+
 export interface LanguageMetadata {
   /** English name, used for the parenthesised hint in the picker. */
   name: string;
@@ -16,7 +25,7 @@ export interface LanguageMetadata {
   priority: number;
 }
 
-export const LANGUAGE_METADATA: Record<string, LanguageMetadata> = {
+export const LANGUAGE_METADATA: Record<AppLanguageCode, LanguageMetadata> = {
   en: { name: 'English', nativeName: 'English', priority: 1 },
   ru: { name: 'Russian', nativeName: 'Русский', priority: 2 },
 };

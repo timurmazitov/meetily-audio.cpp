@@ -2,6 +2,7 @@
 
 import { motion } from 'framer-motion';
 import { useRecordingState } from '@/contexts/RecordingStateContext';
+import { formatTranscriptTime } from '@/lib/transcript-format';
 import { useEffect, useState } from 'react';
 
 interface RecordingStatusBarProps {
@@ -24,12 +25,6 @@ export const RecordingStatusBar: React.FC<RecordingStatusBarProps> = ({ isPaused
     }
   }, [activeDuration]);
 
-  const formatDuration = (seconds: number): string => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-  };
-
   return (
     <motion.div
       initial={{ opacity: 0, y: -10 }}
@@ -40,7 +35,7 @@ export const RecordingStatusBar: React.FC<RecordingStatusBarProps> = ({ isPaused
     >
       <div className={`w-2 h-2 rounded-full ${isPaused ? 'bg-orange-500' : 'bg-red-500 animate-pulse'}`} />
       <span className={`text-sm ${isPaused ? 'text-orange-700' : 'text-gray-700'}`}>
-        {isPaused ? 'Paused' : 'Recording'} • {formatDuration(displaySeconds)}
+        {isPaused ? 'Paused' : 'Recording'} • {formatTranscriptTime(displaySeconds)}
       </span>
     </motion.div>
   );

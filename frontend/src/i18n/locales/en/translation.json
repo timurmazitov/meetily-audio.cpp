@@ -662,8 +662,6 @@
       "corruptedHint": "File is corrupted. Retry download or delete.",
       "genericError": "An error occurred",
       "tokens_one": "{{count}} token",
-      "tokens_few": "{{count}} tokens",
-      "tokens_many": "{{count}} tokens",
       "tokens_other": "{{count}} tokens"
     },
     "download": {
@@ -750,8 +748,6 @@
       "chunk": "Chunk {{id}}",
       "error": "Error: {{message}}",
       "allDone_one": "Processing completed! {{count}} chunk has been transcribed.",
-      "allDone_few": "Processing completed! All {{count}} chunks have been transcribed.",
-      "allDone_many": "Processing completed! All {{count}} chunks have been transcribed.",
       "allDone_other": "Processing completed! All {{count}} chunks have been transcribed.",
       "chunksRatio": "{{completed}} / {{total}} chunks",
       "processingCount": "{{count}} in progress",
@@ -1059,6 +1055,8 @@
       "creatingSummary": "Creating a detailed summary of your meeting...",
       "noContent": "No summary content available.",
       "tryGenerating": "Try generating a new summary.",
+      "addSection": "Add new section",
+      "regenerate": "Regenerate",
       "copyBlocks_one": "Copy block",
       "copyBlocks_other": "Copy {{count}} blocks",
       "deleteBlocks_one": "Delete block",

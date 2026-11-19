@@ -29,6 +29,9 @@ interface ChunkProgressDisplayProps {
   className?: string;
 }
 
+// Catalog note: `settingsTranscription.chunkProgress.*` speaks of «Фрагмент» —
+// these are fixed 30-second processing windows (see `chunk_duration_ms` in
+// useProcessingProgress), not the VAD «речевой сегмент» of the transcript.
 export function ChunkProgressDisplay({
   progress,
   onPause,

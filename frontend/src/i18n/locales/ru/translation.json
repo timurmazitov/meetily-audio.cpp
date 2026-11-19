@@ -53,7 +53,7 @@
       },
       "storage": {
         "title": "Расположение данных",
-        "description": "Где Samobranka хранит ваши данные",
+        "description": "Здесь Samobranka хранит данные записей",
         "recordings": "Записи встреч",
         "noteStrong": "Примечание:",
         "note": "База данных и модели хранятся вместе в каталоге данных приложения — так ими удобнее управлять."
@@ -127,7 +127,7 @@
       "resuming": "Возобновление...",
       "stop": "Остановить запись",
       "stopping": "Остановка...",
-      "validatingModel": "Проверка модели распознавания речи...",
+      "validatingModel": "Проверка модели транскрибации...",
       "closeAlert": "Закрыть оповещение"
     },
     "deviceError": {
@@ -188,6 +188,7 @@
     "completeToast_one": "Повторная транскрибация завершена: создан {{count}} сегмент",
     "completeToast_few": "Повторная транскрибация завершена: создано {{count}} сегмента",
     "completeToast_many": "Повторная транскрибация завершена: создано {{count}} сегментов",
+    "completeToast_other": "Повторная транскрибация завершена: создано {{count}} сегментов",
     "cancelledToast": "Повторная транскрибация отменена",
     "languageLabel": "Язык",
     "selectLanguage": "Выберите язык",
@@ -275,7 +276,7 @@
       "verifyFailed": "Не удалось проверить движок транскрибации",
       "verifyFailedDescription": "Повторите попытку через минуту.",
       "backgroundInfo": "Загрузка продолжится в фоне",
-      "backgroundInfoDescription": "Пользоваться приложением уже можно. Запись станет доступна, когда распознавание речи будет готово.",
+      "backgroundInfoDescription": "Пользоваться приложением уже можно. Запись станет доступна, когда модель транскрибации будет готова.",
       "completeFailed": "Не удалось завершить настройку",
       "completeFailedDescription": "Повторите попытку."
     },
@@ -342,6 +343,7 @@
       "complete_one": "Импорт завершён. Создан {{count}} сегмент.",
       "complete_few": "Импорт завершён. Создано {{count}} сегмента.",
       "complete_many": "Импорт завершён. Создано {{count}} сегментов.",
+      "complete_other": "Импорт завершён. Создано {{count}} сегментов.",
       "failed": "Не удалось импортировать файл",
       "cancelled": "Импорт отменён"
     }
@@ -387,20 +389,23 @@
     "description_one": "Найдено прерванных встреч: {{count}}. Выберите встречу для предпросмотра и восстановления.",
     "description_few": "Найдено прерванных встреч: {{count}}. Выберите встречу для предпросмотра и восстановления.",
     "description_many": "Найдено прерванных встреч: {{count}}. Выберите встречу для предпросмотра и восстановления.",
+    "description_other": "Найдено прерванных встреч: {{count}}. Выберите встречу для предпросмотра и восстановления.",
     "listTitle": "Прерванные встречи",
-    "transcriptCount_one": "{{count}} фрагмент транскрипции",
-    "transcriptCount_few": "{{count}} фрагмента транскрипции",
-    "transcriptCount_many": "{{count}} фрагментов транскрипции",
+    "transcriptCount_one": "{{count}} сегмент транскрипции",
+    "transcriptCount_few": "{{count}} сегмента транскрипции",
+    "transcriptCount_many": "{{count}} сегментов транскрипции",
+    "transcriptCount_other": "{{count}} сегментов транскрипции",
     "audioAvailable": "Аудио доступно",
     "noAudio": "Аудио нет",
     "preview": "Предпросмотр",
     "startedAt": "Начало: {{date}}",
     "loadingPreview": "Загрузка предпросмотра...",
-    "showingFirst": "Показаны первые {{shown}} из {{total}} фрагментов транскрипции",
-    "moreTranscripts_one": "...и ещё {{count}} фрагмент",
-    "moreTranscripts_few": "...и ещё {{count}} фрагмента",
-    "moreTranscripts_many": "...и ещё {{count}} фрагментов",
-    "empty": "Нет фрагментов для предпросмотра",
+    "showingFirst": "Показаны первые {{shown}} из {{total}} сегментов транскрипции",
+    "moreTranscripts_one": "...и ещё {{count}} сегмент",
+    "moreTranscripts_few": "...и ещё {{count}} сегмента",
+    "moreTranscripts_many": "...и ещё {{count}} сегментов",
+    "moreTranscripts_other": "...и ещё {{count}} сегментов",
+    "empty": "Нет сегментов для предпросмотра",
     "selectMeeting": "Выберите встречу для предпросмотра",
     "confirmDelete": "Удалить встречу? Это действие нельзя отменить.",
     "error": {
@@ -507,7 +512,7 @@
       "title": "Настройки языка"
     },
     "modelSelector": {
-      "setupRequired": "Требуется настройка распознавания речи",
+      "setupRequired": "Требуется настройка транскрибации",
       "title": "Настройки модели транскрибации"
     },
     "confidence": {
@@ -981,6 +986,7 @@
     "segmentCount_one": "{{count}} сегмент",
     "segmentCount_few": "{{count}} сегмента",
     "segmentCount_many": "{{count}} сегментов",
+    "segmentCount_other": "{{count}} сегментов",
     "done": "Готово"
   },
   "transcript": {
@@ -992,7 +998,7 @@
     "recording": "Запись",
     "enhanceTitle": "Повторная транскрибация для улучшения записанного аудио",
     "enhance": "Улучшить",
-    "listening": "Идёт распознавание речи...",
+    "listening": "Идёт транскрибация...",
     "listeningForSpeech": "Ожидание речи...",
     "recordingPaused": "Запись приостановлена",
     "pausedHint": "Нажмите «Продолжить запись», чтобы возобновить запись",
@@ -1004,6 +1010,7 @@
     "showingOf_one": "Показано {{loaded}} из {{count}} сегмента",
     "showingOf_few": "Показано {{loaded}} из {{count}} сегментов",
     "showingOf_many": "Показано {{loaded}} из {{count}} сегментов",
+    "showingOf_other": "Показано {{loaded}} из {{count}} сегментов",
     "noSpeaker": "Нет спикера",
     "noSpeakerAttributed": "Спикер не определён",
     "speakerAttributedDiarization": "Спикер определён диаризацией ({{speaker}})",
@@ -1069,12 +1076,16 @@
       "creatingSummary": "Создание подробного саммари встречи...",
       "noContent": "Нет содержимого саммари.",
       "tryGenerating": "Попробуйте создать новое саммари.",
+      "addSection": "Добавить новый раздел",
+      "regenerate": "Пересоздать",
       "copyBlocks_one": "Копировать блок",
       "copyBlocks_few": "Копировать {{count}} блока",
       "copyBlocks_many": "Копировать {{count}} блоков",
+      "copyBlocks_other": "Копировать {{count}} блоков",
       "deleteBlocks_one": "Удалить блок",
       "deleteBlocks_few": "Удалить {{count}} блока",
-      "deleteBlocks_many": "Удалить {{count}} блоков"
+      "deleteBlocks_many": "Удалить {{count}} блоков",
+      "deleteBlocks_other": "Удалить {{count}} блоков"
     },
     "editor": {
       "placeholder": "Введите «/» для команд...",

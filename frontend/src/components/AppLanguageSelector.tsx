@@ -2,7 +2,7 @@
 
 import { useTranslation } from 'react-i18next';
 
-import { SUPPORTED_LANGUAGES, type AppLanguageCode } from '@/i18n';
+import { SUPPORTED_LANGUAGES, normalizeAppLanguage } from '@/i18n';
 import { useAppLanguage } from '@/contexts/LanguageContext';
 import {
   Select,
@@ -31,7 +31,7 @@ export function AppLanguageSelector() {
         </div>
         <Select
           value={language}
-          onValueChange={(value) => setLanguage(value as AppLanguageCode)}
+          onValueChange={(value) => setLanguage(normalizeAppLanguage(value))}
         >
           <SelectTrigger className="w-56">
             <SelectValue />
