@@ -1,6 +1,6 @@
 # Translate untouched meeting-details / transcript / summary components
 
-Status: needs-triage
+Status: resolved
 Type: task
 
 ## Context
