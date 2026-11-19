@@ -1,7 +1,7 @@
 import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
 
-import { LANGUAGE_METADATA, languageOptionLabel } from './languages';
+import { LANGUAGE_METADATA, languageOptionLabel, type AppLanguageCode } from './languages';
 import en from './locales/en/translation.json';
 import ru from './locales/ru/translation.json';
 
@@ -21,7 +21,10 @@ export const RESOURCES = {
   ru: { translation: ru },
 } as const;
 
-export type AppLanguageCode = keyof typeof RESOURCES;
+// The union lives in `./languages` (see its note); re-exported so existing
+// `@/i18n` consumers keep working. RESOURCES keys and the union are checked
+// against each other by `tests/lib/i18n-parity.test.ts`.
+export type { AppLanguageCode };
 
 export const DEFAULT_LANGUAGE: AppLanguageCode = 'en';
 

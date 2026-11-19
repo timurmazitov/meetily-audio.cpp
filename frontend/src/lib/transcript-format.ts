@@ -16,6 +16,16 @@ export function formatTranscriptTime(seconds: number | undefined): string {
 }
 
 /**
+ * Recording-relative seconds as a bracketed clock label, `[MM:SS]`
+ * (`[--:--]` when absent) — the form the transcript rows render. The single
+ * bracketed `[mm:ss]` formatter for the app; callers that need the bare
+ * `MM:SS` (the recording status bar) use `formatTranscriptTime` directly.
+ */
+export function formatRecordingTime(seconds: number | undefined): string {
+  return `[${formatTranscriptTime(seconds)}]`;
+}
+
+/**
  * Whether a speaker value is a diarization label (`speaker_N`).
  *
  * The legacy `speaker` column also documented `mic`/`system` audio-source

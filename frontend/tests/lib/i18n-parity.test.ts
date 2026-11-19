@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
+import { RESOURCES } from '../../src/i18n';
+import { LANGUAGE_METADATA } from '../../src/i18n/languages';
 import en from '../../src/i18n/locales/en/translation.json';
 import ru from '../../src/i18n/locales/ru/translation.json';
 
@@ -89,6 +91,12 @@ describe('translation catalogs', () => {
         }
       }
     }
+  });
+
+  test('every language has metadata and a catalog', () => {
+    // `AppLanguageCode` in `languages.ts` is a literal union; this keeps the
+    // RESOURCES keys and LANGUAGE_METADATA entries in step with each other.
+    expect(Object.keys(RESOURCES).sort()).toEqual(Object.keys(LANGUAGE_METADATA).sort());
   });
 
   test('a message and its translation interpolate the same values', () => {

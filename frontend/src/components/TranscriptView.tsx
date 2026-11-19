@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { ConfidenceIndicator } from './ConfidenceIndicator';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 import { RecordingStatusBar } from './RecordingStatusBar';
+import { formatRecordingTime } from '@/lib/transcript-format';
 import { motion, AnimatePresence } from 'framer-motion';
 import '@/i18n';
 
@@ -20,17 +21,6 @@ interface TranscriptViewProps {
 
 interface SpeechDetectedEvent {
   message: string;
-}
-
-// Helper function to format seconds as recording-relative time [MM:SS]
-function formatRecordingTime(seconds: number | undefined): string {
-  if (seconds === undefined) return '[--:--]';
-
-  const totalSeconds = Math.floor(seconds);
-  const minutes = Math.floor(totalSeconds / 60);
-  const secs = totalSeconds % 60;
-
-  return `[${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}]`;
 }
 
 // Helper function to remove consecutive word repetitions (especially short words ≤2 letters)

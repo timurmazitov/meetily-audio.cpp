@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { LANGUAGE_OPTIONS } from "@/lib/summary-languages";
 import { useContentLanguageName } from "@/lib/content-languages";
@@ -48,8 +48,11 @@ export function LanguagePickerPopover({
   }, [onClose]);
 
   const filter = query.trim().toLowerCase();
-  const labelOf = (option: (typeof LANGUAGE_OPTIONS)[number]) =>
-    contentLanguageName(option.code, option.label);
+  const labelOf = useCallback(
+    (option: (typeof LANGUAGE_OPTIONS)[number]) =>
+      contentLanguageName(option.code, option.label),
+    [contentLanguageName],
+  );
 
   const recentCodes = useMemo(() => new Set(recents), [recents]);
 
@@ -64,8 +67,7 @@ export function LanguagePickerPopover({
         labelOf(l).toLowerCase().includes(filter) ||
         l.label.toLowerCase().includes(filter),
     );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filter, mode, recentCodes, contentLanguageName]);
+  }, [filter, mode, recentCodes, labelOf]);
 
   const recentsResolved = useMemo(
     () =>
@@ -79,8 +81,7 @@ export function LanguagePickerPopover({
             labelOf(l).toLowerCase().includes(filter) ||
             l.label.toLowerCase().includes(filter),
         ),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [recents, filter, contentLanguageName],
+    [recents, filter, labelOf],
   );
 
   const showAuto = mode === "meeting" && (!filter || "auto".includes(filter));
