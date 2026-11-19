@@ -15,6 +15,7 @@ const originalWindow = globalWindow.window;
 afterAll(() => {
   mock.module('@tauri-apps/api/core', () => originalCore);
   mock.module('sonner', () => originalToast);
+  mock.module('../../src/contexts/LanguageContext', () => originalLanguageContext);
   if (hadWindow) globalWindow.window = originalWindow;
   else Reflect.deleteProperty(globalWindow, 'window');
 });
@@ -22,6 +23,16 @@ afterAll(() => {
 const successToast = mock(() => {});
 const errorToast = mock(() => {});
 const warningToast = mock(() => {});
+
+// `useCopyOperations` reads the interface language through `useAppLanguage`,
+// which throws outside a `LanguageProvider`. The hook uses the language only
+// for date formatting in the documents, so a fixed English context is the
+// intended contract here; rendering under the real provider would drag the
+// Tauri preference store into this suite for no additional coverage.
+const originalLanguageContext = { ...await import('../../src/contexts/LanguageContext') };
+mock.module('../../src/contexts/LanguageContext', () => ({
+  useAppLanguage: () => ({ language: 'en', ready: true, setLanguage: async () => {} }),
+}));
 
 const transcript: Transcript = { id: 'transcript-1', text: 'We shipped it', timestamp: '00:00' };
 let transcriptsPage: { transcripts: Transcript[]; total_count: number; has_more: boolean };

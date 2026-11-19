@@ -7,9 +7,14 @@ import type { MeetingSummary, SummaryProcessResponse } from '../../src/types';
 // Bun shares module mocks between test files; restore application modules after this suite.
 const originalPreferences = { ...await import('../../src/lib/summary-language-preferences') };
 const originalToast = { ...await import('sonner') };
+const originalRecordingState = { ...await import('../../src/contexts/RecordingStateContext') };
 afterAll(() => {
   mock.module('../../src/lib/summary-language-preferences', () => originalPreferences);
   mock.module('sonner', () => originalToast);
+  // The bare `{ isRecording: false }` shim below must not leak: suites that
+  // mount the real RecordingStateProvider (recording-state-shutdown) would
+  // otherwise resolve this file's stub and never render their children.
+  mock.module('../../src/contexts/RecordingStateContext', () => originalRecordingState);
 });
 
 mock.module('next/navigation', () => ({ usePathname: () => '/meeting-details', useRouter: () => ({}) }));
