@@ -314,16 +314,22 @@ export function SummaryPanel({
         />
       ) : (
         <div className="flex-1 min-h-0 flex flex-col">
-          {/* The meeting's own moment lives in the summary text window itself,
-              in its top-right corner, so it is read next to the summary it
-              dates. It sits outside the scroll area and never scrolls away. */}
-          {formattedMeetingDate && (
-            <div className="flex justify-end px-6 pt-4">
+          {/* The full meeting title heads the summary text window on the left,
+              and the meeting's own moment sits in its top-right corner, so
+              both are read next to the summary they describe. The row stays
+              outside the scroll area and never scrolls away. The title shows
+              even when the date is unknown; an unknown date draws nothing and
+              is never replaced by the current moment (ADR-0005). */}
+          <div className="flex items-start justify-between gap-4 px-6 pt-4">
+            <h1 className="min-w-0 break-words text-2xl font-bold text-black">
+              {meetingTitle}
+            </h1>
+            {formattedMeetingDate && (
               <h3 className="text-lg font-medium text-gray-500 tabular-nums whitespace-nowrap">
                 {formattedMeetingDate}
               </h3>
-            </div>
-          )}
+            )}
+          </div>
           <div className="flex-1 overflow-y-auto overflow-x-auto min-h-0 p-6">
             <BlockNoteSummaryView
               ref={summaryRef}
