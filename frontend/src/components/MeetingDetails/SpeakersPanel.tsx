@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { Check, ChevronsUpDown, Loader2, Sparkles, Users } from 'lucide-react';
 import { toast } from 'sonner';
@@ -53,7 +53,7 @@ function segmentCountLabel(count: number): string {
 interface SpeakerNamePickerProps {
   label: string;
   value: string | null;
-  /** The whole people directory; it is sorted and filtered here. */
+  /** The whole people directory, already in the shared alphabetical order. */
   names: string[];
   /** Why the directory could not be read, shown inside the open list. */
   directoryError?: string | null;
@@ -65,9 +65,9 @@ interface SpeakerNamePickerProps {
  * Popover + Command combobox for one speaker row: "No name", the (optional)
  * create row and the directory names, in that order.
  *
- * The whole directory is handed in once by the panel. Typing only filters that
- * list in place — no request, no debounce — so a subset always keeps the
- * alphabetical order of the full list.
+ * The whole directory is handed in once by the panel, already sorted. Typing
+ * only filters that list in place — no request, no debounce — so a subset
+ * always keeps the alphabetical order of the full list.
  */
 function SpeakerNamePicker({
   label,
@@ -85,14 +85,12 @@ function SpeakerNamePicker({
     if (!open) setQuery('');
   }, [open]);
 
-  const sorted = useMemo(() => [...names].sort(comparePersonNames), [names]);
-
   const trimmed = query.trim();
   const needle = trimmed.toLowerCase();
   const matches = needle
-    ? sorted.filter((name) => name.toLowerCase().includes(needle))
-    : sorted;
-  const exactMatch = sorted.some((name) => name.trim().toLowerCase() === needle);
+    ? names.filter((name) => name.toLowerCase().includes(needle))
+    : names;
+  const exactMatch = names.some((name) => name.trim().toLowerCase() === needle);
   const canCreate = trimmed.length > 0 && !exactMatch;
 
   const choose = (name: string | null) => {
@@ -242,7 +240,8 @@ export function SpeakersPanel({
   const loadDirectory = useCallback(async () => {
     try {
       const names = await invoke<string[]>('api_get_speaker_names');
-      setDirectoryNames(names);
+      // One sort for the whole panel: every row filters the same ordered list.
+      setDirectoryNames([...names].sort(comparePersonNames));
       setDirectoryError(null);
     } catch (error) {
       setDirectoryNames([]);
