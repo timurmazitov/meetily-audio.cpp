@@ -2,10 +2,12 @@
 
 import { Transcript } from '@/types';
 import { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ConfidenceIndicator } from './ConfidenceIndicator';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 import { RecordingStatusBar } from './RecordingStatusBar';
 import { motion, AnimatePresence } from 'framer-motion';
+import '@/i18n';
 
 interface TranscriptViewProps {
   transcripts: Transcript[];
@@ -105,6 +107,7 @@ function cleanStopWords(text: string): string {
 }
 
 export const TranscriptView: React.FC<TranscriptViewProps> = ({ transcripts, isRecording = false, isPaused = false, isProcessing = false, isStopping = false, enableStreaming = false }) => {
+  const { t } = useTranslation();
   const [speechDetected, setSpeechDetected] = useState(false);
 
   // Debug: Log the props to understand what's happening
@@ -267,11 +270,11 @@ export const TranscriptView: React.FC<TranscriptViewProps> = ({ transcripts, isR
         const filteredText = cleanStopWords(textToShow);
         // Show [Silence] ONLY if the ORIGINAL transcript was empty (not just after filtering)
         const originalWasEmpty = transcript.text.trim() === '';
-        const displayText = originalWasEmpty && !isStreaming ? '[Silence]' : filteredText;
+        const displayText = originalWasEmpty && !isStreaming ? t('transcript.silence') : filteredText;
 
         // Sizer text: use cleaned version for proper sizing, fallback to [Silence] only if original was empty
         const sizerText = cleanStopWords(isStreaming ? streamingTranscript.fullText : transcript.text)
-          || (originalWasEmpty && !isStreaming ? '[Silence]' : '');
+          || (originalWasEmpty && !isStreaming ? t('transcript.silence') : '');
 
         return (
           <motion.div
@@ -343,7 +346,7 @@ export const TranscriptView: React.FC<TranscriptViewProps> = ({ transcripts, isR
           className="flex items-center gap-2 mt-4 text-gray-500"
         >
           <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
-          <span className="text-sm">Listening...</span>
+          <span className="text-sm">{t('transcript.listening')}</span>
         </motion.div>
       )}
 
@@ -360,18 +363,18 @@ export const TranscriptView: React.FC<TranscriptViewProps> = ({ transcripts, isR
                 <div className={`w-3 h-3 rounded-full ${isPaused ? 'bg-orange-500' : 'bg-blue-500 animate-pulse'}`}></div>
               </div>
               <p className="text-sm text-gray-600">
-                {isPaused ? 'Recording paused' : 'Listening for speech...'}
+                {isPaused ? t('transcript.recordingPaused') : t('transcript.listeningForSpeech')}
               </p>
               <p className="text-xs mt-1 text-gray-400">
                 {isPaused
-                  ? 'Click resume to continue recording'
-                  : 'Speak to see live transcription'}
+                  ? t('transcript.pausedHint')
+                  : t('transcript.speakHint')}
               </p>
             </>
           ) : (
             <>
-              <p className="text-lg font-semibold">Welcome to Samobranka!</p>
-              <p className="text-xs mt-1">Start recording to see live transcription</p>
+              <p className="text-lg font-semibold">{t('transcript.welcomeTitle')}</p>
+              <p className="text-xs mt-1">{t('transcript.welcomeHint')}</p>
             </>
           )}
         </motion.div>

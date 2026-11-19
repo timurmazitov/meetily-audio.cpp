@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
+import { useTranslation } from 'react-i18next';
 import { MeetingSpeaker, MeetingSummary, SummaryProcessResponse } from '@/types';
 import { useSidebar } from '@/components/Sidebar/SidebarProvider';
 import { invoke } from '@tauri-apps/api/core';
@@ -76,6 +77,7 @@ export default function PageContent({
 
   // Get model config from ConfigContext
   const { modelConfig, setModelConfig, isModelConfigLoading } = useConfig();
+  const { t } = useTranslation();
 
   // Custom hooks
   const meetingData = useMeetingData({ meeting, summaryData, onMeetingUpdated });
@@ -113,10 +115,10 @@ export default function PageContent({
       const { emit } = await import('@tauri-apps/api/event');
       await emit('model-config-updated', config);
 
-      toast.success('Model settings saved successfully');
+      toast.success(t('settingsSummary.modelSettings.saved'));
     } catch (error) {
       console.error('Failed to save model config:', error);
-      toast.error('Failed to save model settings');
+      toast.error(t('settingsSummary.modelSettings.saveFailed'));
     }
   };
 
