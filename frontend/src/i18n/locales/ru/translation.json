@@ -1019,7 +1019,7 @@
     "homeCopyTitle": "Копировать транскрипцию",
     "homeExportTitle": "Экспортировать транскрипцию",
     "homeLanguageTitle": "Язык",
-    "homeExport": "Экспортировать",
+    "homeExport": "Экспорт",
     "homeLanguage": "Язык"
   },
   "summary": {
@@ -1057,7 +1057,7 @@
       "saving": "Сохранение...",
       "copyTitle": "Копировать конспект",
       "exportTitle": "Экспортировать конспект",
-      "export": "Экспортировать"
+      "export": "Экспорт"
     },
     "emptyState": {
       "title": "Конспект ещё не создан",
