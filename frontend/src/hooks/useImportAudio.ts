@@ -56,7 +56,7 @@ export interface UseImportAudioReturn {
     title: string,
     language?: string | null,
     model?: string | null,
-    provider?: string | null
+    provider?: 'transcribeCpp' | null
   ) => Promise<void>;
   cancelImport: () => Promise<void>;
   reset: () => void;

@@ -424,7 +424,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
       // Load storage locations
       const [dbDir, modelsDir, recordingsDir] = await Promise.all([
         invoke<string>('get_database_directory'),
-        invoke<string>('whisper_get_models_directory'),
+        invoke<string>('transcribecpp_get_models_directory'),
         invoke<string>('get_default_recordings_folder_path')
       ]);
 

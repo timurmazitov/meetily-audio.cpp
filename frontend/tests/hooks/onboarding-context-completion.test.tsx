@@ -3,9 +3,10 @@ import { afterAll, afterEach, expect, mock, test } from 'bun:test';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import {
   AUDIOCPP_DIARIZATION_MODEL,
-  AUDIOCPP_TRANSCRIPTION_MODEL,
+  ONBOARDING_TRANSCRIPTION_MODEL,
 } from '../../src/lib/onboarding-audiocpp-status';
 import type { AudioCppModelInfo } from '../../src/lib/audiocpp';
+import type { TranscribeCppModelInfo } from '../../src/lib/transcribeCpp';
 
 const originals = await Promise.all(
   ['@tauri-apps/api/core', '@tauri-apps/api/event'].map(
@@ -19,7 +20,10 @@ afterAll(() => {
 /** Per-test native responses, keyed by command name. */
 class Native {
   transcriptionInstalled = false;
+  /** audio.cpp catalog (diarization only). */
   models: AudioCppModelInfo[] = [];
+  /** transcribe.cpp catalog (ASR only). */
+  tcpModels: TranscribeCppModelInfo[] = [];
   completedModel: string | undefined;
 
   async invoke(command: string, args?: Record<string, unknown>): Promise<unknown> {
@@ -32,10 +36,14 @@ class Native {
         return 'qwen3.5:4b';
       case 'builtin_ai_is_model_ready':
         return true;
+      case 'transcribecpp_has_transcription_model':
+        return this.transcriptionInstalled;
+      case 'transcribecpp_get_available_models':
+        return this.tcpModels;
+      case 'transcribecpp_download_model':
+        return undefined;
       case 'audiocpp_model_init':
         return undefined;
-      case 'audiocpp_has_transcription_model':
-        return this.transcriptionInstalled;
       case 'audiocpp_get_available_models':
         return this.models;
       case 'audiocpp_download_model':
@@ -95,30 +103,38 @@ async function renderProvider() {
   return captured!;
 }
 
-function installedModels(transcription: boolean, diarization: boolean): AudioCppModelInfo[] {
-  const model = (name: string, available: boolean): AudioCppModelInfo => ({
-    name,
-    display_name: name,
-    family: 'audio-cpp',
-    task: name === AUDIOCPP_TRANSCRIPTION_MODEL ? 'asr' : 'diar',
-    quantization: 'F16',
-    filename: `${name}.gguf`,
-    path: `/models/${name}.gguf`,
-    size_mb: 422,
-    size_bytes: 422 * 1024 * 1024,
-    description: '',
-    status: available ? 'Available' : 'Missing',
-  });
+const tcpModel = (name: string, available: boolean): TranscribeCppModelInfo => ({
+  name,
+  display_name: name,
+  family: 'parakeet-ultra',
+  quantization: 'Q8_0',
+  filename: `${name}.gguf`,
+  path: `/models/transcribecpp/${name}.gguf`,
+  size_mb: 422,
+  size_bytes: 422 * 1024 * 1024,
+  description: '',
+  sha256: '0'.repeat(64),
+  status: available ? 'Available' : 'Missing',
+});
 
-  return [
-    model(AUDIOCPP_TRANSCRIPTION_MODEL, transcription),
-    model(AUDIOCPP_DIARIZATION_MODEL, diarization),
-  ];
-}
+const diarModel = (available: boolean): AudioCppModelInfo => ({
+  name: AUDIOCPP_DIARIZATION_MODEL,
+  display_name: AUDIOCPP_DIARIZATION_MODEL,
+  family: 'nemotron_3_diar',
+  task: 'diar',
+  quantization: 'BF16',
+  filename: `${AUDIOCPP_DIARIZATION_MODEL}.gguf`,
+  path: `/models/audiocpp/${AUDIOCPP_DIARIZATION_MODEL}.gguf`,
+  size_mb: 422,
+  size_bytes: 422 * 1024 * 1024,
+  description: '',
+  status: available ? 'Available' : 'Missing',
+});
 
 test('completion does not remember a missing transcription model as downloaded', async () => {
   native.transcriptionInstalled = false;
-  native.models = installedModels(false, true);
+  native.tcpModels = [tcpModel(ONBOARDING_TRANSCRIPTION_MODEL, false)];
+  native.models = [diarModel(true)];
 
   const context = await renderProvider();
   await act(async () => {
@@ -132,7 +148,8 @@ test('completion does not remember a missing transcription model as downloaded',
 
 test('completion records the transcription model only when it is installed', async () => {
   native.transcriptionInstalled = true;
-  native.models = installedModels(true, false);
+  native.tcpModels = [tcpModel(ONBOARDING_TRANSCRIPTION_MODEL, true)];
+  native.models = [diarModel(false)];
 
   const context = await renderProvider();
   await act(async () => {
@@ -143,18 +160,22 @@ test('completion records the transcription model only when it is installed', asy
   expect(captured!.diarizationModelDownloaded).toBe(false);
 });
 
-test('starting the onboarding downloads seeds the card sizes from the catalog', async () => {
-  native.models = installedModels(false, false);
+test('starting the onboarding downloads seeds the card sizes from the catalogs', async () => {
+  native.tcpModels = [tcpModel(ONBOARDING_TRANSCRIPTION_MODEL, false)];
+  native.models = [diarModel(false)];
 
   const context = await renderProvider();
   expect(context.transcriptionModelProgressInfo.totalMb).toBe(0);
 
   await act(async () => {
     await context.startBackgroundDownloads({
-      includeAudioCppTranscription: true,
-      includeAudioCppDiarization: true,
+      includeTranscription: true,
+      includeDiarization: true,
       includeSummary: false,
     });
+    // Flush the transcription card's un-awaited catalog read.
+    await Promise.resolve();
+    await Promise.resolve();
   });
 
   expect(captured!.transcriptionModelProgressInfo.totalMb).toBe(422);

@@ -60,7 +60,7 @@ mock.module('../../src/components/ui/select', () => ({
 mock.module('../../src/contexts/ConfigContext', () => ({
   useConfig: () => ({
     selectedLanguage: 'auto',
-    transcriptModelConfig: { provider: 'whisper', model: 'large-v3' },
+    transcriptModelConfig: { provider: 'transcribeCpp', model: 'parakeet-ultra-Q8_0' },
   }),
 }));
 
@@ -69,9 +69,7 @@ const registered = new Map<string, Handler>();
 
 mock.module('@tauri-apps/api/core', () => ({
   invoke: async (command: string) => {
-    if (command === 'whisper_get_available_models') return [];
-    if (command === 'parakeet_get_available_models') return [];
-    if (command === 'audiocpp_get_available_models') return [];
+    if (command === 'transcribecpp_get_available_models') return [];
     return undefined;
   },
 }));

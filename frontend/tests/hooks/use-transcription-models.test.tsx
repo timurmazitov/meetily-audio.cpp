@@ -6,35 +6,19 @@ afterAll(() => {
   mock.module('@tauri-apps/api/core', () => originalCore);
 });
 
-interface RawModel {
+interface TranscribeCppRawModel {
   name: string;
+  display_name: string;
   size_mb: number;
   status: unknown;
 }
 
-interface AudioCppRawModel extends RawModel {
-  display_name: string;
-  task: 'asr' | 'diar';
-}
-
-interface TranscribeCppRawModel extends RawModel {
-  display_name: string;
-}
-
-let whisperModels: RawModel[] = [];
-let parakeetModels: RawModel[] = [];
-let audioCppModels: AudioCppRawModel[] = [];
-let audioCppFails = false;
 let transcribeCppModels: TranscribeCppRawModel[] = [];
 let transcribeCppFails = false;
+const invokeCalls: string[] = [];
 
 const invoke = mock(async (command: string): Promise<unknown> => {
-  if (command === 'whisper_get_available_models') return whisperModels;
-  if (command === 'parakeet_get_available_models') return parakeetModels;
-  if (command === 'audiocpp_get_available_models') {
-    if (audioCppFails) throw new Error('audio.cpp model manager not initialized');
-    return audioCppModels;
-  }
+  invokeCalls.push(command);
   if (command === 'transcribecpp_get_available_models') {
     if (transcribeCppFails) throw new Error('transcribe.cpp model manager not initialized');
     return transcribeCppModels;
@@ -66,104 +50,19 @@ function latest() {
 }
 
 beforeEach(() => {
-  whisperModels = [];
-  parakeetModels = [];
-  audioCppModels = [];
-  audioCppFails = false;
   transcribeCppModels = [];
   transcribeCppFails = false;
+  invokeCalls.length = 0;
   renderer?.unmount();
   renderer = undefined;
 });
 
-describe('useTranscriptionModels with audioCpp', () => {
-  test('lists installed audioCpp transcription models alongside Whisper and Parakeet', async () => {
-    whisperModels = [{ name: 'small', size_mb: 461, status: 'Available' }];
-    parakeetModels = [{ name: 'parakeet-tdt-0.6b-v3-int8', size_mb: 700, status: 'Available' }];
-    audioCppModels = [
-      { name: 'gigaam-v3-e2e-ctc-f16', display_name: 'GigaAM v3 e2e CTC', task: 'asr', size_mb: 422, status: 'Available' },
-      // A diarization model is installed but can never produce a transcript:
-      // it must not appear in the model options of these dialogs.
-      { name: 'nemotron-3-diarization-bf16', display_name: 'Nemotron-3 Diarization', task: 'diar', size_mb: 190, status: 'Available' },
-    ];
-
-    await renderHook({ provider: 'localWhisper', model: 'small' });
-    await act(async () => {
-      await latest().fetchModels();
-    });
-
-    const providers = latest().availableModels.map((m) => `${m.provider}:${m.name}`);
-    expect(providers).toContain('whisper:small');
-    expect(providers).toContain('parakeet:parakeet-tdt-0.6b-v3-int8');
-    expect(providers).toContain('audioCpp:gigaam-v3-e2e-ctc-f16');
-    expect(providers).not.toContain('audioCpp:nemotron-3-diarization-bf16');
-  });
-
-  test('selects the configured audioCpp model by default', async () => {
-    audioCppModels = [
-      { name: 'gigaam-v3-e2e-ctc-f16', display_name: 'GigaAM v3 e2e CTC', task: 'asr', size_mb: 422, status: 'Available' },
-    ];
-
-    await renderHook({ provider: 'audioCpp', model: 'gigaam-v3-e2e-ctc-f16' });
-    await act(async () => {
-      await latest().fetchModels();
-    });
-
-    expect(latest().selectedModelKey).toBe('audioCpp:gigaam-v3-e2e-ctc-f16');
-  });
-
-  test('skips audioCpp models that are not fully installed', async () => {
-    audioCppModels = [
-      { name: 'gigaam-v3-e2e-ctc-f16', display_name: 'GigaAM v3 e2e CTC', task: 'asr', size_mb: 422, status: 'Downloading' },
-    ];
-
-    await renderHook({ provider: 'audioCpp', model: 'gigaam-v3-e2e-ctc-f16' });
-    await act(async () => {
-      await latest().fetchModels();
-    });
-
-    expect(latest().availableModels).toHaveLength(0);
-    // Nothing matched the configured model and no fallback exists.
-    expect(latest().selectedModelKey).toBe('');
-  });
-
-  test('an audioCpp manager failure does not break the other providers', async () => {
-    audioCppFails = true;
-    whisperModels = [{ name: 'small', size_mb: 461, status: 'Available' }];
-
-    await renderHook({ provider: 'localWhisper', model: 'small' });
-    await act(async () => {
-      await latest().fetchModels();
-    });
-
-    expect(latest().availableModels.map((m) => m.provider)).toEqual(['whisper']);
-    expect(latest().selectedModelKey).toBe('whisper:small');
-  });
-});
-
-describe('useTranscriptionModels with transcribeCpp', () => {
-  test('lists installed transcribeCpp models alongside the other providers', async () => {
-    whisperModels = [{ name: 'small', size_mb: 461, status: 'Available' }];
+describe('useTranscriptionModels', () => {
+  test('lists installed transcribeCpp models and nothing else', async () => {
     transcribeCppModels = [
       { name: 'parakeet-ultra-Q8_0', display_name: 'Parakeet Ultra', size_mb: 706, status: 'Available' },
       // A partial download must never be handed to a batch job.
       { name: 'gigaam-v3-ctc-Q8_0', display_name: 'GigaAM v3 CTC', size_mb: 259, status: 'Downloading' },
-    ];
-
-    await renderHook({ provider: 'localWhisper', model: 'small' });
-    await act(async () => {
-      await latest().fetchModels();
-    });
-
-    const providers = latest().availableModels.map((m) => `${m.provider}:${m.name}`);
-    expect(providers).toContain('whisper:small');
-    expect(providers).toContain('transcribeCpp:parakeet-ultra-Q8_0');
-    expect(providers).not.toContain('transcribeCpp:gigaam-v3-ctc-Q8_0');
-  });
-
-  test('selects the configured transcribeCpp model by default', async () => {
-    transcribeCppModels = [
-      { name: 'parakeet-ultra-Q8_0', display_name: 'Parakeet Ultra', size_mb: 706, status: 'Available' },
     ];
 
     await renderHook({ provider: 'transcribeCpp', model: 'parakeet-ultra-Q8_0' });
@@ -171,19 +70,63 @@ describe('useTranscriptionModels with transcribeCpp', () => {
       await latest().fetchModels();
     });
 
-    expect(latest().selectedModelKey).toBe('transcribeCpp:parakeet-ultra-Q8_0');
+    const providers = latest().availableModels.map((m) => `${m.provider}:${m.name}`);
+    expect(providers).toEqual(['transcribeCpp:parakeet-ultra-Q8_0']);
+    // The dialogs read the one catalog; removed engines are never queried.
+    expect(invokeCalls).toEqual(['transcribecpp_get_available_models']);
   });
 
-  test('a transcribeCpp manager failure does not break the other providers', async () => {
-    transcribeCppFails = true;
-    whisperModels = [{ name: 'small', size_mb: 461, status: 'Available' }];
+  test('selects the configured transcribeCpp model by default', async () => {
+    transcribeCppModels = [
+      { name: 'parakeet-ultra-Q8_0', display_name: 'Parakeet Ultra', size_mb: 706, status: 'Available' },
+      { name: 'gigaam-v3-ctc-Q8_0', display_name: 'GigaAM v3 CTC', size_mb: 259, status: 'Available' },
+    ];
 
-    await renderHook({ provider: 'localWhisper', model: 'small' });
+    await renderHook({ provider: 'transcribeCpp', model: 'gigaam-v3-ctc-Q8_0' });
     await act(async () => {
       await latest().fetchModels();
     });
 
-    expect(latest().availableModels.map((m) => m.provider)).toEqual(['whisper']);
-    expect(latest().selectedModelKey).toBe('whisper:small');
+    expect(latest().selectedModelKey).toBe('transcribeCpp:gigaam-v3-ctc-Q8_0');
+  });
+
+  test('a removed engine in the saved config still matches its model by name', async () => {
+    // A config that predates the soft migration names a removed provider; the
+    // only catalog is transcribe.cpp, so the model match is by name alone.
+    transcribeCppModels = [
+      { name: 'parakeet-ultra-Q8_0', display_name: 'Parakeet Ultra', size_mb: 706, status: 'Available' },
+    ];
+
+    await renderHook({ provider: 'parakeet', model: 'parakeet-ultra-Q8_0' });
+    await act(async () => {
+      await latest().fetchModels();
+    });
+
+    expect(latest().selectedModelKey).toBe('transcribeCpp:parakeet-ultra-Q8_0');
+  });
+
+  test('falls back to the first installed model when the configured one is missing', async () => {
+    transcribeCppModels = [
+      { name: 'parakeet-ultra-Q8_0', display_name: 'Parakeet Ultra', size_mb: 706, status: 'Available' },
+    ];
+
+    await renderHook({ provider: 'transcribeCpp', model: 'not-installed' });
+    await act(async () => {
+      await latest().fetchModels();
+    });
+
+    expect(latest().selectedModelKey).toBe('transcribeCpp:parakeet-ultra-Q8_0');
+  });
+
+  test('a manager failure leaves no models and no selection', async () => {
+    transcribeCppFails = true;
+
+    await renderHook({ provider: 'transcribeCpp', model: 'parakeet-ultra-Q8_0' });
+    await act(async () => {
+      await latest().fetchModels();
+    });
+
+    expect(latest().availableModels).toHaveLength(0);
+    expect(latest().selectedModelKey).toBe('');
   });
 });

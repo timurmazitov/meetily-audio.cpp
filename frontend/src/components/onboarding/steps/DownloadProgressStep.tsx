@@ -12,8 +12,9 @@ import { getSummaryModelSizeMb } from '@/lib/onboarding-summary-model';
 import { formatDecimal, formatMegabytes } from '@/lib/format-locale';
 import type { AppLanguageCode } from '@/i18n';
 import { AUDIOCPP_COMMANDS } from '@/lib/audiocpp';
+import { TRANSCRIBECPP_COMMANDS } from '@/lib/transcribeCpp';
 import {
-  audioCppRetryModelName,
+  onboardingRetryModelName,
   isContinueEnabled,
   onboardingDownloadRetryTarget,
   resolveTranscriptionGate,
@@ -221,11 +222,15 @@ export function DownloadProgressStep() {
     ),
   };
 
-  // Retry audio.cpp download handler. There is no dedicated retry command:
-  // downloading is the idempotent entry point, so retrying re-requests the
-  // catalogued model name and the native manager resumes the download.
-  const handleRetryAudioCppDownload = async (role: AudioCppModelRole) => {
-    const modelName = audioCppRetryModelName(role);
+  // Retry a download. There is no dedicated retry command: downloading is the
+  // idempotent entry point, so retrying re-requests the catalogued model name
+  // from the card's engine and the native manager resumes the download.
+  const handleRetryDownload = async (role: AudioCppModelRole) => {
+    const modelName = onboardingRetryModelName(role);
+    const command =
+      role === 'transcription'
+        ? TRANSCRIBECPP_COMMANDS.downloadModel
+        : AUDIOCPP_COMMANDS.downloadModel;
     if (!modelName) return;
 
     // Prevent multiple simultaneous retries
@@ -234,7 +239,7 @@ export function DownloadProgressStep() {
       return;
     }
 
-    console.log('[DownloadProgressStep] Retrying audio.cpp model download:', modelName);
+    console.log('[DownloadProgressStep] Retrying model download:', modelName);
     retryingRef.current = true;
 
     // Clearing the verified flag turns a failed/cancelled card back to
@@ -246,7 +251,7 @@ export function DownloadProgressStep() {
     }
 
     try {
-      await invoke(AUDIOCPP_COMMANDS.downloadModel, { modelName });
+      await invoke(command, { modelName });
       // Progress events will update state
     } catch (error) {
       console.error('[DownloadProgressStep] Retry failed:', error);
@@ -344,11 +349,11 @@ export function DownloadProgressStep() {
     downloadsStartedRef.current = true;
 
     startBackgroundDownloads({
-      includeAudioCppTranscription: true,
-      includeAudioCppDiarization: true,
+      includeTranscription: true,
+      includeDiarization: true,
       includeSummary: false,
     }).catch((error) => {
-      console.error('Failed to start audio.cpp model downloads:', error);
+      console.error('Failed to start onboarding model downloads:', error);
     });
   }, []);
 
@@ -436,8 +441,8 @@ export function DownloadProgressStep() {
           },
         }));
         await startBackgroundDownloads({
-          includeAudioCppTranscription: false,
-          includeAudioCppDiarization: false,
+          includeTranscription: false,
+          includeDiarization: false,
           includeSummary: true,
           summaryModel: selectedSummaryModel,
         });
@@ -454,8 +459,9 @@ export function DownloadProgressStep() {
     // Verify the native ASR gate (catches state drift). Only the transcription
     // model gates onboarding: an installed Nemotron alone does not pass.
     try {
-      await invoke(AUDIOCPP_COMMANDS.init);
-      const installedOnDisk = await invoke<boolean>(AUDIOCPP_COMMANDS.hasTranscriptionModel);
+      const installedOnDisk = await invoke<boolean>(
+        TRANSCRIBECPP_COMMANDS.hasTranscriptionModel
+      );
       const gate = resolveTranscriptionGate({
         installedOnDisk,
         state: audioCppStates.transcription,
@@ -518,13 +524,13 @@ export function DownloadProgressStep() {
     }
   };
 
-  // "Try Again" for a card: audio.cpp retries re-request the catalogued model,
-  // the summary card keeps its built-in AI path.
+  // "Try Again" for a card: each engine's retry re-requests the catalogued
+  // model, the summary card keeps its built-in AI path.
   const retryHandlerFor = (card: OnboardingDownloadCard): (() => void) | undefined => {
     const target = onboardingDownloadRetryTarget(card);
     if (target === 'builtin-ai') return handleRetrySummaryDownload;
-    if (target === 'audiocpp' && card !== 'summary') {
-      return () => handleRetryAudioCppDownload(card);
+    if ((target === 'transcribecpp' || target === 'audiocpp') && card !== 'summary') {
+      return () => handleRetryDownload(card);
     }
     return undefined;
   };

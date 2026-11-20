@@ -103,7 +103,7 @@ function applyComponentMocks() {
     ...originalConfig,
     useConfig: () => ({
       selectedLanguage: 'auto',
-      transcriptModelConfig: { provider: 'localWhisper' },
+      transcriptModelConfig: { provider: 'transcribeCpp' },
     }),
   }));
   mock.module('../../src/hooks/useTranscriptionModels', () => ({
@@ -313,11 +313,11 @@ describe('RetranscribeDialog', () => {
       [
         'retranscribe.title',
         'retranscribe.languageLabel',
-        'retranscribe.selectLanguage',
+        'retranscribe.languageTranscribeCppHint',
         'retranscribe.start',
         'common.cancel',
       ],
-      ['Retranscribe Meeting', 'Select language', 'Start Retranscription'],
+      ['Retranscribe Meeting', 'Start Retranscription'],
     );
   });
 });
