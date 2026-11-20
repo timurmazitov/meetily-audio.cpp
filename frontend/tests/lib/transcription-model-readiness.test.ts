@@ -22,6 +22,16 @@ describe('transcription model readiness', () => {
     });
   });
 
+  test('uses transcribe.cpp commands when transcribeCpp is the configured provider', () => {
+    expect(getProviderCommands('transcribeCpp')).toEqual({
+      initialize: 'transcribecpp_model_init',
+      // The transcribe.cpp catalog is ASR-only, but the readiness gate keeps
+      // the transcription-model command so it mirrors audio.cpp.
+      hasAvailableModels: 'transcribecpp_has_transcription_model',
+      getAvailableModels: 'transcribecpp_get_available_models',
+    });
+  });
+
   test('does not silently treat an unsupported provider as Parakeet', () => {
     expect(getProviderCommands('deepgram')).toBeNull();
   });

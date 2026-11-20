@@ -175,9 +175,11 @@ export function ImportAudioDialog({
   }, [selectedModelKey, availableModels]);
   const isParakeetModel = selectedModel?.provider === 'parakeet';
   const isAudioCppModel = selectedModel?.provider === 'audioCpp';
+  const isTranscribeCppModel = selectedModel?.provider === 'transcribeCpp';
   // Parakeet auto-detects; audioCpp (GigaAM) transcribes in its trained
-  // language. Neither accepts a language selection.
-  const isLanguageAutoModel = isParakeetModel || isAudioCppModel;
+  // language; transcribe.cpp detects the language itself. None of them
+  // accepts a language selection.
+  const isLanguageAutoModel = isParakeetModel || isAudioCppModel || isTranscribeCppModel;
 
   useEffect(() => {
     if (isLanguageAutoModel && selectedLang !== 'auto') {
@@ -379,7 +381,9 @@ export function ImportAudioDialog({
                           <p className="text-xs text-muted-foreground">
                             {isAudioCppModel
                               ? t('importAudio.language.audioCppUnsupported')
-                              : t('importAudio.language.parakeetUnsupported')}
+                              : isTranscribeCppModel
+                                ? t('importAudio.language.transcribeCppUnsupported')
+                                : t('importAudio.language.parakeetUnsupported')}
                           </p>
                         </div>
                       )}

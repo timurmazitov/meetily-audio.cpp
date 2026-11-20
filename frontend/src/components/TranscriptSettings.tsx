@@ -9,11 +9,12 @@ import { useTranslation } from 'react-i18next';
 import { ModelManager } from './WhisperModelManager';
 import { ParakeetModelManager } from './ParakeetModelManager';
 import { AudioCppModelManager } from './AudioCppModelManager';
+import { TranscribeCppModelManager } from './TranscribeCppModelManager';
 import { modelForProviderSwitch } from '@/lib/transcription-provider';
 
 
 export interface TranscriptModelProps {
-    provider: 'localWhisper' | 'parakeet' | 'audioCpp' | 'deepgram' | 'elevenLabs' | 'groq' | 'openai';
+    provider: 'localWhisper' | 'parakeet' | 'audioCpp' | 'transcribeCpp' | 'deepgram' | 'elevenLabs' | 'groq' | 'openai';
     model: string;
     apiKey?: string | null;
 }
@@ -38,7 +39,7 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
     }, [transcriptModelConfig.provider]);
 
     useEffect(() => {
-        if (transcriptModelConfig.provider === 'localWhisper' || transcriptModelConfig.provider === 'parakeet' || transcriptModelConfig.provider === 'audioCpp') {
+        if (transcriptModelConfig.provider === 'localWhisper' || transcriptModelConfig.provider === 'parakeet' || transcriptModelConfig.provider === 'audioCpp' || transcriptModelConfig.provider === 'transcribeCpp') {
             setApiKey(null);
         }
     }, [transcriptModelConfig.provider]);
@@ -58,6 +59,7 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
         localWhisper: [], // Model selection handled by ModelManager component
         parakeet: [], // Model selection handled by ParakeetModelManager component
         audioCpp: [], // Model selection handled by AudioCppModelManager component
+        transcribeCpp: [], // Model selection handled by TranscribeCppModelManager component
         deepgram: ['nova-2-phonecall'],
         elevenLabs: ['eleven_multilingual_v2'],
         groq: ['llama-3.3-70b-versatile'],
@@ -112,6 +114,18 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
         }
     };
 
+    const handleTranscribeCppModelSelect = (modelName: string) => {
+        setTranscriptModelConfig({
+            ...transcriptModelConfig,
+            provider: 'transcribeCpp',
+            model: modelName
+        });
+        // Close modal after selection
+        if (onModelSelect) {
+            onModelSelect();
+        }
+    };
+
     /**
      * Persist a provider change immediately.
      *
@@ -121,7 +135,7 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
      */
     const handleProviderChange = async (provider: TranscriptModelProps['provider']) => {
         setUiProvider(provider);
-        if (provider === 'localWhisper' || provider === 'parakeet' || provider === 'audioCpp') {
+        if (provider === 'localWhisper' || provider === 'parakeet' || provider === 'audioCpp' || provider === 'transcribeCpp') {
             // Catalogue-backed: the model is chosen in the manager below.
             const model = modelForProviderSwitch(
                 provider,
@@ -164,6 +178,7 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
                                     <SelectItem value="parakeet">{t('settingsTranscription.providerParakeet')}</SelectItem>
                                     <SelectItem value="localWhisper">{t('settingsTranscription.providerWhisper')}</SelectItem>
                                     <SelectItem value="audioCpp">{t('settingsTranscription.providerAudioCpp')}</SelectItem>
+                                    <SelectItem value="transcribeCpp">{t('settingsTranscription.providerTranscribeCpp')}</SelectItem>
                                     {/* <SelectItem value="deepgram">☁️ Deepgram (Backup)</SelectItem>
                                     <SelectItem value="elevenLabs">☁️ ElevenLabs</SelectItem>
                                     <SelectItem value="groq">☁️ Groq</SelectItem>
@@ -171,7 +186,7 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
                                 </SelectContent>
                             </Select>
 
-                            {uiProvider !== 'localWhisper' && uiProvider !== 'parakeet' && uiProvider !== 'audioCpp' && (
+                            {uiProvider !== 'localWhisper' && uiProvider !== 'parakeet' && uiProvider !== 'audioCpp' && uiProvider !== 'transcribeCpp' && (
                                 <Select
                                     value={transcriptModelConfig.model}
                                     onValueChange={(value) => {
@@ -218,6 +233,16 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
                             <AudioCppModelManager
                                 selectedModel={transcriptModelConfig.provider === 'audioCpp' ? transcriptModelConfig.model : undefined}
                                 onModelSelect={handleAudioCppModelSelect}
+                                autoSave={true}
+                            />
+                        </div>
+                    )}
+
+                    {uiProvider === 'transcribeCpp' && (
+                        <div className="mt-6">
+                            <TranscribeCppModelManager
+                                selectedModel={transcriptModelConfig.provider === 'transcribeCpp' ? transcriptModelConfig.model : undefined}
+                                onModelSelect={handleTranscribeCppModelSelect}
                                 autoSave={true}
                             />
                         </div>

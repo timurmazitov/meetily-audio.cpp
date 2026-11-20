@@ -101,9 +101,11 @@ export function RetranscribeDialog({
   }, [selectedModelKey, availableModels]);
   const isParakeetModel = selectedModelDetails?.provider === 'parakeet';
   const isAudioCppModel = selectedModelDetails?.provider === 'audioCpp';
+  const isTranscribeCppModel = selectedModelDetails?.provider === 'transcribeCpp';
   // Parakeet auto-detects; audioCpp (GigaAM) transcribes in its trained
-  // language. Neither accepts a language selection.
-  const isLanguageAutoModel = isParakeetModel || isAudioCppModel;
+  // language; transcribe.cpp detects the language itself. None of them
+  // accepts a language selection.
+  const isLanguageAutoModel = isParakeetModel || isAudioCppModel || isTranscribeCppModel;
 
   useEffect(() => {
     if (isLanguageAutoModel && selectedLang !== 'auto') {
@@ -345,7 +347,9 @@ export function RetranscribeDialog({
                 <p className="text-xs text-muted-foreground">
                   {isAudioCppModel
                     ? t('retranscribe.languageAudioCppHint')
-                    : t('retranscribe.languageParakeetHint')}
+                    : isTranscribeCppModel
+                      ? t('retranscribe.languageTranscribeCppHint')
+                      : t('retranscribe.languageParakeetHint')}
                 </p>
               </div>
             )

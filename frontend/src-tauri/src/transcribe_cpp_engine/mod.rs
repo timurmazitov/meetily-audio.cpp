@@ -1,5 +1,5 @@
-//! transcribe.cpp (ggml) transcription engine module — native FFI layer,
-//! ABI gate, and diagnostics.
+//! transcribe.cpp (ggml) transcription engine module — model management
+//! and the native FFI layer.
 //!
 //! Handwritten `extern "C"` binding to the transcribe.cpp C ABI (pinned
 //! release v0.4.2, header hash `f99ad4169374b8f3` — there are no official
@@ -10,9 +10,15 @@
 //! seam traits in [`engine`], and the [`transcribecpp_diagnostics`]
 //! command. This is the only place with unsafe FFI for this engine.
 //!
-//! NOTE (merge): the catalog/model-manager side of this module —
-//! `catalog`, `models`, `commands` (and their re-exports) — is added by
-//! the sibling ticket; union the two `mod.rs` versions on merge.
+//! Model management (`catalog`, `models`, `commands`, `transcription`) is
+//! deliberately independent of the FFI layer: it lists, downloads,
+//! validates and deletes model files without loading the native library,
+//! so models can be managed before transcription support exists.
+//!
+//! Naming convention (mirrors `audio_cpp_engine`): Tauri commands and events
+//! use the `transcribecpp_` / `transcribecpp-` prefix; the provider config
+//! string is `transcribeCpp`; the models live under
+//! `<app_data>/models/transcribecpp`.
 //!
 //! Threading contract (transcribe.h v0.4.2 preamble):
 //! - Model queries are thread-safe; sessions are NOT: one session is
@@ -26,13 +32,19 @@
 mod ffi;
 
 pub mod backend;
+pub mod catalog;
+pub mod commands;
 pub mod diagnostics;
 pub mod engine;
 pub mod error;
+pub mod models;
 pub mod session_thread;
+pub mod transcription;
 pub mod wrapper;
 
 pub use backend::{select_device, ComputeMode, DeviceQuery, DeviceSelection};
+pub use catalog::{ModelInfo, ModelSpec, ModelStatus};
+pub use commands::*;
 pub use diagnostics::{transcribecpp_diagnostics, TranscribeCppDiagnostics};
 pub use engine::{
     NativeTranscribeCppEngine, TranscribeCppEngine, TranscribeCppModel, TranscriptionOutput,
@@ -41,7 +53,13 @@ pub use engine::{
 pub use error::{
     Status, TranscribeCppError, TRANSCRIBECPP_PINNED_HEADER_HASH, TRANSCRIBECPP_PINNED_VERSION,
 };
-pub use session_thread::{SessionHandle, SessionLoadError, SessionRequestError, SessionTask, SessionThread};
+pub use models::{TranscribeCppModelManager, CancelDownloadOutcome};
+pub use session_thread::{
+    SessionHandle, SessionLoadError, SessionRequestError, SessionTask, SessionThread,
+};
+pub use transcription::{
+    select_requested_transcription_model, select_transcription_model, ModelNotReady,
+};
 pub use wrapper::{
     AbiContract, Model, RunOutput, Segment, Session, TranscribeCpp, CONTRACT_FILE_NAME,
     LIBRARY_FILE_NAMES, LIBRARY_LANES_DIR, TRANSCRIBECPP_LIBRARY_ENV,

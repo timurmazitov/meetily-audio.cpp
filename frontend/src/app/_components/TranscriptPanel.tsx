@@ -87,7 +87,7 @@ export function TranscriptPanel({
                     </span>
                   </Button>
                 )}
-                {(transcriptModelConfig.provider === "localWhisper" || transcriptModelConfig.provider === "audioCpp") &&
+                {(transcriptModelConfig.provider === "localWhisper" || transcriptModelConfig.provider === "audioCpp" || transcriptModelConfig.provider === "transcribeCpp") &&
                   <Button
                     variant="outline"
                     size="sm"

@@ -103,6 +103,8 @@
     "parakeetBody": "Parakeet currently only supports automatic language detection. Manual language selection is not available. Use Whisper if you need to specify a particular language.",
     "audioCppTitle": "audioCpp Language Support",
     "translationWhisperOnly": "Automatic translation is only available with the Whisper provider. audioCpp transcribes in the language of the recording.",
+    "transcribeCppTitle": "Transcribe.cpp Language Support",
+    "transcribeCppBody": "Automatic translation is only available with the Whisper provider. Transcribe.cpp transcribes in the language of the recording.",
     "current": "Current:",
     "translationUnavailable": "Translation unavailable",
     "autoWarningTitle": "Auto Detect may produce incorrect results",
@@ -195,6 +197,7 @@
     "selectLanguage": "Select language",
     "languageHint": "Select a specific language to improve accuracy, or use auto-detect",
     "languageAudioCppHint": "Language selection isn't supported for audioCpp. GigaAM transcribes in its trained language (Russian).",
+    "languageTranscribeCppHint": "Language selection isn't supported for Transcribe.cpp. The model detects the language automatically.",
     "languageParakeetHint": "Language selection isn't supported for Parakeet. It always uses automatic detection.",
     "modelLabel": "Model",
     "selectModel": "Select model",
@@ -329,6 +332,7 @@
       "label": "Language",
       "placeholder": "Select language",
       "audioCppUnsupported": "Language selection isn't supported for audioCpp. GigaAM transcribes in its trained language (Russian).",
+      "transcribeCppUnsupported": "Language selection isn't supported for Transcribe.cpp. The model detects the language automatically.",
       "parakeetUnsupported": "Language selection isn't supported for Parakeet. It always uses automatic detection."
     },
     "model": {
@@ -653,6 +657,10 @@
       "taskTranscription": "Transcription",
       "taskDiarization": "Diarization"
     },
+    "transcribeCpp": {
+      "failedToLoadModels": "Failed to load transcribe.cpp models",
+      "openModelsFolder": "Open models folder"
+    },
     "builtIn": {
       "downloaded": "Model {{model}} downloaded successfully",
       "downloadCancelled": "Download of {{model}} cancelled",
@@ -730,6 +738,7 @@
     "providerParakeet": "⚡ Parakeet (Recommended - Real-time / Accurate)",
     "providerWhisper": "🏠 Local Whisper (High Accuracy)",
     "providerAudioCpp": "🎙️ audioCpp (GigaAM — Russian)",
+    "providerTranscribeCpp": "🧠 Transcribe.cpp",
     "diarization": {
       "title": "Speaker diarization",
       "description": "Install this model to label who said what. It works with every transcription provider above."
