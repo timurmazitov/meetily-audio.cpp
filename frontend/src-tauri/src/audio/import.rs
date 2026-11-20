@@ -28,6 +28,7 @@ use super::transcription::diarization_service::{
     SPEAKER_NAMES_RESET_EVENT, SPEAKER_NAMES_RESET_MESSAGE,
 };
 use super::transcription::engine::get_or_init_audio_cpp_provider_with_model;
+use super::transcription::engine::get_or_init_transcribe_cpp_provider_with_model;
 use super::transcription::provider::TranscriptionProvider;
 use crate::database::meeting_facts::usable_duration_seconds;
 use crate::database::repositories::speaker::{self, ReconcileOutcome};
@@ -273,13 +274,6 @@ pub async fn start_import<R: Runtime>(
     IMPORT_CANCELLED.store(false, Ordering::SeqCst);
 
     let engine_kind = BatchEngine::from_provider_name(provider.as_deref());
-    // Batch flows for transcribeCpp arrive with ticket 07; fail early with a
-    // clear message instead of creating a meeting folder and then erroring.
-    if engine_kind == BatchEngine::TranscribeCpp {
-        return Err(anyhow!(
-            "Transcribe.cpp audio import transcription is not available yet. Select Whisper, Parakeet or audio.cpp."
-        ));
-    }
     let result = run_import(app.clone(), source_path, title, language, model, provider).await;
 
     // Unload the engine after the batch job (success, failure, or cancellation)
@@ -540,16 +534,34 @@ async fn run_import<R: Runtime>(
     } else {
         None
     };
-    let audio_cpp_provider: Option<Arc<dyn TranscriptionProvider>> =
-        if engine_kind == BatchEngine::AudioCpp && total_segments > 0 {
-            Some(
-                get_or_init_audio_cpp_provider_with_model(&app, model.clone())
-                    .await
-                    .map_err(|e| anyhow!(e))?,
-            )
-        } else {
-            None
-        };
+    let audio_cpp_provider: Option<Arc<dyn TranscriptionProvider>> = if engine_kind
+        == BatchEngine::AudioCpp
+        && total_segments > 0
+    {
+        Some(
+            get_or_init_audio_cpp_provider_with_model(&app, model.clone())
+                .await
+                .map_err(|e| anyhow!(e))?,
+        )
+    } else {
+        None
+    };
+    // Exact model selection with no fallback: a batch request naming a model
+    // the user picked in the dialog must fail loudly when that model is
+    // missing or corrupted, never silently transcribe with another installed
+    // model (the same rule as audio.cpp's batch path above).
+    let transcribe_cpp_provider: Option<Arc<dyn TranscriptionProvider>> = if engine_kind
+        == BatchEngine::TranscribeCpp
+        && total_segments > 0
+    {
+        Some(
+            get_or_init_transcribe_cpp_provider_with_model(&app, model.clone())
+                .await
+                .map_err(|e| anyhow!(e))?,
+        )
+    } else {
+        None
+    };
 
     // Split very long segments at silence boundaries for better transcription quality.
     // Hard cuts at arbitrary sample positions lose words at boundaries. Instead, scan
@@ -628,6 +640,22 @@ async fn run_import<R: Runtime>(
                 .transcribe(segment.samples.clone(), language.clone())
                 .await
                 .map_err(|e| anyhow!("audioCpp transcription failed on segment {}: {}", i, e))?;
+            (result.text, result.confidence.unwrap_or(0.9f32))
+        } else if let Some(provider) = transcribe_cpp_provider.as_ref() {
+            // Same trait contract as the live pipeline and the audio.cpp
+            // branch above. The provider applies the language hint itself
+            // ("auto"/None travels as the native autodetect hint) and refuses
+            // "auto-translate" with the Whisper-only explanation.
+            let result = provider
+                .transcribe(segment.samples.clone(), language.clone())
+                .await
+                .map_err(|e| {
+                    anyhow!(
+                        "transcribeCpp transcription failed on segment {}: {}",
+                        i,
+                        e
+                    )
+                })?;
             (result.text, result.confidence.unwrap_or(0.9f32))
         } else {
             let engine = whisper_engine.as_ref().unwrap();

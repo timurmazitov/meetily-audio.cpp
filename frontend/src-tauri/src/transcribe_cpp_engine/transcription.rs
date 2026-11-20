@@ -441,6 +441,43 @@ mod tests {
         assert!(text.contains("55%"), "text: {text}");
     }
 
+    #[test]
+    fn a_batch_request_for_an_absent_model_errors_even_when_another_model_is_installed() {
+        // Regression (ticket 07): naming model X while only model Y is
+        // installed must be a NotFound error — never Y's silent substitution.
+        let models = vec![gigaam(ModelStatus::Available)];
+
+        let error = select_requested_transcription_model(&models, "parakeet-ultra-Q8_0")
+            .expect_err("the requested model is not installed");
+
+        match &error {
+            ModelNotReady::NotFound { model } => assert_eq!(model, "parakeet-ultra-Q8_0"),
+            other => panic!("expected NotFound, got {other:?}"),
+        }
+        let text = error.to_string();
+        assert!(text.contains("parakeet-ultra-Q8_0"), "text: {text}");
+        assert!(text.contains("not available"), "text: {text}");
+
+        // A corrupted requested model is likewise reported, with the other
+        // installed model still untouched.
+        let models = vec![
+            ultra(ModelStatus::Corrupted {
+                file_size: 7,
+                expected_min_size: 8,
+            }),
+            gigaam(ModelStatus::Available),
+        ];
+        let error = select_requested_transcription_model(&models, "parakeet-ultra-Q8_0")
+            .expect_err("a corrupted artifact must not load");
+        assert!(
+            matches!(&error, ModelNotReady::Status { model, status }
+                if model == "parakeet-ultra-Q8_0"
+                    && matches!(status, ModelStatus::Corrupted { .. })),
+            "error: {error:?}"
+        );
+        assert!(error.to_string().contains("corrupted"), "text: {error}");
+    }
+
     // The dispatcher (audio::transcription::engine) resolves the configured
     // model through manager.discover_models + select_transcription_model;
     // these cover that composition against real disk states without a native
