@@ -331,6 +331,19 @@ jobs:
         working-directory: frontend
         run: node scripts/stage-transcribe-native.mjs --verify
 
+      - name: Stage transcribe.cpp runtime for bundling (macOS)
+        # macos-latest runners are Apple Silicon, so the script resolves the
+        # pinned macos-arm64-metal lane (no Intel macOS lane exists upstream;
+        # this workflow only targets aarch64-apple-darwin for macOS).
+        if: contains(inputs.platform, 'macos')
+        working-directory: frontend
+        run: node scripts/stage-transcribe-native.mjs
+
+      - name: Verify transcribe.cpp runtime staging (macOS)
+        if: contains(inputs.platform, 'macos')
+        working-directory: frontend
+        run: node scripts/stage-transcribe-native.mjs --verify
+
       - name: Prepare Vulkan SDK for Ubuntu 22.04
         if: contains(inputs.platform, 'ubuntu-22.04')
         run: |
