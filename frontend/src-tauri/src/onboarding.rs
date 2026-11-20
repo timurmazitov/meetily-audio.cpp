@@ -226,6 +226,7 @@ pub async fn complete_onboarding<R: Runtime>(
         pool,
         transcript_provider,
         transcript_model,
+        "auto",
     ).await {
         error!("Failed to save transcription model config: {}", e);
         return Err(format!("Failed to save transcription model config: {}", e));

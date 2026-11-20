@@ -154,18 +154,21 @@ impl SettingsRepository {
         pool: &SqlitePool,
         provider: &str,
         model: &str,
+        transcribe_backend: &str,
     ) -> std::result::Result<(), sqlx::Error> {
         sqlx::query(
             r#"
-            INSERT INTO transcript_settings (id, provider, model)
-            VALUES ('1', $1, $2)
+            INSERT INTO transcript_settings (id, provider, model, transcribeBackend)
+            VALUES ('1', $1, $2, $3)
             ON CONFLICT(id) DO UPDATE SET
                 provider = excluded.provider,
-                model = excluded.model
+                model = excluded.model,
+                transcribeBackend = excluded.transcribeBackend
             "#,
         )
         .bind(provider)
         .bind(model)
+        .bind(transcribe_backend)
         .execute(pool)
         .await?;
 
@@ -403,7 +406,8 @@ mod tests {
                 deepgramApiKey TEXT,
                 elevenLabsApiKey TEXT,
                 groqApiKey TEXT,
-                openaiApiKey TEXT
+                openaiApiKey TEXT,
+                transcribeBackend TEXT NOT NULL DEFAULT 'auto'
             )"#,
         )
         .execute(&pool)
@@ -420,13 +424,64 @@ mod tests {
         (setting.provider, setting.model)
     }
 
+    async fn saved_backend(pool: &SqlitePool) -> Option<String> {
+        SettingsRepository::get_transcript_config(pool)
+            .await
+            .unwrap()
+            .expect("transcript config saved")
+            .transcribe_backend
+    }
+
+    #[tokio::test]
+    async fn the_compute_backend_round_trips_and_absent_means_auto() {
+        // The column is NOT NULL DEFAULT 'auto': a save without an explicit
+        // mode (an older caller or a cloud-provider save) stores 'auto', and
+        // a save with a mode survives a "restart" (a fresh read).
+        let pool = test_pool().await;
+        SettingsRepository::save_transcript_config(&pool, "transcribeCpp", "parakeet-ultra-Q8_0", "auto")
+            .await
+            .unwrap();
+        assert_eq!(saved_backend(&pool).await.as_deref(), Some("auto"));
+
+        SettingsRepository::save_transcript_config(&pool, "transcribeCpp", "parakeet-ultra-Q8_0", "vulkan")
+            .await
+            .unwrap();
+        assert_eq!(saved_backend(&pool).await.as_deref(), Some("vulkan"));
+        assert_eq!(
+            saved_provider(&pool).await,
+            (
+                "transcribeCpp".to_string(),
+                "parakeet-ultra-Q8_0".to_string()
+            ),
+            "provider and model are untouched by the mode change"
+        );
+
+        SettingsRepository::save_transcript_config(&pool, "transcribeCpp", "gigaam-v3-ctc-Q8_0", "cpu")
+            .await
+            .unwrap();
+        assert_eq!(saved_backend(&pool).await.as_deref(), Some("cpu"));
+
+        // A row predating the selector (inserted without the column) reads
+        // back as the schema default.
+        sqlx::query("INSERT INTO transcript_settings (id, provider, model) VALUES ('2', 'parakeet', 'm')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let row: (String,) =
+            sqlx::query_as("SELECT transcribeBackend FROM transcript_settings WHERE id = '2'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(row.0, "auto");
+    }
+
     #[tokio::test]
     async fn audiocpp_provider_and_model_survive_a_restart() {
         // A "restart" is a fresh read through the same repository, exactly what
         // the app does on launch.
         let pool = test_pool().await;
 
-        SettingsRepository::save_transcript_config(&pool, "audioCpp", "gigaam-v3-e2e-ctc-f16")
+        SettingsRepository::save_transcript_config(&pool, "audioCpp", "gigaam-v3-e2e-ctc-f16", "auto")
             .await
             .unwrap();
 
@@ -440,10 +495,10 @@ mod tests {
     async fn switching_away_from_audiocpp_persists_the_new_provider() {
         let pool = test_pool().await;
 
-        SettingsRepository::save_transcript_config(&pool, "audioCpp", "gigaam-v3-e2e-ctc-f16")
+        SettingsRepository::save_transcript_config(&pool, "audioCpp", "gigaam-v3-e2e-ctc-f16", "auto")
             .await
             .unwrap();
-        SettingsRepository::save_transcript_config(&pool, "localWhisper", "large-v3-turbo")
+        SettingsRepository::save_transcript_config(&pool, "localWhisper", "large-v3-turbo", "auto")
             .await
             .unwrap();
 
@@ -456,7 +511,7 @@ mod tests {
     #[tokio::test]
     async fn audiocpp_needs_no_api_key_and_saving_one_is_a_no_op() {
         let pool = test_pool().await;
-        SettingsRepository::save_transcript_config(&pool, "audioCpp", "gigaam-v3-e2e-ctc-f16")
+        SettingsRepository::save_transcript_config(&pool, "audioCpp", "gigaam-v3-e2e-ctc-f16", "auto")
             .await
             .unwrap();
 
@@ -481,7 +536,7 @@ mod tests {
     #[tokio::test]
     async fn transcribecpp_needs_no_api_key_and_saving_one_is_a_no_op() {
         let pool = test_pool().await;
-        SettingsRepository::save_transcript_config(&pool, "transcribeCpp", "parakeet-ultra-Q8_0")
+        SettingsRepository::save_transcript_config(&pool, "transcribeCpp", "parakeet-ultra-Q8_0", "auto")
             .await
             .unwrap();
 
@@ -509,7 +564,7 @@ mod tests {
     #[tokio::test]
     async fn other_providers_keep_their_api_key_behaviour() {
         let pool = test_pool().await;
-        SettingsRepository::save_transcript_config(&pool, "parakeet", "parakeet-tdt-0.6b-v3-int8")
+        SettingsRepository::save_transcript_config(&pool, "parakeet", "parakeet-tdt-0.6b-v3-int8", "auto")
             .await
             .unwrap();
 

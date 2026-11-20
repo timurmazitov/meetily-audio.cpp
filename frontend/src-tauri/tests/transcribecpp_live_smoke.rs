@@ -156,7 +156,7 @@ async fn staged_library_and_model_transcribe_speech_end_to_end() {
     .await
     .expect("model loads");
     eprintln!("model '{name}' loaded on backend '{}'", cpp_provider.backend());
-    set_provider(cpp_provider);
+    set_provider(cpp_provider, ComputeMode::Cpu);
 
     let result = {
         let handle = provider().expect("provider is set");

@@ -29,6 +29,7 @@ mod tests {
 
     const SPEAKER_NAMES_MIGRATION_VERSION: i64 = 20_261_118_000_000;
     const MEETING_DATE_COLUMNS_MIGRATION_VERSION: i64 = 20_261_119_000_000;
+    const TRANSCRIBE_BACKEND_MIGRATION_VERSION: i64 = 20_261_120_000_000;
 
     /// Applies the chain up to (but excluding) the given migration, so a test
     /// can seed rows that existed before a later migration introduced columns.
@@ -402,6 +403,47 @@ mod tests {
             "2024-05-06T07:08:09+00:00",
             "the legacy created_at is unchanged"
         );
+    }
+
+    #[tokio::test]
+    async fn transcribe_backend_column_defaults_to_auto_on_existing_rows() {
+        use crate::database::repositories::setting::SettingsRepository;
+
+        // A database saved before the selector existed: a provider/model row
+        // with no compute mode anywhere.
+        let pool = migrated_pool_before(TRANSCRIBE_BACKEND_MIGRATION_VERSION).await;
+        sqlx::query("INSERT INTO transcript_settings (id, provider, model) VALUES ('1', ?, ?)")
+            .bind("audioCpp")
+            .bind("gigaam-v3-e2e-ctc-f16")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        apply_full_migration_chain(&pool).await;
+
+        // The existing row keeps its values and reads back as Auto.
+        let setting = SettingsRepository::get_transcript_config(&pool)
+            .await
+            .unwrap()
+            .expect("the pre-existing row still opens");
+        assert_eq!(setting.provider, "audioCpp");
+        assert_eq!(setting.model, "gigaam-v3-e2e-ctc-f16");
+        assert_eq!(
+            setting.transcribe_backend.as_deref(),
+            Some("auto"),
+            "existing rows keep their values and default to the pre-selector behaviour"
+        );
+
+        // A fresh database gets the same default through the same chain.
+        let fresh = migrated_pool().await;
+        SettingsRepository::save_transcript_config(&fresh, "transcribeCpp", "parakeet-ultra-Q8_0", "vulkan")
+            .await
+            .unwrap();
+        let setting = SettingsRepository::get_transcript_config(&fresh)
+            .await
+            .unwrap()
+            .expect("mode saved");
+        assert_eq!(setting.transcribe_backend.as_deref(), Some("vulkan"));
     }
 
     #[tokio::test]

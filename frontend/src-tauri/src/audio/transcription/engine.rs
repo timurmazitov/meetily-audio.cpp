@@ -79,6 +79,7 @@ pub async fn validate_transcription_model_ready<R: Runtime>(
                     provider: "parakeet".to_string(),
                     model: crate::config::DEFAULT_PARAKEET_MODEL.to_string(),
                     api_key: None,
+                    transcribe_backend: None,
                 }
             }
             Err(e) => {
@@ -90,6 +91,7 @@ pub async fn validate_transcription_model_ready<R: Runtime>(
                     provider: "parakeet".to_string(),
                     model: crate::config::DEFAULT_PARAKEET_MODEL.to_string(),
                     api_key: None,
+                    transcribe_backend: None,
                 }
             }
         };
@@ -228,6 +230,7 @@ pub async fn get_or_init_transcription_engine<R: Runtime>(
                     provider: "parakeet".to_string(),
                     model: crate::config::DEFAULT_PARAKEET_MODEL.to_string(),
                     api_key: None,
+                    transcribe_backend: None,
                 }
             }
             Err(e) => {
@@ -239,6 +242,7 @@ pub async fn get_or_init_transcription_engine<R: Runtime>(
                     provider: "parakeet".to_string(),
                     model: crate::config::DEFAULT_PARAKEET_MODEL.to_string(),
                     api_key: None,
+                    transcribe_backend: None,
                 }
             }
         };
@@ -447,28 +451,45 @@ pub async fn get_or_init_transcribe_cpp_provider<R: Runtime>(
 /// no fallback to another installed model, since silently transcribing with a
 /// different model would defeat the comparison the user is making — and a
 /// cached provider is reused only when it already runs that model.
+///
+/// The compute mode (GLOSSARY: «режим вычислений», the saved
+/// `transcribeBackend` column) travels to the native load; a cached provider
+/// is reloaded when the saved mode changed, exactly like a model change.
 pub async fn get_or_init_transcribe_cpp_provider_with_model<R: Runtime>(
     app: &AppHandle<R>,
     requested_model: Option<String>,
 ) -> Result<Arc<dyn TranscriptionProvider>, String> {
-    if let Some(provider) = crate::transcribe_cpp_engine::transcription::provider() {
+    use tauri::Emitter;
+
+    let mode = saved_transcribe_cpp_compute_mode(app).await;
+
+    if let Some((provider, cached_mode)) =
+        crate::transcribe_cpp_engine::transcription::provider_with_mode()
+    {
         if provider.is_model_loaded().await {
             let current = provider
                 .get_current_model()
                 .await
                 .unwrap_or_else(|| "unknown".to_string());
-            let reuse = match &requested_model {
-                Some(requested) => current == *requested,
-                None => true,
-            };
-            if reuse {
-                info!("✅ transcribeCpp model '{}' already loaded, reusing", current);
+            if crate::transcribe_cpp_engine::transcription::provider_is_reusable(
+                &current,
+                requested_model.as_deref(),
+                cached_mode,
+                mode,
+            ) {
+                info!(
+                    "✅ transcribeCpp model '{}' already loaded on mode '{}', reusing",
+                    current,
+                    mode.as_str()
+                );
                 return Ok(provider);
             }
             info!(
-                "🔄 Loaded transcribeCpp model '{}' does not match requested '{}', reloading",
+                "🔄 Loaded transcribeCpp model '{}' / mode '{}' does not match requested '{}' / '{}', reloading",
                 current,
-                requested_model.as_deref().unwrap_or("")
+                cached_mode.as_str(),
+                requested_model.as_deref().unwrap_or(""),
+                mode.as_str()
             );
         }
     }
@@ -544,25 +565,59 @@ pub async fn get_or_init_transcribe_cpp_provider_with_model<R: Runtime>(
     // load all block; keep them off the async runtime (transcribe.h: every
     // entry point blocks).
     let load_result = tokio::task::spawn_blocking(move || {
-        crate::transcribe_cpp_engine::transcription::load_native_provider(&model)
+        crate::transcribe_cpp_engine::transcription::load_native_provider(&model, mode)
             .map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| format!("transcribeCpp model load task failed: {}", e))?;
 
     match load_result {
-        Ok(provider) => {
+        Ok(crate::transcribe_cpp_engine::transcription::NativeProviderLoad {
+            provider,
+            fell_back_to_cpu,
+        }) => {
             info!(
-                "✅ transcribeCpp provider ready: model '{}', backend '{}'",
+                "✅ transcribeCpp provider ready: model '{}', requested mode '{}', backend '{}'",
                 provider.model_name(),
+                mode.as_str(),
                 provider.backend()
             );
-            let cached = crate::transcribe_cpp_engine::transcription::set_provider(provider);
+            // Vulkan requested but the engine runs on CPU: tell the user
+            // through the existing warning channel (the worker's
+            // "transcription-warning" event) and keep transcribing.
+            if let Some(warning) =
+                crate::transcribe_cpp_engine::transcription::vulkan_fallback_warning(
+                    fell_back_to_cpu,
+                )
+            {
+                warn!("⚠️ transcribeCpp Vulkan fallback: {}", warning);
+                let _ = app.emit("transcription-warning", warning);
+            }
+            let cached =
+                crate::transcribe_cpp_engine::transcription::set_provider(provider, mode);
             Ok(cached)
         }
         Err(message) => {
             warn!("❌ transcribeCpp model load failed: {}", message);
             Err(message)
+        }
+    }
+}
+
+/// The saved transcribe.cpp compute mode ("Авто / Vulkan / CPU"), read through
+/// the same transcript config the model comes from. Absent, unreadable or
+/// unknown values mean Auto, matching the column's schema default.
+async fn saved_transcribe_cpp_compute_mode<R: Runtime>(
+    app: &AppHandle<R>,
+) -> crate::transcribe_cpp_engine::backend::ComputeMode {
+    use crate::transcribe_cpp_engine::backend::ComputeMode;
+    match crate::api::api::api_get_transcript_config(app.clone(), app.clone().state(), None).await
+    {
+        Ok(Some(config)) => ComputeMode::parse(config.transcribe_backend.as_deref()),
+        Ok(None) => ComputeMode::Auto,
+        Err(e) => {
+            warn!("⚠️ Failed to read the transcribeBackend setting, using auto: {}", e);
+            ComputeMode::Auto
         }
     }
 }

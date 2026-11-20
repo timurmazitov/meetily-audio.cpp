@@ -17,6 +17,12 @@ export interface TranscriptModelProps {
     provider: 'localWhisper' | 'parakeet' | 'audioCpp' | 'transcribeCpp' | 'deepgram' | 'elevenLabs' | 'groq' | 'openai';
     model: string;
     apiKey?: string | null;
+    /**
+     * Transcribe.cpp compute mode («режим вычислений»): 'auto' | 'vulkan' |
+     * 'cpu'. Only meaningful for the transcribeCpp provider; absent means
+     * 'auto' (the backend column's schema default).
+     */
+    transcribeBackend?: 'auto' | 'vulkan' | 'cpu';
 }
 
 export interface TranscriptSettingsProps {
@@ -127,6 +133,45 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
     };
 
     /**
+     * Persist a model selection with the current compute mode attached.
+     *
+     * The manager saves the provider/model pair itself; without the mode in
+     * that payload, picking a model would reset the saved «режим вычислений»
+     * to its default. Threading it through keeps the mode stable across model
+     * changes (the backend treats an absent value as 'auto').
+     */
+    const saveTranscribeCppSelection = async (config: {
+        provider: string;
+        model: string;
+        apiKey: null;
+    }) => {
+        await invoke('api_save_transcript_config', {
+            ...config,
+            transcribeBackend: transcriptModelConfig.transcribeBackend ?? 'auto',
+        });
+    };
+
+    /**
+     * Persist a compute-mode change immediately, alongside the current
+     * provider/model. Selecting the mode is a configuration change in its own
+     * right: saving here makes it survive a restart without the user also
+     * clicking a model.
+     */
+    const handleTranscribeBackendChange = async (transcribeBackend: 'auto' | 'vulkan' | 'cpu') => {
+        setTranscriptModelConfig({ ...transcriptModelConfig, transcribeBackend });
+        try {
+            await invoke('api_save_transcript_config', {
+                provider: transcriptModelConfig.provider,
+                model: transcriptModelConfig.model,
+                apiKey: null,
+                transcribeBackend,
+            });
+        } catch (error) {
+            console.error('Failed to save transcribe.cpp compute mode:', error);
+        }
+    };
+
+    /**
      * Persist a provider change immediately.
      *
      * Selecting a provider is a configuration change in its own right: without
@@ -144,7 +189,18 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
             );
             setTranscriptModelConfig({ ...transcriptModelConfig, provider, model });
             try {
-                await invoke('api_save_transcript_config', { provider, model, apiKey: null });
+                if (provider === 'transcribeCpp') {
+                    // Carry the saved compute mode so a provider switch does
+                    // not reset it; the backend normalizes absent → 'auto'.
+                    await invoke('api_save_transcript_config', {
+                        provider,
+                        model,
+                        apiKey: null,
+                        transcribeBackend: transcriptModelConfig.transcribeBackend ?? 'auto',
+                    });
+                } else {
+                    await invoke('api_save_transcript_config', { provider, model, apiKey: null });
+                }
             } catch (error) {
                 console.error('Failed to save transcript provider:', error);
             }
@@ -240,9 +296,32 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
 
                     {uiProvider === 'transcribeCpp' && (
                         <div className="mt-6">
+                            <div className="mb-3">
+                                <Label className="block text-sm font-medium text-gray-700 mb-1">
+                                    {t('settingsTranscription.transcribeBackendLabel')}
+                                </Label>
+                                <Select
+                                    value={transcriptModelConfig.transcribeBackend ?? 'auto'}
+                                    onValueChange={(value) => {
+                                        void handleTranscribeBackendChange(
+                                            value as 'auto' | 'vulkan' | 'cpu',
+                                        );
+                                    }}
+                                >
+                                    <SelectTrigger className='focus:ring-1 focus:ring-blue-500 focus:border-blue-500' data-testid="transcribe-backend-select">
+                                        <SelectValue placeholder={t('settingsTranscription.transcribeBackendLabel')} />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="auto">{t('settingsTranscription.transcribeBackendAuto')}</SelectItem>
+                                        <SelectItem value="vulkan">{t('settingsTranscription.transcribeBackendVulkan')}</SelectItem>
+                                        <SelectItem value="cpu">{t('settingsTranscription.transcribeBackendCpu')}</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
                             <TranscribeCppModelManager
                                 selectedModel={transcriptModelConfig.provider === 'transcribeCpp' ? transcriptModelConfig.model : undefined}
                                 onModelSelect={handleTranscribeCppModelSelect}
+                                saveSelection={saveTranscribeCppSelection}
                                 autoSave={true}
                             />
                         </div>
