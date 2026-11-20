@@ -1,19 +1,22 @@
 /**
- * Pure state resolution for the audio.cpp models downloaded during onboarding.
+ * Pure state resolution for the models downloaded during onboarding.
  *
  * The onboarding context receives raw native events and model lists; the
  * mapping to the "Transcription Engine" / "Speaker Diarization" card states
  * lives here so it can be tested without Tauri (see
  * `frontend/tests/lib/onboarding-audiocpp-status.test.mjs`).
  *
- * Model names are duplicated from the native catalog
- * (`audio_cpp_engine::catalog`), matching the earlier `PARAKEET_MODEL`
- * constant. Status predicates are reused from `./audiocpp`; the unit test
- * loader resolves that relative import through the same transpiler.
+ * The transcription card tracks the Transcribe.CPP catalog default model
+ * (events `transcribecpp-model-download-*`); the diarization card tracks the
+ * audio.cpp Nemotron model (events `audiocpp-model-download-*`). Model names
+ * are duplicated from the native catalogs, matching the settings managers.
+ * Status predicates are reused from `./audiocpp`; the unit test loader
+ * resolves that relative import through the same transpiler.
  */
 
 import i18n, { type AppLanguageCode } from '@/i18n';
 import { formatMegabytes } from '@/lib/format-locale';
+import { DEFAULT_TRANSCRIBE_CPP_MODEL } from '../constants/modelDefaults';
 import {
   downloadProgress,
   isAvailableStatus,
@@ -26,13 +29,13 @@ import type {
   AudioCppModelInfo,
 } from './audiocpp';
 
-/** Catalogued audio.cpp ASR model onboarding installs. */
-export const AUDIOCPP_TRANSCRIPTION_MODEL = 'gigaam-v3-e2e-ctc-f16';
+/** Transcribe.CPP model onboarding installs for transcription. */
+export const ONBOARDING_TRANSCRIPTION_MODEL = DEFAULT_TRANSCRIBE_CPP_MODEL;
 
 /** Catalogued audio.cpp diarization model onboarding installs. */
 export const AUDIOCPP_DIARIZATION_MODEL = 'nemotron-3-diarization-bf16';
 
-/** The two onboarding download cards backed by audio.cpp. */
+/** The two onboarding download cards, backed by transcribe.cpp and audio.cpp. */
 export type AudioCppModelRole = 'transcription' | 'diarization';
 
 export type AudioCppModelDownloadStatus =
@@ -86,7 +89,7 @@ export function initialAudioCppModelStates(): AudioCppModelStates {
 
 /** Which onboarding card a catalogued model name belongs to; foreign names get `null`. */
 export function audioCppModelRole(modelName: string): AudioCppModelRole | null {
-  if (modelName === AUDIOCPP_TRANSCRIPTION_MODEL) return 'transcription';
+  if (modelName === ONBOARDING_TRANSCRIPTION_MODEL) return 'transcription';
   if (modelName === AUDIOCPP_DIARIZATION_MODEL) return 'diarization';
   return null;
 }
@@ -134,7 +137,7 @@ export function applyAudioCppProgressEvent(
   });
 }
 
-/** Apply `audiocpp-model-download-complete` for the matching card only. */
+/** Apply a download-complete event for the matching card only. */
 export function applyAudioCppCompleteEvent(
   states: AudioCppModelStates,
   event: AudioCppDownloadCompleteEvent
@@ -148,7 +151,7 @@ export function applyAudioCppCompleteEvent(
   });
 }
 
-/** Apply `audiocpp-model-download-error` for the matching card only. */
+/** Apply a download-error event for the matching card only. */
 export function applyAudioCppErrorEvent(
   states: AudioCppModelStates,
   event: AudioCppDownloadErrorEvent
@@ -272,7 +275,7 @@ export function formatAudioCppModelSizeLabel(sizeMb: number): string {
 }
 
 /** Where a card's "Try Again" button sends its download request. */
-export type OnboardingDownloadRetryTarget = 'audiocpp' | 'builtin-ai';
+export type OnboardingDownloadRetryTarget = 'transcribecpp' | 'audiocpp' | 'builtin-ai';
 
 /** Every card on the download step. */
 export type OnboardingDownloadCard = AudioCppModelRole | 'summary';
@@ -281,7 +284,8 @@ export type OnboardingDownloadCard = AudioCppModelRole | 'summary';
 export function onboardingDownloadRetryTarget(
   card: OnboardingDownloadCard
 ): OnboardingDownloadRetryTarget | null {
-  if (card === 'transcription' || card === 'diarization') return 'audiocpp';
+  if (card === 'transcription') return 'transcribecpp';
+  if (card === 'diarization') return 'audiocpp';
   if (card === 'summary') return 'builtin-ai';
   return null;
 }
@@ -289,12 +293,12 @@ export function onboardingDownloadRetryTarget(
 /**
  * Catalogued model name a retry re-requests.
  *
- * audio.cpp has no separate retry command: downloading is the idempotent entry
- * point, so retrying is the same `audiocpp_download_model` call. Returns `null`
- * for the summary card, which keeps its own built-in AI download path.
+ * Neither engine has a separate retry command: downloading is the idempotent
+ * entry point, so retrying is the same download call. Returns `null` for the
+ * summary card, which keeps its own built-in AI download path.
  */
-export function audioCppRetryModelName(role: OnboardingDownloadCard): string | null {
-  if (role === 'transcription') return AUDIOCPP_TRANSCRIPTION_MODEL;
+export function onboardingRetryModelName(role: OnboardingDownloadCard): string | null {
+  if (role === 'transcription') return ONBOARDING_TRANSCRIPTION_MODEL;
   if (role === 'diarization') return AUDIOCPP_DIARIZATION_MODEL;
   return null;
 }
@@ -380,7 +384,7 @@ export function seedAudioCppModelSizes(
 
   for (const role of ['transcription', 'diarization'] as const) {
     const modelName =
-      role === 'transcription' ? AUDIOCPP_TRANSCRIPTION_MODEL : AUDIOCPP_DIARIZATION_MODEL;
+      role === 'transcription' ? ONBOARDING_TRANSCRIPTION_MODEL : AUDIOCPP_DIARIZATION_MODEL;
     if (next[role].progress.totalMb > 0) continue;
 
     const sizeMb = cataloguedSizeMb(models, modelName);
@@ -396,7 +400,7 @@ export function seedAudioCppModelSizes(
 }
 
 /**
- * Restore card state from the native model list when onboarding re-enters.
+ * Restore card state from the native model lists when onboarding re-enters.
  *
  * An in-flight download re-appears as `downloading` with its reported
  * percentage, an installed model as `completed`. The card's size is seeded
@@ -412,7 +416,7 @@ export function reconcileAudioCppModelList(
 
   for (const role of ['transcription', 'diarization'] as const) {
     const modelName =
-      role === 'transcription' ? AUDIOCPP_TRANSCRIPTION_MODEL : AUDIOCPP_DIARIZATION_MODEL;
+      role === 'transcription' ? ONBOARDING_TRANSCRIPTION_MODEL : AUDIOCPP_DIARIZATION_MODEL;
     const model = models.find(candidate => candidate.name === modelName);
     if (!model) continue;
 

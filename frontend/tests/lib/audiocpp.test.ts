@@ -12,18 +12,18 @@ import {
   type AudioCppModelStatus,
 } from '../../src/lib/audiocpp';
 
-function model(overrides: Partial<AudioCppModelInfo> = {}): AudioCppModelInfo {
+function diarModel(overrides: Partial<AudioCppModelInfo> = {}): AudioCppModelInfo {
   return {
-    name: 'gigaam-v3-e2e-ctc-f16',
-    display_name: 'GigaAM v3 e2e CTC',
-    family: 'gigaam_asr',
-    task: 'asr',
-    quantization: 'F16',
-    filename: 'gigaam-v3-e2e-ctc-f16.gguf',
-    path: '/models/audiocpp/gigaam-v3-e2e-ctc-f16.gguf',
-    size_mb: 422,
-    size_bytes: 442_520_704,
-    description: 'Russian speech recognition',
+    name: 'nemotron-3-diarization-bf16',
+    display_name: 'Nemotron-3 Diarization',
+    family: 'nemotron_3_diar',
+    task: 'diar',
+    quantization: 'BF16',
+    filename: 'nemotron-3-diarization-bf16.gguf',
+    path: '/models/audiocpp/nemotron-3-diarization-bf16.gguf',
+    size_mb: 190,
+    size_bytes: 198_720_928,
+    description: 'Speaker diarization',
     status: 'Missing',
     ...overrides,
   };
@@ -35,7 +35,6 @@ describe('audio.cpp model manager types', () => {
       init: 'audiocpp_model_init',
       getAvailableModels: 'audiocpp_get_available_models',
       hasAvailableModels: 'audiocpp_has_available_models',
-      hasTranscriptionModel: 'audiocpp_has_transcription_model',
       getModelsDirectory: 'audiocpp_get_models_directory',
       downloadModel: 'audiocpp_download_model',
       cancelDownload: 'audiocpp_cancel_download',
@@ -73,14 +72,14 @@ describe('audio.cpp model manager types', () => {
     expect(typeof fake.init).toBe('function');
   });
 
-  test('uses the audiocpp_ event namespace so listeners cannot collide with Whisper or Parakeet', () => {
+  test('uses the audiocpp_ event namespace so listeners cannot collide with the other engines', () => {
     expect(AUDIOCPP_EVENTS.progress).toBe('audiocpp-model-download-progress');
     expect(AUDIOCPP_EVENTS.complete).toBe('audiocpp-model-download-complete');
     expect(AUDIOCPP_EVENTS.error).toBe('audiocpp-model-download-error');
   });
 
-  test('labels each engine-independent task for the UI', () => {
-    expect(taskLabel('asr')).toBe('Transcription');
+  test('labels the diarization task for the UI', () => {
+    // audio.cpp is diarization-only: the transcription task label is gone.
     expect(taskLabel('diar')).toBe('Diarization');
   });
 
@@ -114,20 +113,8 @@ describe('audio.cpp model manager types', () => {
   });
 
   test('carries family and task metadata independently of any engine', () => {
-    const asr = model();
-    const diar = model({
-      name: 'nemotron-3-diarization-bf16',
-      display_name: 'Nemotron-3 Diarization',
-      family: 'nemotron_3_diar',
-      task: 'diar',
-      quantization: 'BF16',
-      filename: 'nemotron-3-diarization-bf16.gguf',
-      size_mb: 190,
-      size_bytes: 198_720_928,
-    });
+    const diar = diarModel();
 
-    expect(asr.family).toBe('gigaam_asr');
-    expect(asr.task).toBe('asr');
     expect(diar.family).toBe('nemotron_3_diar');
     expect(diar.task).toBe('diar');
     expect(diar.quantization).toBe('BF16');

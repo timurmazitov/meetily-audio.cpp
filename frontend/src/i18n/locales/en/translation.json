@@ -99,18 +99,11 @@
     "saved": "Language preference saved",
     "savedDescription": "Transcription language set to {{language}}",
     "saveFailed": "Failed to save language preference",
-    "parakeetTitle": "Parakeet Language Support",
-    "parakeetBody": "Parakeet currently only supports automatic language detection. Manual language selection is not available. Use Whisper if you need to specify a particular language.",
-    "audioCppTitle": "audioCpp Language Support",
-    "translationWhisperOnly": "Automatic translation is only available with the Whisper provider. audioCpp transcribes in the language of the recording.",
     "transcribeCppTitle": "Transcribe.cpp Language Support",
-    "transcribeCppBody": "Automatic translation is only available with the Whisper provider. Transcribe.cpp transcribes in the language of the recording.",
+    "transcribeCppBody": "Transcribe.cpp transcribes in the language of the recording; the model detects it automatically.",
     "current": "Current:",
-    "translationUnavailable": "Translation unavailable",
     "autoWarningTitle": "Auto Detect may produce incorrect results",
     "autoWarningBody": "For best accuracy, select your specific language (e.g., English, Spanish, etc.)",
-    "translationModeTitle": "Translation Mode Active",
-    "translationModeBody": "All audio will be automatically translated to English. Best for multilingual meetings where you need English output.",
     "optimizedFor": "Transcription will be optimized for"
   },
   "languagePicker": {
@@ -194,11 +187,7 @@
     "completeToast_other": "Retranscription complete! {{count}} segments created.",
     "cancelledToast": "Retranscription cancelled",
     "languageLabel": "Language",
-    "selectLanguage": "Select language",
-    "languageHint": "Select a specific language to improve accuracy, or use auto-detect",
-    "languageAudioCppHint": "Language selection isn't supported for audioCpp. GigaAM transcribes in its trained language (Russian).",
     "languageTranscribeCppHint": "Language selection isn't supported for Transcribe.cpp. The model detects the language automatically.",
-    "languageParakeetHint": "Language selection isn't supported for Parakeet. It always uses automatic detection.",
     "modelLabel": "Model",
     "selectModel": "Select model",
     "loadingModels": "Loading models...",
@@ -330,10 +319,7 @@
     "dropOverlay": "Drop audio file to import",
     "language": {
       "label": "Language",
-      "placeholder": "Select language",
-      "audioCppUnsupported": "Language selection isn't supported for audioCpp. GigaAM transcribes in its trained language (Russian).",
-      "transcribeCppUnsupported": "Language selection isn't supported for Transcribe.cpp. The model detects the language automatically.",
-      "parakeetUnsupported": "Language selection isn't supported for Parakeet. It always uses automatic detection."
+      "transcribeCppUnsupported": "Language selection isn't supported for Transcribe.cpp. The model detects the language automatically."
     },
     "model": {
       "label": "Model",
@@ -599,62 +585,12 @@
       "unlockToEdit": "Unlock to edit",
       "lockToPreventEditing": "Lock to prevent editing"
     },
-    "whisper": {
-      "accuracyValue": "{{value}} accuracy",
-      "speedValue": "{{value}} processing",
-      "accuracy": {
-        "high": "High",
-        "good": "Good",
-        "decent": "Decent"
-      },
-      "speed": {
-        "slow": "Slow",
-        "medium": "Medium",
-        "fast": "Fast",
-        "veryFast": "Very Fast"
-      },
-      "badge": {
-        "fullPrecision": "Full Precision",
-        "balancedPlus": "Balanced+",
-        "balanced": "Balanced",
-        "fast": "Fast",
-        "standard": "Standard"
-      },
-      "tagline": {
-        "realTime": "Real time",
-        "fastProcessing": "Fast processing",
-        "moderateSpeed": "Moderate speed",
-        "slowerProcessing": "Slower processing",
-        "mostAccurate": "Most accurate",
-        "bestAccuracyWithSpeed": "Best accuracy with speed",
-        "professionalQuality": "Professional quality",
-        "balancedQuality": "Balanced quality",
-        "goodAccuracy": "Good accuracy",
-        "fastestOption": "Fastest option",
-        "optimized": ", optimized",
-        "ultraFast": ", ultra fast"
-      }
-    },
-    "parakeet": {
-      "listenFailed": "Failed to listen for Parakeet model updates",
-      "badge": {
-        "fullPrecision": "Full Precision",
-        "int8Quantized": "Int8 Quantized",
-        "standard": "Standard"
-      },
-      "tagline": {
-        "v3": "Real time • Best for speed, great accuracy",
-        "v2": "Real time • Smaller size",
-        "v3FullPrecision": "20x real-time • Higher accuracy"
-      }
-    },
     "audioCpp": {
       "failedToLoadModels": "Failed to load audio.cpp models",
       "nativeLibraryUnavailable": "native library unavailable",
       "openModelsFolder": "Open models folder",
       "runtimeUnavailable": "Diarization engine is unavailable on this system",
       "runtimeUnavailableDescription": "The model can still be downloaded; speaker labels will start once the native audio.cpp library is available.",
-      "taskTranscription": "Transcription",
       "taskDiarization": "Diarization"
     },
     "transcribeCpp": {
@@ -689,7 +625,6 @@
     "failed": "Download failed",
     "complete": "Download complete",
     "cancelled": "Download cancelled",
-    "parakeetModel": "Transcription Model (Parakeet)",
     "summaryModel": "Summary Model ({{model}})",
     "errors": {
       "network": "Network error - Check your internet connection",
@@ -735,9 +670,6 @@
   "settingsTranscription": {
     "model": "Transcript Model",
     "selectModel": "Select model",
-    "providerParakeet": "⚡ Parakeet (Recommended - Real-time / Accurate)",
-    "providerWhisper": "🏠 Local Whisper (High Accuracy)",
-    "providerAudioCpp": "🎙️ audioCpp (GigaAM — Russian)",
     "providerTranscribeCpp": "🧠 Transcribe.cpp",
     "transcribeBackendLabel": "Compute mode",
     "transcribeBackendAuto": "Auto",

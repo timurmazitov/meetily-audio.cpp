@@ -27,7 +27,6 @@ import {
   type DiarizationUnavailablePayload,
 } from '@/lib/diarization';
 import { useConfig } from '@/contexts/ConfigContext';
-import { LANGUAGES } from '@/constants/languages';
 import { useTranscriptionModels, ModelOption } from '@/hooks/useTranscriptionModels';
 
 interface RetranscribeDialogProps {
@@ -65,11 +64,10 @@ export function RetranscribeDialog({
   onComplete,
 }: RetranscribeDialogProps) {
   const { t } = useTranslation();
-  const { selectedLanguage, transcriptModelConfig } = useConfig();
+  const { transcriptModelConfig } = useConfig();
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState<RetranscriptionProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [selectedLang, setSelectedLang] = useState(selectedLanguage || 'auto');
 
   // Use centralized model fetching hook
   const {
@@ -99,19 +97,8 @@ export function RetranscribeDialog({
     const name = selectedModelKey.slice(colonIndex + 1);
     return availableModels.find(m => m.provider === provider && m.name === name);
   }, [selectedModelKey, availableModels]);
-  const isParakeetModel = selectedModelDetails?.provider === 'parakeet';
-  const isAudioCppModel = selectedModelDetails?.provider === 'audioCpp';
-  const isTranscribeCppModel = selectedModelDetails?.provider === 'transcribeCpp';
-  // Parakeet auto-detects; audioCpp (GigaAM) transcribes in its trained
-  // language; transcribe.cpp detects the language itself. None of them
-  // accepts a language selection.
-  const isLanguageAutoModel = isParakeetModel || isAudioCppModel || isTranscribeCppModel;
-
-  useEffect(() => {
-    if (isLanguageAutoModel && selectedLang !== 'auto') {
-      setSelectedLang('auto');
-    }
-  }, [isLanguageAutoModel, selectedLang]);
+  // transcribe.cpp is the only engine: it detects the language itself, so the
+  // dialog offers no language choice and always sends autodetect.
 
   // Reset state only when dialog transitions from closed to open
   // This prevents re-initialization when config changes while dialog is already open
@@ -124,12 +111,11 @@ export function RetranscribeDialog({
       setIsProcessing(false);
       setProgress(null);
       setError(null);
-      setSelectedLang(selectedLanguage || 'auto');
 
       // Fetch available models using centralized hook
       fetchModels();
     }
-  }, [open, selectedLanguage, transcriptModelConfig, fetchModels]);
+  }, [open, transcriptModelConfig, fetchModels]);
 
   // Listen for retranscription events
   useEffect(() => {
@@ -230,11 +216,12 @@ export function RetranscribeDialog({
     setProgress(null);
 
     try {
-      const languageToSend = isLanguageAutoModel ? null : selectedLang === 'auto' ? null : selectedLang;
+      // transcribe.cpp detects the language itself: the batch path receives
+      // no hint, the same as the live pipeline's autodetect.
       await invoke('start_retranscription_command', {
         meetingId,
         meetingFolderPath,
-        language: languageToSend,
+        language: null,
         model: selectedModelDetails?.name || null,
         provider: selectedModelDetails?.provider || null,
       });
@@ -316,43 +303,15 @@ export function RetranscribeDialog({
 
         <div className="space-y-4 py-4">
           {!isProcessing && !error && (
-            !isLanguageAutoModel ? (
-              <div className="space-y-3">
-                <div className="flex items-center gap-2">
-                  <Globe className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm font-medium">{t('retranscribe.languageLabel')}</span>
-                </div>
-                <Select value={selectedLang} onValueChange={setSelectedLang}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder={t('retranscribe.selectLanguage')} />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-60">
-                    {LANGUAGES.map((lang) => (
-                      <SelectItem key={lang.code} value={lang.code}>
-                        {lang.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">
-                  {t('retranscribe.languageHint')}
-                </p>
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <Globe className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm font-medium">{t('retranscribe.languageLabel')}</span>
               </div>
-            ) : (
-              <div className="space-y-3">
-                <div className="flex items-center gap-2">
-                  <Globe className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm font-medium">{t('retranscribe.languageLabel')}</span>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  {isAudioCppModel
-                    ? t('retranscribe.languageAudioCppHint')
-                    : isTranscribeCppModel
-                      ? t('retranscribe.languageTranscribeCppHint')
-                      : t('retranscribe.languageParakeetHint')}
-                </p>
-              </div>
-            )
+              <p className="text-xs text-muted-foreground">
+                {t('retranscribe.languageTranscribeCppHint')}
+              </p>
+            </div>
           )}
 
           {!isProcessing && !error && availableModels.length > 0 && (

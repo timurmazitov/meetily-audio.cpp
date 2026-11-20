@@ -25,32 +25,27 @@ afterAll(() => {
 // The transcript-settings section only decides *which* manager to render and
 // with which task; each manager has its own suite. Stubbing them keeps this
 // test free of Tauri listeners and of the model catalogs.
-mock.module('../../src/components/WhisperModelManager', () => ({
-  ModelManager: () => <div data-testid="fake-whisper-model-manager" />,
-}));
-const originalWhisper = { ...(await import('../../src/components/WhisperModelManager')) };
-afterAll(() => {
-  mock.module('../../src/components/WhisperModelManager', () => originalWhisper);
-});
-
-mock.module('../../src/components/ParakeetModelManager', () => ({
-  ParakeetModelManager: () => <div data-testid="fake-parakeet-model-manager" />,
-}));
-const originalParakeet = { ...(await import('../../src/components/ParakeetModelManager')) };
-afterAll(() => {
-  mock.module('../../src/components/ParakeetModelManager', () => originalParakeet);
-});
-
 const managerRenders: Array<Record<string, unknown>> = [];
 mock.module('../../src/components/AudioCppModelManager', () => ({
   AudioCppModelManager: (props: Record<string, unknown>) => {
-    managerRenders.push(props);
+    managerRenders.push({ ...props, manager: 'audioCpp' });
     return <div data-testid="fake-audiocpp-model-manager" />;
   },
 }));
 const originalManager = { ...(await import('../../src/components/AudioCppModelManager')) };
 afterAll(() => {
   mock.module('../../src/components/AudioCppModelManager', () => originalManager);
+});
+
+mock.module('../../src/components/TranscribeCppModelManager', () => ({
+  TranscribeCppModelManager: (props: Record<string, unknown>) => {
+    managerRenders.push({ ...props, manager: 'transcribeCpp' });
+    return <div data-testid="fake-transcribecpp-model-manager" />;
+  },
+}));
+const originalTcpManager = { ...(await import('../../src/components/TranscribeCppModelManager')) };
+afterAll(() => {
+  mock.module('../../src/components/TranscribeCppModelManager', () => originalTcpManager);
 });
 
 mock.module('sonner', () => ({
@@ -63,8 +58,6 @@ afterAll(() => {
 
 const { TranscriptSettings } = await import('../../src/components/TranscriptSettings');
 
-type Provider = 'localWhisper' | 'parakeet' | 'audioCpp';
-
 let renderer: ReactTestRenderer | undefined;
 
 afterEach(async () => {
@@ -73,11 +66,11 @@ afterEach(async () => {
   managerRenders.length = 0;
 });
 
-async function render(provider: Provider) {
+async function render() {
   await act(async () => {
     renderer = create(
       <TranscriptSettings
-        transcriptModelConfig={{ provider, model: 'some-model' }}
+        transcriptModelConfig={{ provider: 'transcribeCpp', model: 'some-model' }}
         setTranscriptModelConfig={() => {}}
       />,
     );
@@ -89,39 +82,30 @@ function textOf(node: ReactTestRenderer) {
   return JSON.stringify(node.toJSON());
 }
 
-test.each(['localWhisper', 'parakeet', 'audioCpp'] as Provider[])(
-  'the Speaker diarization section is visible with the %s provider',
-  async provider => {
-    const view = await render(provider);
+test('the Speaker diarization section is visible', async () => {
+  const view = await render();
 
-    expect(textOf(view)).toContain('Speaker diarization');
-    const diarizationSections = managerRenders.filter(props => props.task === 'diar');
-    expect(diarizationSections).toHaveLength(1);
-  },
-);
+  expect(textOf(view)).toContain('Speaker diarization');
+  expect(managerRenders.filter(props => props.manager === 'audioCpp')).toHaveLength(1);
+});
 
 test('the diarization section never offers model selection: it cannot transcribe', async () => {
-  await render('localWhisper');
+  await render();
 
-  const [diarization] = managerRenders.filter(props => props.task === 'diar');
+  const [diarization] = managerRenders.filter(props => props.manager === 'audioCpp');
   expect(diarization).toBeDefined();
   // No onModelSelect means the manager's cards stay non-selectable.
   expect(diarization.onModelSelect).toBeUndefined();
 });
 
-test('the audioCpp provider keeps its transcription manager next to the diarization section', async () => {
-  await render('audioCpp');
+test('the transcription section offers only the Transcribe.CPP table', async () => {
+  await render();
 
-  // Two managers: the in-provider transcription list, and the shared
-  // diarization section below it.
+  // Two managers total: the transcribe.cpp model table and the shared
+  // diarization section below it — no Whisper/Parakeet/audioCpp-ASR manager,
+  // and the GigaAM ASR block is gone (the audio.cpp manager is diarization-
+  // only; its own suite asserts the ASR cards never render).
   expect(managerRenders).toHaveLength(2);
-  expect(managerRenders.filter(props => props.task !== 'diar')).toHaveLength(1);
-  expect(managerRenders.filter(props => props.task === 'diar')).toHaveLength(1);
-});
-
-test('a non-audioCpp provider renders no transcription models from audio.cpp', async () => {
-  await render('parakeet');
-
-  expect(managerRenders).toHaveLength(1);
-  expect(managerRenders[0]!.task).toBe('diar');
+  expect(managerRenders.filter(props => props.manager === 'transcribeCpp')).toHaveLength(1);
+  expect(managerRenders.filter(props => props.manager === 'audioCpp')).toHaveLength(1);
 });

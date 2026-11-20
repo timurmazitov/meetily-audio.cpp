@@ -99,18 +99,11 @@
     "saved": "Язык сохранён",
     "savedDescription": "Язык транскрибации: {{language}}",
     "saveFailed": "Не удалось сохранить язык",
-    "parakeetTitle": "Поддержка языков в Parakeet",
-    "parakeetBody": "Parakeet поддерживает только автоматическое определение языка. Ручной выбор языка недоступен. Если нужен конкретный язык, используйте Whisper.",
-    "audioCppTitle": "Поддержка языков в audioCpp",
-    "translationWhisperOnly": "Автоматический перевод доступен только с провайдером Whisper. audioCpp транскрибирует на языке записи.",
     "transcribeCppTitle": "Поддержка языков в Transcribe.cpp",
-    "transcribeCppBody": "Автоматический перевод доступен только с провайдером Whisper. Transcribe.cpp транскрибирует на языке записи.",
+    "transcribeCppBody": "Transcribe.cpp транскрибирует на языке записи; модель определяет его автоматически.",
     "current": "Текущий:",
-    "translationUnavailable": "Перевод недоступен",
     "autoWarningTitle": "Автоопределение может ошибаться",
     "autoWarningBody": "Для максимальной точности выберите конкретный язык (например, английский или испанский).",
-    "translationModeTitle": "Режим перевода включён",
-    "translationModeBody": "Все аудио автоматически переводятся на английский. Подходит для многоязычных встреч, где нужен английский текст.",
     "optimizedFor": "Транскрибация будет оптимизирована для"
   },
   "languagePicker": {
@@ -196,11 +189,7 @@
     "completeToast_other": "Повторная транскрибация завершена: создано {{count}} сегментов",
     "cancelledToast": "Повторная транскрибация отменена",
     "languageLabel": "Язык",
-    "selectLanguage": "Выберите язык",
-    "languageHint": "Выберите язык для повышения точности или используйте автоопределение",
-    "languageAudioCppHint": "Выбор языка не поддерживается для audioCpp. GigaAM транскрибирует на языке обучения (русском).",
     "languageTranscribeCppHint": "Выбор языка не поддерживается для Transcribe.cpp. Модель определяет язык автоматически.",
-    "languageParakeetHint": "Выбор языка не поддерживается для Parakeet. Всегда используется автоматическое определение.",
     "modelLabel": "Модель",
     "selectModel": "Выберите модель",
     "loadingModels": "Загрузка моделей...",
@@ -332,10 +321,7 @@
     "dropOverlay": "Перетащите аудиофайл для импорта",
     "language": {
       "label": "Язык",
-      "placeholder": "Выберите язык",
-      "audioCppUnsupported": "Для audioCpp выбор языка недоступен: GigaAM транскрибирует на языке обучения (русский).",
-      "transcribeCppUnsupported": "Для Transcribe.cpp выбор языка недоступен: модель определяет язык автоматически.",
-      "parakeetUnsupported": "Для Parakeet выбор языка недоступен: всегда используется автоопределение."
+      "transcribeCppUnsupported": "Для Transcribe.cpp выбор языка недоступен: модель определяет язык автоматически."
     },
     "model": {
       "label": "Модель",
@@ -609,62 +595,12 @@
       "unlockToEdit": "Разблокировать для изменения",
       "lockToPreventEditing": "Заблокировать от изменений"
     },
-    "whisper": {
-      "accuracyValue": "Точность: {{value}}",
-      "speedValue": "Скорость: {{value}}",
-      "accuracy": {
-        "high": "высокая",
-        "good": "хорошая",
-        "decent": "приемлемая"
-      },
-      "speed": {
-        "slow": "медленная",
-        "medium": "средняя",
-        "fast": "быстрая",
-        "veryFast": "очень быстрая"
-      },
-      "badge": {
-        "fullPrecision": "Полная точность",
-        "balancedPlus": "Сбалансированная+",
-        "balanced": "Сбалансированная",
-        "fast": "Быстрая",
-        "standard": "Стандартная"
-      },
-      "tagline": {
-        "realTime": "В реальном времени",
-        "fastProcessing": "Быстрая обработка",
-        "moderateSpeed": "Умеренная скорость",
-        "slowerProcessing": "Замедленная обработка",
-        "mostAccurate": "Максимальная точность",
-        "bestAccuracyWithSpeed": "Лучшая точность при высокой скорости",
-        "professionalQuality": "Профессиональное качество",
-        "balancedQuality": "Сбалансированное качество",
-        "goodAccuracy": "Хорошая точность",
-        "fastestOption": "Самый быстрый вариант",
-        "optimized": ", оптимизирована",
-        "ultraFast": ", очень быстрая"
-      }
-    },
-    "parakeet": {
-      "listenFailed": "Не удалось подписаться на обновления моделей Parakeet",
-      "badge": {
-        "fullPrecision": "Полная точность",
-        "int8Quantized": "Квантование Int8",
-        "standard": "Стандартная"
-      },
-      "tagline": {
-        "v3": "В реальном времени • Лучший выбор по скорости при высокой точности",
-        "v2": "В реальном времени • Меньший размер",
-        "v3FullPrecision": "В 20 раз быстрее реального времени • Более высокая точность"
-      }
-    },
     "audioCpp": {
       "failedToLoadModels": "Не удалось загрузить модели audio.cpp",
       "nativeLibraryUnavailable": "нативная библиотека недоступна",
       "openModelsFolder": "Открыть папку моделей",
       "runtimeUnavailable": "Движок диаризации недоступен в этой системе",
       "runtimeUnavailableDescription": "Модель всё равно можно скачать: разметка спикеров заработает, когда нативная библиотека audio.cpp станет доступна.",
-      "taskTranscription": "Транскрибация",
       "taskDiarization": "Диаризация"
     },
     "transcribeCpp": {
@@ -701,7 +637,6 @@
     "failed": "Загрузка не удалась",
     "complete": "Загрузка завершена",
     "cancelled": "Загрузка отменена",
-    "parakeetModel": "Модель транскрибации (Parakeet)",
     "summaryModel": "Модель конспектов ({{model}})",
     "errors": {
       "network": "Сетевая ошибка — проверьте подключение к интернету",
@@ -747,9 +682,6 @@
   "settingsTranscription": {
     "model": "Модель транскрибации",
     "selectModel": "Выберите модель",
-    "providerParakeet": "⚡ Parakeet (рекомендуется — в реальном времени / точно)",
-    "providerWhisper": "🏠 Локальный Whisper (высокая точность)",
-    "providerAudioCpp": "🎙️ audioCpp (GigaAM — русский)",
     "providerTranscribeCpp": "🧠 Transcribe.cpp",
     "transcribeBackendLabel": "Режим вычислений",
     "transcribeBackendAuto": "Авто",

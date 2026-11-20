@@ -34,10 +34,6 @@ export class AudioCppAPI {
     return await invoke(AUDIOCPP_COMMANDS.hasAvailableModels);
   }
 
-  static async hasTranscriptionModel(): Promise<boolean> {
-    return await invoke(AUDIOCPP_COMMANDS.hasTranscriptionModel);
-  }
-
   static async getModelsDirectory(): Promise<string> {
     return await invoke(AUDIOCPP_COMMANDS.getModelsDirectory);
   }
@@ -68,7 +64,6 @@ class TauriAudioCppModelClient implements AudioCppModelClient {
   init = () => AudioCppAPI.init();
   getAvailableModels = () => AudioCppAPI.getAvailableModels();
   hasAvailableModels = () => AudioCppAPI.hasAvailableModels();
-  hasTranscriptionModel = () => AudioCppAPI.hasTranscriptionModel();
   getModelsDirectory = () => AudioCppAPI.getModelsDirectory();
   getDiagnostics = () => AudioCppAPI.getDiagnostics();
   downloadModel = (modelName: string) => AudioCppAPI.downloadModel(modelName);

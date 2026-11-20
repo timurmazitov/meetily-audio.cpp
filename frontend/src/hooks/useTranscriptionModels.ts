@@ -1,16 +1,9 @@
 import { useState, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { isAvailableStatus, type AudioCppModelInfo } from '@/lib/audiocpp';
 import { isAvailableStatus as isTranscribeCppAvailable, type TranscribeCppModelInfo } from '@/lib/transcribeCpp';
 
-export interface RawModelInfo {
-  name: string;
-  size_mb: number;
-  status: 'Available' | 'Missing' | { Downloading: { progress: number } } | { Error: string };
-}
-
 export interface ModelOption {
-  provider: 'whisper' | 'parakeet' | 'audioCpp' | 'transcribeCpp';
+  provider: 'transcribeCpp';
   name: string;
   displayName: string;
   size_mb: number;
@@ -22,7 +15,10 @@ interface TranscriptModelConfig {
 }
 
 /**
- * Custom hook for fetching and managing transcription models (Whisper and Parakeet).
+ * Custom hook for fetching and managing transcription models.
+ *
+ * transcribe.cpp is the only local transcription engine; the model lists of
+ * the retranscribe and import dialogs come from its catalog.
  *
  * This hook centralizes the model fetching logic that was previously duplicated
  * in ImportAudioDialog and RetranscribeDialog components.
@@ -47,56 +43,6 @@ export function useTranscriptionModels(transcriptModelConfig: TranscriptModelCon
     setLoadingModels(true);
     const allModels: ModelOption[] = [];
 
-    // Fetch Whisper models
-    try {
-      const whisperModels = await invoke<RawModelInfo[]>('whisper_get_available_models');
-      const availableWhisper = whisperModels
-        .filter((m) => m.status === 'Available')
-        .map((m) => ({
-          provider: 'whisper' as const,
-          name: m.name,
-          displayName: `🏠 Whisper: ${m.name}`,
-          size_mb: m.size_mb,
-        }));
-      allModels.push(...availableWhisper);
-    } catch (err) {
-      console.error('Failed to fetch Whisper models:', err);
-    }
-
-    // Fetch Parakeet models
-    try {
-      const parakeetModels = await invoke<RawModelInfo[]>('parakeet_get_available_models');
-      const availableParakeet = parakeetModels
-        .filter((m) => m.status === 'Available')
-        .map((m) => ({
-          provider: 'parakeet' as const,
-          name: m.name,
-          displayName: `⚡ Parakeet: ${m.name}`,
-          size_mb: m.size_mb,
-        }));
-      allModels.push(...availableParakeet);
-    } catch (err) {
-      console.error('Failed to fetch Parakeet models:', err);
-    }
-
-    // Fetch audioCpp models. Only installed transcription (`asr`) models are
-    // offered: a diarization model cannot produce a transcript, and a
-    // partial download must never be handed to a batch job.
-    try {
-      const audioCppModels = await invoke<AudioCppModelInfo[]>('audiocpp_get_available_models');
-      const availableAudioCpp = audioCppModels
-        .filter((m) => m.task === 'asr' && isAvailableStatus(m.status))
-        .map((m) => ({
-          provider: 'audioCpp' as const,
-          name: m.name,
-          displayName: `🎙️ audioCpp: ${m.display_name}`,
-          size_mb: m.size_mb,
-        }));
-      allModels.push(...availableAudioCpp);
-    } catch (err) {
-      console.error('Failed to fetch audioCpp models:', err);
-    }
-
     // Fetch transcribeCpp models. The catalog is ASR-only, so every installed
     // model can produce a transcript; a partial download must never be handed
     // to a batch job, hence the Available-only filter.
@@ -118,18 +64,12 @@ export function useTranscriptionModels(transcriptModelConfig: TranscriptModelCon
     setAvailableModels(allModels);
 
     // Set default model based on user's saved configuration
-    const configuredProvider = transcriptModelConfig?.provider || '';
     const configuredModel = transcriptModelConfig?.model || '';
 
-    // Try to match the configured model
-    // Note: 'localWhisper' in config maps to 'whisper' provider in model list
-    const configuredMatch = allModels.find(
-      (m) =>
-        (configuredProvider === 'localWhisper' && m.provider === 'whisper' && m.name === configuredModel) ||
-        (configuredProvider === 'parakeet' && m.provider === 'parakeet' && m.name === configuredModel) ||
-        (configuredProvider === 'audioCpp' && m.provider === 'audioCpp' && m.name === configuredModel) ||
-        (configuredProvider === 'transcribeCpp' && m.provider === 'transcribeCpp' && m.name === configuredModel)
-    );
+    // Try to match the configured model. The repository soft-migrates removed
+    // providers on read and the catalog is the only model list, so a name
+    // match is enough to prefer the configured model.
+    const configuredMatch = allModels.find((m) => m.name === configuredModel);
 
     // Only set default model if user hasn't manually selected one
     if (!userSelectedRef.current) {

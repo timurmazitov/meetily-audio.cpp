@@ -53,12 +53,12 @@ function loadTsModule(filePath) {
 
 const {
   AUDIOCPP_DIARIZATION_MODEL,
-  AUDIOCPP_TRANSCRIPTION_MODEL,
+  ONBOARDING_TRANSCRIPTION_MODEL,
   applyAudioCppCompleteEvent,
   applyAudioCppErrorEvent,
   applyAudioCppProgressEvent,
   audioCppModelRole,
-  audioCppRetryModelName,
+  onboardingRetryModelName,
   formatAudioCppModelSizeLabel,
   hasActiveAudioCppDownload,
   initialAudioCppModelStates,
@@ -77,7 +77,7 @@ const {
 
 function progressEvent(overrides = {}) {
   return {
-    modelName: AUDIOCPP_TRANSCRIPTION_MODEL,
+    modelName: ONBOARDING_TRANSCRIPTION_MODEL,
     progress: 40,
     downloaded_mb: 168.8,
     total_mb: 422,
@@ -107,17 +107,17 @@ const idleTranscription = {
 };
 const idleDiarization = { ...idleTranscription };
 
-assert.equal(AUDIOCPP_TRANSCRIPTION_MODEL, 'gigaam-v3-e2e-ctc-f16');
+assert.equal(ONBOARDING_TRANSCRIPTION_MODEL, 'parakeet-ultra-Q8_0');
 assert.equal(AUDIOCPP_DIARIZATION_MODEL, 'nemotron-3-diarization-bf16');
 
-assert.equal(audioCppModelRole(AUDIOCPP_TRANSCRIPTION_MODEL), 'transcription');
+assert.equal(audioCppModelRole(ONBOARDING_TRANSCRIPTION_MODEL), 'transcription');
 assert.equal(audioCppModelRole(AUDIOCPP_DIARIZATION_MODEL), 'diarization');
 assert.equal(audioCppModelRole('parakeet-tdt-0.6b-v3-int8'), null);
 
 assert.deepEqual(stateOf(initialAudioCppModelStates(), 'transcription'), idleTranscription);
 assert.deepEqual(stateOf(initialAudioCppModelStates(), 'diarization'), idleDiarization);
 
-// A GigaAM progress report moves only the transcription card.
+// A Transcribe.CPP progress report moves only the transcription card.
 {
   const next = applyAudioCppProgressEvent(initialAudioCppModelStates(), progressEvent());
   assert.deepEqual(stateOf(next, 'transcription'), {
@@ -198,10 +198,10 @@ assert.deepEqual(stateOf(initialAudioCppModelStates(), 'diarization'), idleDiari
   assert.deepEqual(stateOf(next, 'transcription'), idleTranscription);
 }
 
-// A completion event for GigaAM does not claim the diarization card.
+// A completion event for the Transcribe.CPP model does not claim the diarization card.
 {
   const next = applyAudioCppCompleteEvent(initialAudioCppModelStates(), {
-    modelName: AUDIOCPP_TRANSCRIPTION_MODEL,
+    modelName: ONBOARDING_TRANSCRIPTION_MODEL,
   });
   assert.equal(next.transcription.status, 'completed');
   assert.equal(next.diarization.status, 'waiting');
@@ -225,7 +225,7 @@ assert.deepEqual(stateOf(initialAudioCppModelStates(), 'diarization'), idleDiari
 // An error event is reported on the matching card only.
 {
   const next = applyAudioCppErrorEvent(initialAudioCppModelStates(), {
-    modelName: AUDIOCPP_TRANSCRIPTION_MODEL,
+    modelName: ONBOARDING_TRANSCRIPTION_MODEL,
     error: 'network unreachable',
   });
   assert.equal(next.transcription.status, 'error');
@@ -277,13 +277,13 @@ assert.deepEqual(stateOf(initialAudioCppModelStates(), 'diarization'), idleDiari
 // Active downloads are detected from the native model list.
 {
   const models = [
-    { name: AUDIOCPP_TRANSCRIPTION_MODEL, status: { Downloading: { progress: 12 } } },
+    { name: ONBOARDING_TRANSCRIPTION_MODEL, status: { Downloading: { progress: 12 } } },
     { name: AUDIOCPP_DIARIZATION_MODEL, status: 'Missing' },
   ];
   assert.equal(hasActiveAudioCppDownload(models), true);
   assert.equal(
     hasActiveAudioCppDownload([
-      { name: AUDIOCPP_TRANSCRIPTION_MODEL, status: 'Available' },
+      { name: ONBOARDING_TRANSCRIPTION_MODEL, status: 'Available' },
       { name: AUDIOCPP_DIARIZATION_MODEL, status: { Error: 'boom' } },
     ]),
     false
@@ -294,10 +294,10 @@ assert.deepEqual(stateOf(initialAudioCppModelStates(), 'diarization'), idleDiari
 // Installed detection resolves a catalogued model by name.
 {
   const models = [
-    { name: AUDIOCPP_TRANSCRIPTION_MODEL, status: 'Available' },
+    { name: ONBOARDING_TRANSCRIPTION_MODEL, status: 'Available' },
     { name: AUDIOCPP_DIARIZATION_MODEL, status: 'Missing' },
   ];
-  assert.equal(isAudioCppModelInstalled(models, AUDIOCPP_TRANSCRIPTION_MODEL), true);
+  assert.equal(isAudioCppModelInstalled(models, ONBOARDING_TRANSCRIPTION_MODEL), true);
   assert.equal(isAudioCppModelInstalled(models, AUDIOCPP_DIARIZATION_MODEL), false);
   assert.equal(isAudioCppModelInstalled(models, 'unknown-model'), false);
 }
@@ -322,7 +322,7 @@ assert.deepEqual(stateOf(initialAudioCppModelStates(), 'diarization'), idleDiari
 // Re-entering onboarding restores an in-flight card from the native model list.
 {
   const models = [
-    { name: AUDIOCPP_TRANSCRIPTION_MODEL, status: { Downloading: { progress: 37 } } },
+    { name: ONBOARDING_TRANSCRIPTION_MODEL, status: { Downloading: { progress: 37 } } },
     { name: AUDIOCPP_DIARIZATION_MODEL, status: 'Missing' },
   ];
   const next = reconcileAudioCppModelList(initialAudioCppModelStates(), models);
@@ -334,7 +334,7 @@ assert.deepEqual(stateOf(initialAudioCppModelStates(), 'diarization'), idleDiari
 // Installed models come back as completed cards.
 {
   const next = reconcileAudioCppModelList(initialAudioCppModelStates(), [
-    { name: AUDIOCPP_TRANSCRIPTION_MODEL, status: 'Available' },
+    { name: ONBOARDING_TRANSCRIPTION_MODEL, status: 'Available' },
     { name: AUDIOCPP_DIARIZATION_MODEL, status: 'Available' },
   ]);
   assert.equal(next.transcription.status, 'completed');
@@ -360,12 +360,12 @@ assert.deepEqual(stateOf(initialAudioCppModelStates(), 'diarization'), idleDiari
     diarization: false,
   });
   const next = reconcileAudioCppModelList(completed, [
-    { name: AUDIOCPP_TRANSCRIPTION_MODEL, status: { Downloading: { progress: 10 } } },
+    { name: ONBOARDING_TRANSCRIPTION_MODEL, status: { Downloading: { progress: 10 } } },
   ]);
   assert.equal(next.transcription.status, 'completed');
 }
 
-// Continue is gated on the transcription (GigaAM) card alone.
+// Continue is gated on the transcription (Transcribe.CPP) card alone.
 {
   const downloading = applyAudioCppProgressEvent(initialAudioCppModelStates(), progressEvent());
   assert.equal(isContinueEnabled(initialAudioCppModelStates()), false);
@@ -391,7 +391,7 @@ assert.deepEqual(stateOf(initialAudioCppModelStates(), 'diarization'), idleDiari
       transcription: false,
       diarization: true,
     }),
-    { modelName: AUDIOCPP_TRANSCRIPTION_MODEL, error: 'boom' }
+    { modelName: ONBOARDING_TRANSCRIPTION_MODEL, error: 'boom' }
   );
   assert.equal(isContinueEnabled(diarizationOnly), false);
 
@@ -426,19 +426,18 @@ assert.deepEqual(stateOf(initialAudioCppModelStates(), 'diarization'), idleDiari
 
 // Each card's "Try Again" resolves to its own download entry point.
 {
-  assert.equal(onboardingDownloadRetryTarget('transcription'), 'audiocpp');
+  assert.equal(onboardingDownloadRetryTarget('transcription'), 'transcribecpp');
   assert.equal(onboardingDownloadRetryTarget('diarization'), 'audiocpp');
   assert.equal(onboardingDownloadRetryTarget('summary'), 'builtin-ai');
   assert.equal(onboardingDownloadRetryTarget('other'), null);
 
   // The retry entry point maps back to the catalogued model name.
-  assert.equal(onboardingDownloadRetryTarget('transcription'), 'audiocpp');
-  assert.equal(audioCppRetryModelName('transcription'), AUDIOCPP_TRANSCRIPTION_MODEL);
-  assert.equal(audioCppRetryModelName('diarization'), AUDIOCPP_DIARIZATION_MODEL);
-  assert.equal(audioCppRetryModelName('summary'), null);
+  assert.equal(onboardingRetryModelName('transcription'), ONBOARDING_TRANSCRIPTION_MODEL);
+  assert.equal(onboardingRetryModelName('diarization'), AUDIOCPP_DIARIZATION_MODEL);
+  assert.equal(onboardingRetryModelName('summary'), null);
 }
 
-// The background-download notice appears only once the app can be used (GigaAM
+// The background-download notice appears only once the app can be used (Transcribe.CPP
 // done) and something else is still pending.
 {
   assert.equal(
@@ -503,7 +502,7 @@ assert.deepEqual(stateOf(initialAudioCppModelStates(), 'diarization'), idleDiari
   );
 
   const failed = applyAudioCppErrorEvent(initialAudioCppModelStates(), {
-    modelName: AUDIOCPP_TRANSCRIPTION_MODEL,
+    modelName: ONBOARDING_TRANSCRIPTION_MODEL,
     error: 'boom',
   });
   assert.equal(
@@ -538,7 +537,7 @@ assert.deepEqual(stateOf(initialAudioCppModelStates(), 'diarization'), idleDiari
 // Card sizes are seeded from the catalog before any progress event arrives.
 {
   const next = reconcileAudioCppModelList(initialAudioCppModelStates(), [
-    { name: AUDIOCPP_TRANSCRIPTION_MODEL, status: 'Missing', size_mb: 422 },
+    { name: ONBOARDING_TRANSCRIPTION_MODEL, status: 'Missing', size_mb: 422 },
     { name: AUDIOCPP_DIARIZATION_MODEL, status: 'Missing', size_mb: 1900 },
   ]);
   assert.equal(next.transcription.progress.totalMb, 422);
@@ -553,14 +552,14 @@ assert.deepEqual(stateOf(initialAudioCppModelStates(), 'diarization'), idleDiari
   // A reported size on a downloading card is kept when the catalog agrees.
   const downloading = applyAudioCppProgressEvent(initialAudioCppModelStates(), progressEvent());
   const reconciled = reconcileAudioCppModelList(downloading, [
-    { name: AUDIOCPP_TRANSCRIPTION_MODEL, status: { Downloading: { progress: 40 } }, size_mb: 422 },
+    { name: ONBOARDING_TRANSCRIPTION_MODEL, status: { Downloading: { progress: 40 } }, size_mb: 422 },
   ]);
   assert.equal(reconciled.transcription.progress.totalMb, 422);
   assert.equal(reconciled.transcription.progress.percent, 40);
 
   // A list entry without a size leaves the card's known size untouched.
   const withoutSize = reconcileAudioCppModelList(initialAudioCppModelStates(), [
-    { name: AUDIOCPP_TRANSCRIPTION_MODEL, status: 'Missing' },
+    { name: ONBOARDING_TRANSCRIPTION_MODEL, status: 'Missing' },
   ]);
   assert.equal(withoutSize.transcription.progress.totalMb, 0);
 }
@@ -569,7 +568,7 @@ assert.deepEqual(stateOf(initialAudioCppModelStates(), 'diarization'), idleDiari
 {
   const initial = initialAudioCppModelStates();
   const seeded = seedAudioCppModelSizes(initial, [
-    { name: AUDIOCPP_TRANSCRIPTION_MODEL, status: 'Missing', size_mb: 422 },
+    { name: ONBOARDING_TRANSCRIPTION_MODEL, status: 'Missing', size_mb: 422 },
     { name: AUDIOCPP_DIARIZATION_MODEL, status: 'Missing', size_mb: 1900 },
   ]);
   assert.equal(seeded.transcription.status, 'waiting');
@@ -581,7 +580,7 @@ assert.deepEqual(stateOf(initialAudioCppModelStates(), 'diarization'), idleDiari
   const reported = applyAudioCppProgressEvent(initialAudioCppModelStates(), progressEvent());
   assert.equal(
     seedAudioCppModelSizes(reported, [
-      { name: AUDIOCPP_TRANSCRIPTION_MODEL, status: 'Missing', size_mb: 999 },
+      { name: ONBOARDING_TRANSCRIPTION_MODEL, status: 'Missing', size_mb: 999 },
     ]).transcription.progress.totalMb,
     422
   );

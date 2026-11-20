@@ -2,19 +2,18 @@ import i18n, { type AppLanguageCode } from '@/i18n';
 import { formatMegabytes } from '@/lib/format-locale';
 
 /**
- * Types and Tauri command wrappers for the audio.cpp (GigaAM + Nemotron)
- * model manager.
+ * Types and Tauri command wrappers for the audio.cpp (Nemotron) model manager.
  *
- * The catalog metadata is engine-independent: `family` and `task` describe
- * what the model is in audio.cpp terms, so the same list serves transcription
- * (asr) and diarization (diar) once those paths exist.
+ * audio.cpp now serves one purpose: speaker diarization over a finished
+ * transcript. The transcription (asr) path was removed with the transcribe.cpp
+ * consolidation, so the catalog and this client expose only diarization.
  */
 
 /** Task a catalogued model performs, in audio.cpp terms. */
-export type AudioCppModelTask = 'asr' | 'diar';
+export type AudioCppModelTask = 'diar';
 
 /** Quantization of the published weights. */
-export type AudioCppQuantization = 'F16' | 'BF16';
+export type AudioCppQuantization = 'BF16';
 
 export type AudioCppModelStatus =
   | 'Available'
@@ -87,7 +86,6 @@ export const AUDIOCPP_COMMANDS = {
   init: 'audiocpp_model_init',
   getAvailableModels: 'audiocpp_get_available_models',
   hasAvailableModels: 'audiocpp_has_available_models',
-  hasTranscriptionModel: 'audiocpp_has_transcription_model',
   getModelsDirectory: 'audiocpp_get_models_directory',
   downloadModel: 'audiocpp_download_model',
   cancelDownload: 'audiocpp_cancel_download',
@@ -104,10 +102,8 @@ export const AUDIOCPP_EVENTS = {
 } as const;
 
 /** Task label shown in the model manager. */
-export function taskLabel(task: AudioCppModelTask): string {
-  return task === 'asr'
-    ? i18n.t('models.audioCpp.taskTranscription')
-    : i18n.t('models.audioCpp.taskDiarization');
+export function taskLabel(_task: AudioCppModelTask): string {
+  return i18n.t('models.audioCpp.taskDiarization');
 }
 
 /** Whether a status value represents an in-flight download. */
@@ -135,25 +131,6 @@ export function formatModelSize(sizeMb: number): string {
 /** Unlisten handle returned by an event subscription. */
 export type UnlistenFn = () => void;
 
-/** Whether a model can transcribe (as opposed to diarize). */
-export function isTranscriptionModel(model: Pick<AudioCppModelInfo, 'task'>): boolean {
-  return model.task === 'asr';
-}
-
-/**
- * The model the settings should offer for selection: the configured one when
- * it is an installed transcription model, otherwise the first installed
- * transcription model. Mirrors the native selection rules.
- */
-export function defaultSelectedTranscriptionModel(
-  models: AudioCppModelInfo[],
-  configured?: string,
-): AudioCppModelInfo | undefined {
-  const transcription = models.filter(isTranscriptionModel);
-  return transcription.find(model => model.name === configured && isAvailableStatus(model.status))
-    ?? transcription.find(model => isAvailableStatus(model.status));
-}
-
 /**
  * The seam between the model manager UI and the native audio.cpp model
  * manager: commands plus the three download events. Production code uses
@@ -167,8 +144,6 @@ export interface AudioCppModelClient {
   init(): Promise<void>;
   getAvailableModels(): Promise<AudioCppModelInfo[]>;
   hasAvailableModels(): Promise<boolean>;
-  /** Whether an installed model can transcribe (asr), not just diarize. */
-  hasTranscriptionModel(): Promise<boolean>;
   getModelsDirectory(): Promise<string>;
   /** Runtime report: whether the native library loaded, and why not. */
   getDiagnostics(): Promise<AudioCppDiagnostics>;

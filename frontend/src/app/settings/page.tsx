@@ -43,7 +43,7 @@ export default function SettingsPage() {
           // fallback for an empty value is the transcribe.cpp default pair.
           setTranscriptModelConfig({
             provider: config.provider || 'transcribeCpp',
-            model: config.model || 'parakeet-ultra-Q8_0',
+            model: config.model || DEFAULT_TRANSCRIBE_CPP_MODEL,
             apiKey: config.apiKey || null,
             transcribeBackend: config.transcribeBackend ?? 'auto'
           });

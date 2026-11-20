@@ -38,7 +38,6 @@ import { useConfig } from '@/contexts/ConfigContext';
 import { useImportAudio, ImportResult } from '@/hooks/useImportAudio';
 import { useRouter } from 'next/navigation';
 import { useSidebar } from '../Sidebar/SidebarProvider';
-import { LANGUAGES } from '@/constants/languages';
 import { useTranscriptionModels, ModelOption } from '@/hooks/useTranscriptionModels';
 
 
@@ -76,10 +75,9 @@ export function ImportAudioDialog({
   const { t } = useTranslation();
   const language = i18n.language as AppLanguageCode;
   const { refetchMeetings } = useSidebar();
-  const { selectedLanguage, transcriptModelConfig } = useConfig();
+  const { transcriptModelConfig } = useConfig();
 
   const [title, setTitle] = useState('');
-  const [selectedLang, setSelectedLang] = useState(selectedLanguage || 'auto');
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [titleModifiedByUser, setTitleModifiedByUser] = useState(false);
 
@@ -141,7 +139,6 @@ export function ImportAudioDialog({
       resetSelection();
       setTitle('');
       setTitleModifiedByUser(false);
-      setSelectedLang(selectedLanguage || 'auto');
       setShowAdvanced(false);
 
       // Validate preselected file if provided
@@ -156,7 +153,7 @@ export function ImportAudioDialog({
       // Fetch available models using centralized hook
       fetchModels();
     }
-  }, [open, preselectedFile, selectedLanguage, transcriptModelConfig, reset, resetSelection, validateFile, fetchModels]);
+  }, [open, preselectedFile, transcriptModelConfig, reset, resetSelection, validateFile, fetchModels]);
 
   // Update title when fileInfo changes
   useEffect(() => {
@@ -173,19 +170,8 @@ export function ImportAudioDialog({
     const name = selectedModelKey.slice(colonIndex + 1);
     return availableModels.find((m) => m.provider === provider && m.name === name);
   }, [selectedModelKey, availableModels]);
-  const isParakeetModel = selectedModel?.provider === 'parakeet';
-  const isAudioCppModel = selectedModel?.provider === 'audioCpp';
-  const isTranscribeCppModel = selectedModel?.provider === 'transcribeCpp';
-  // Parakeet auto-detects; audioCpp (GigaAM) transcribes in its trained
-  // language; transcribe.cpp detects the language itself. None of them
-  // accepts a language selection.
-  const isLanguageAutoModel = isParakeetModel || isAudioCppModel || isTranscribeCppModel;
-
-  useEffect(() => {
-    if (isLanguageAutoModel && selectedLang !== 'auto') {
-      setSelectedLang('auto');
-    }
-  }, [isLanguageAutoModel, selectedLang]);
+  // transcribe.cpp is the only engine: it detects the language itself, so the
+  // import offers no language choice and always sends autodetect.
 
   const handleSelectFile = async () => {
     const info = await selectFile();
@@ -200,7 +186,9 @@ export function ImportAudioDialog({
     await startImport(
       fileInfo.path,
       title || fileInfo.filename,
-      isLanguageAutoModel ? null : selectedLang === 'auto' ? null : selectedLang,
+      // transcribe.cpp detects the language itself: the batch path receives
+      // no hint, the same as the live pipeline's autodetect.
+      null,
       selectedModel?.name || null,
       selectedModel?.provider || null
     );
@@ -352,41 +340,17 @@ export function ImportAudioDialog({
 
                   {showAdvanced && (
                     <div className="p-3 pt-0 space-y-4 border-t">
-                      {/* Language selector */}
-                      {!isLanguageAutoModel ? (
-                        <div className="space-y-2">
-                          <div className="flex items-center gap-2">
-                            <Globe className="h-4 w-4 text-muted-foreground" />
-                            <span className="text-sm font-medium">{t('importAudio.language.label')}</span>
-                          </div>
-                          <Select value={selectedLang} onValueChange={setSelectedLang}>
-                            <SelectTrigger className="w-full">
-                              <SelectValue placeholder={t('importAudio.language.placeholder')} />
-                            </SelectTrigger>
-                            <SelectContent className="max-h-60">
-                              {LANGUAGES.map((lang) => (
-                                <SelectItem key={lang.code} value={lang.code}>
-                                  {lang.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                      {/* Language: transcribe.cpp detects the spoken language
+                          itself, so no choice is offered. */}
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <Globe className="h-4 w-4 text-muted-foreground" />
+                          <span className="text-sm font-medium">{t('importAudio.language.label')}</span>
                         </div>
-                      ) : (
-                        <div className="space-y-2">
-                          <div className="flex items-center gap-2">
-                            <Globe className="h-4 w-4 text-muted-foreground" />
-                            <span className="text-sm font-medium">{t('importAudio.language.label')}</span>
-                          </div>
-                          <p className="text-xs text-muted-foreground">
-                            {isAudioCppModel
-                              ? t('importAudio.language.audioCppUnsupported')
-                              : isTranscribeCppModel
-                                ? t('importAudio.language.transcribeCppUnsupported')
-                                : t('importAudio.language.parakeetUnsupported')}
-                          </p>
-                        </div>
-                      )}
+                        <p className="text-xs text-muted-foreground">
+                          {t('importAudio.language.transcribeCppUnsupported')}
+                        </p>
+                      </div>
 
                       {/* Model selector */}
                       {availableModels.length > 0 && (

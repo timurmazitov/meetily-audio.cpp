@@ -6,34 +6,26 @@ import {
 } from '../../src/lib/transcription-model-readiness';
 
 describe('transcription model readiness', () => {
-  test('uses Whisper commands when Whisper is the configured provider', () => {
-    expect(getProviderCommands('localWhisper')).toEqual({
-      initialize: 'whisper_init',
-      hasAvailableModels: 'whisper_has_available_models',
-      getAvailableModels: 'whisper_get_available_models',
-    });
-  });
-
-  test('uses Parakeet commands when Parakeet is the configured provider', () => {
-    expect(getProviderCommands('parakeet')).toEqual({
-      initialize: 'parakeet_init',
-      hasAvailableModels: 'parakeet_has_available_models',
-      getAvailableModels: 'parakeet_get_available_models',
-    });
-  });
-
   test('uses transcribe.cpp commands when transcribeCpp is the configured provider', () => {
     expect(getProviderCommands('transcribeCpp')).toEqual({
       initialize: 'transcribecpp_model_init',
-      // The transcribe.cpp catalog is ASR-only, but the readiness gate keeps
-      // the transcription-model command so it mirrors audio.cpp.
+      // The transcribe.cpp catalog is ASR-only, so the gate checks for an
+      // installed transcription model rather than any catalogued artifact.
       hasAvailableModels: 'transcribecpp_has_transcription_model',
       getAvailableModels: 'transcribecpp_get_available_models',
     });
   });
 
-  test('does not silently treat an unsupported provider as Parakeet', () => {
-    expect(getProviderCommands('deepgram')).toBeNull();
+  test('a removed provider soft-migrates to the transcribe.cpp commands', () => {
+    // Saved configs predating the migration (and the repository's read-side
+    // normalization) must never route to a command of a removed engine.
+    for (const removed of ['localWhisper', 'parakeet', 'audioCpp']) {
+      expect(getProviderCommands(removed)).toEqual(getProviderCommands('transcribeCpp'));
+    }
+  });
+
+  test('an unknown provider also lands on the only local engine', () => {
+    expect(getProviderCommands('deepgram')).toEqual(getProviderCommands('transcribeCpp'));
   });
 
   test('recognizes only active downloads', () => {
