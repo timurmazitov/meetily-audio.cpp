@@ -56,6 +56,33 @@ These commands build the helper without an explicit GPU backend. Its optional ac
 
 These paths assume an ordinary native-host workspace build. With a custom Cargo output directory or cross-compilation, copy from the actual configured output and use the actual build target as the suffix instead of the `rustc` host.
 
+### First-run transcribe.cpp runtime (transcribeCpp provider)
+
+The `transcribeCpp` provider needs the transcribe.cpp native runtime (`libtranscribe.*` plus its ggml backend modules). Like the helper, it is not created by installing frontend dependencies; stage it once with the cross-platform script from `frontend/`:
+
+```bash
+cd frontend
+pnpm run stage:transcribe            # download + SHA-256 verify + extract
+pnpm run stage:transcribe -- --verify  # assert the staged files are complete
+```
+
+(`--verify` runs the script's verification mode: `node scripts/stage-transcribe-native.mjs --verify`.)
+
+The script downloads the pinned transcribe.cpp **v0.4.2** release archive for the current platform/arch lane from GitHub Releases, verifies the archive against a committed SHA-256 pin, and extracts `libtranscribe.*`, the ggml backend modules (per-ISA CPU + Vulkan, or Metal on macOS), `contract.json` and `licenses/` flat into `frontend/src-tauri/transcribecpp-runtime/` (gitignored). Re-runs are skipped via a `.staged` stamp file; a hash mismatch deletes the partial download and fails.
+
+| Platform/arch | Lane downloaded |
+| --- | --- |
+| Linux x86_64 | `linux-x86_64-cpu-vulkan` |
+| Linux aarch64 | `linux-aarch64-cpu-vulkan` |
+| Windows x64 | `windows-x86_64-cpu-vulkan` |
+| macOS arm64 | `macos-arm64-metal` |
+
+CI parity: the same script runs as build steps in `build.yml` (Linux) and `build-windows.yml` (Windows) before bundling, so local and CI trees stage identically. On Windows the directory is additionally mapped into the install root next to the executable via `tauri.windows.conf.json` (see the Windows section below); on Linux debug builds the app probes the staged directory automatically.
+
+The pinned `contract.json` ABI is checked both at staging (early sanity check in the script) and at library load time (the authoritative gate in `transcribe_cpp_engine/wrapper.rs`). Upgrading transcribe.cpp means changing the version pin, every lane SHA-256 and the contract/FFI subset in one coordinated edit — see [ADR 0006](adr/0006-transcribe-cpp-as-fourth-engine.md).
+
+**Vulkan note:** staging itself needs no SDK — the release lanes ship prebuilt Vulkan backend modules. Unlike Whisper's Vulkan *build* (which requires the repository-local Vulkan SDK in `.tools/`, above), running transcribe.cpp on Vulkan only needs a working Vulkan driver/loader at runtime (`libvulkan.so.1` on Linux, `vulkan-1.dll` on Windows, installed with GPU drivers). Without a usable driver the engine falls back to CPU with a user-facing warning; see [RUNNING_LINUX.md](RUNNING_LINUX.md) / [RUNNING_WINDOWS.md](RUNNING_WINDOWS.md).
+
 ### Local LLVM toolchain (`.tools/`)
 
 The build requires **libclang** at compile time: `bindgen` (pulled in by `llama-cpp-sys-2` for `llama-helper` and by `whisper-rs-sys`) generates FFI bindings through it. Do not rely on a system-wide LLVM install — download a current LLVM release from [github.com/llvm/llvm-project/releases](https://github.com/llvm/llvm-project/releases) (e.g. `llvmorg-17.0.6` for Windows) and extract it into the repository-local `.tools/` folder.

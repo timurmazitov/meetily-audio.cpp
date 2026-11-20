@@ -36,7 +36,7 @@ graph TD
 
 *   **Tauri Core:** The heart of the application, responsible for managing the window, handling events, and exposing the Rust core to the frontend.
 *   **Audio Engine:** Captures audio from the microphone and system, processes it, and prepares it for transcription.
-*   **Transcription Engine:** Uses local speech-to-text models (Whisper, Parakeet, or audioCpp via audio.cpp/GigaAM) to transcribe the captured audio. It can be accelerated with a GPU. The audioCpp provider is a third engine, integrated in-process through a C ABI — see [ADR 0001](adr/0001-audio-cpp-as-third-engine.md).
+*   **Transcription Engine:** Uses local speech-to-text models (Whisper, Parakeet, audioCpp via audio.cpp/GigaAM, or Transcribe.cpp) to transcribe the captured audio. It can be accelerated with a GPU. The audioCpp provider is a third engine, integrated in-process through a C ABI — see [ADR 0001](adr/0001-audio-cpp-as-third-engine.md). The transcribeCpp provider is a fourth engine on the same in-process FFI pattern (prebuilt transcribe.cpp runtime, Vulkan/CPU compute modes) — see [ADR 0006](adr/0006-transcribe-cpp-as-fourth-engine.md).
 *   **Database:** A local SQLite database that stores meeting metadata, transcripts, and summaries.
 *   **Summary Engine:** Generates meeting summaries using various Large Language Models (LLMs), including local models via Ollama.
 

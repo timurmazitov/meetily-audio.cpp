@@ -17,8 +17,9 @@ pnpm run tauri:dev          # запуск
 pnpm run tauri:build        # сборка пакетов
 ```
 
-Но сначала должны быть выполнены шаги 1–3: системные пакеты, sidecar `llama-helper`,
-нативная библиотека audio.cpp (нужна только для провайдера `audioCpp`).
+Но сначала: системные пакеты (шаг 1), frontend-зависимости (шаг 2) и sidecar
+`llama-helper` (шаг 3). Нативные библиотеки audio.cpp (шаг 5) и transcribe.cpp
+(шаг 6) нужны только соответствующим провайдерам.
 
 ---
 
@@ -179,7 +180,79 @@ cd <repo>/frontend && pnpm run tauri:dev
 
 ---
 
-## 6. Сборка релиза
+## 6. Провайдер transcribeCpp и нативная библиотека
+
+Провайдер **transcribeCpp** (четвёртый движок, [ADR 0006](adr/0006-transcribe-cpp-as-fourth-engine.md))
+требует нативную библиотеку transcribe.cpp v0.4.2 с ABI-пином `version=0.4.2`,
+`header_hash=f99ad4169374b8f3` (сверяется по `contract.json` рядом с библиотекой
+до первого вызова; несовпадение — понятная ошибка несовместимого ABI, не краш).
+
+Стейджинг одной командой (загружает lane `linux-x86_64-cpu-vulkan` или
+`linux-aarch64-cpu-vulkan` с проверкой SHA-256):
+
+```bash
+cd <repo>/frontend
+pnpm run stage:transcribe
+```
+
+Это раскладывает `libtranscribe.so`, модули бэкендов ggml, `contract.json` и
+`licenses/` в gitignored `frontend/src-tauri/transcribecpp-runtime/`. В debug-сборке
+приложение само ищет библиотеку в этом каталоге — дополнительных действий не нужно.
+
+Обнаружение библиотеки (`transcribe_cpp_engine/wrapper.rs`, `transcription.rs`), по порядку:
+
+1. переменная окружения `TRANSCRIBECPP_LIBRARY_PATH` (путь к файлу
+   `libtranscribe.so`; указывает на несуществующий файл — ошибка, а не тихий fallback);
+2. `transcribe-libs/<lane>/` рядом с исполняемым файлом (lane вида
+   `linux-x86_64-cpu-vulkan`);
+3. плоская раскладка — `libtranscribe.so` рядом с исполняемым файлом;
+4. (только debug-сборка Linux) каталог стейджинга
+   `frontend/src-tauri/transcribecpp-runtime/`.
+
+Вариант с переменной окружения (для разработки):
+
+```bash
+export TRANSCRIBECPP_LIBRARY_PATH=/абсолютный/путь/до/libtranscribe.so
+cd <repo>/frontend && pnpm run tauri:dev
+```
+
+Если библиотеки нет, приложение запустится, модели transcribe.cpp скачаются
+(менеджер моделей работает без нативной библиотеки), но транскрибация вернёт
+понятную ошибку «library not found». Это не краш.
+
+Веса моделей скачиваются в самом приложении:
+**Settings → Transcript Model → провайдер `Transcribe.cpp`** — девять
+RU-содержащих GGUF-моделей (семейства gigaam-v3, parakeet-tdt-0.6b-v3,
+parakeet-ultra, qwen3-asr-0.6b, whisper-large-v3-turbo/large-v3); дефолт —
+`parakeet-ultra` (Q8_0). Каталог и загрузки работают и без нативной библиотеки.
+
+Режим вычислений выбирается в настройках («Режим вычислений»: Авто / Vulkan (ГПУ) /
+CPU) и хранится в колонке `transcribeBackend`. Поведение:
+
+- **Vulkan при недоступном драйвере** — автоматический фолбэк на CPU с
+  пользовательским предупреждением (`transcription-warning`) и записью в логи;
+  транскрипты не страдают, только медленнее.
+- **Маска бэкендов фиксируется на процесс.** Библиотека transcribe.cpp фиксирует
+  допустимый набор бэкендов при ПЕРВОЙ регистрации (`transcribe_init_backends_ex`:
+  «call once, first»). Первая загрузка движка в запуске захватывает текущий режим;
+  смена Авто/Vulkan/CPU после этого применится только после перезапуска приложения,
+  а до перезапуска запрос вне зафиксированной маски деградирует как недоступный
+  бэкенд (например, Vulkan при CPU-маске → CPU).
+
+Диагностика движка — команда Tauri `transcribecpp_diagnostics` (её нет в UI менеджера
+моделей; доступна из devtools webview или тестов) возвращает:
+`{ available, library_path, version, header_hash, backends, error }` —
+путь к загруженной библиотеке, версию, ABI-хеш из `contract.json`, список
+бэкендов lane и текст ошибки, если библиотека не загрузилась
+(`available: false`; ошибка возвращается в данных, а не падением команды).
+
+Проверка Vulkan-ускорения без GUI — интеграционные тесты
+`tests/transcribecpp_live_smoke.rs` (помечены `#[ignore]`, требуют застейджженную
+библиотеку и рабочий Vulkan-драйвер).
+
+---
+
+## 7. Сборка релиза
 
 ```bash
 cd <repo>/frontend
@@ -213,7 +286,7 @@ cd <repo>/frontend
 
 ---
 
-## 7. Частые проблемы
+## 8. Частые проблемы
 
 | Симптом | Причина и решение |
 | --- | --- |
@@ -224,11 +297,14 @@ cd <repo>/frontend
 | Сборка падает на `alsa-sys` | нет `libasound2-dev` |
 | Ошибка линковки Vulkan | задайте `VULKAN_SDK=/usr` и `BLAS_INCLUDE_DIRS=/usr/include/x86_64-linux-gnu`, либо соберите CPU-режимом `TAURI_GPU_FEATURE=none` |
 | audioCpp: «library not found» | не задан `AUDIOCPP_LIBRARY_PATH` и библиотеки нет рядом с exe — шаг 5 |
+| transcribeCpp: «library not found» | не выполнен `pnpm run stage:transcribe` (шаг 6) и библиотека не найдена по порядку поиска |
+| transcribeCpp: ошибка несовместимого ABI | `contract.json` рядом с библиотекой не совпадает с пином v0.4.2 / `f99ad4169374b8f3` — застейджерите рантайм заново (`pnpm run stage:transcribe`) или укажите корректную библиотеку через `TRANSCRIBECPP_LIBRARY_PATH` |
+| transcribeCpp: предупреждение «…continues on the CPU backend» | Vulkan-драйвер недоступен — это штатный фолбэк на CPU; для Vulkan проверьте `vulkaninfo` и перезапустите приложение после смены режима |
 | Долгая первая сборка | нормально: компилируются Whisper, llama.cpp и весь Rust-граф |
 
 ---
 
-## 8. Проверка без GUI
+## 9. Проверка без GUI
 
 Полный `cargo test` и `bun test` не требуют окна:
 

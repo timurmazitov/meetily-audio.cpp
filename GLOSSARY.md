@@ -5,11 +5,11 @@
 ## Language
 
 **Движок транскрибации (transcription engine)**:
-Конкретная реализация распознавания речи, встраиваемая в приложение как модуль (Whisper, Parakeet, audio.cpp).
+Конкретная реализация распознавания речи, встраиваемая в приложение как модуль (Whisper, Parakeet, audio.cpp, transcribe.cpp).
 _Avoid_: бэкенд, модель
 
 **Провайдер транскрибации (transcription provider)**:
-Выбранный в настройках движок транскрибации — значение конфигурации (`localWhisper`, `parakeet`, `audioCpp`), а не сам модуль.
+Выбранный в настройках движок транскрибации — значение конфигурации (`localWhisper`, `parakeet`, `audioCpp`, `transcribeCpp`), а не сам модуль.
 _Avoid_: engine, бэкенд
 
 **Речевой сегмент (speech segment)**:
