@@ -22,6 +22,9 @@ pub(crate) enum BatchEngine {
     Whisper,
     Parakeet,
     AudioCpp,
+    /// Batch flows (retranscription/import) are wired in ticket 07; the
+    /// provider itself and its post-batch unload already work.
+    TranscribeCpp,
 }
 
 impl BatchEngine {
@@ -33,6 +36,9 @@ impl BatchEngine {
         match provider {
             Some("parakeet") => Self::Parakeet,
             Some(crate::audio::transcription::engine::AUDIO_CPP_PROVIDER) => Self::AudioCpp,
+            Some(crate::audio::transcription::engine::TRANSCRIBE_CPP_PROVIDER) => {
+                Self::TranscribeCpp
+            }
             _ => Self::Whisper,
         }
     }
@@ -64,6 +70,10 @@ pub(crate) async fn unload_engine_after_batch(engine: BatchEngine) {
             // Releases the model and its session thread, mirroring the
             // Whisper/Parakeet unload above.
             crate::audio_cpp_engine::transcription::unload_provider();
+        }
+        BatchEngine::TranscribeCpp => {
+            // Releases the model and its session thread, mirroring audio.cpp.
+            crate::transcribe_cpp_engine::transcription::unload_provider();
         }
         BatchEngine::Whisper => {
             use crate::whisper_engine::commands::WHISPER_ENGINE;
@@ -292,6 +302,14 @@ mod tests {
         assert_eq!(
             BatchEngine::from_provider_name(Some("audioCpp")),
             BatchEngine::AudioCpp
+        );
+    }
+
+    #[test]
+    fn batch_engine_selection_recognizes_transcribe_cpp() {
+        assert_eq!(
+            BatchEngine::from_provider_name(Some("transcribeCpp")),
+            BatchEngine::TranscribeCpp
         );
     }
 

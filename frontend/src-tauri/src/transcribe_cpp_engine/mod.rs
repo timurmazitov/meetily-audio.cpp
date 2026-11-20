@@ -58,7 +58,9 @@ pub use session_thread::{
     SessionHandle, SessionLoadError, SessionRequestError, SessionTask, SessionThread,
 };
 pub use transcription::{
-    select_requested_transcription_model, select_transcription_model, ModelNotReady,
+    load_native_engine, load_native_provider, provider, resolve_library_path,
+    select_requested_transcription_model, select_transcription_model, set_provider,
+    unload_provider, ModelNotReady, TRANSCRIBECPP_PROVIDER,
 };
 pub use wrapper::{
     AbiContract, Model, RunOutput, Segment, Session, TranscribeCpp, CONTRACT_FILE_NAME,
