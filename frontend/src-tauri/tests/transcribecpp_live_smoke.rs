@@ -172,3 +172,46 @@ async fn staged_library_and_model_transcribe_speech_end_to_end() {
     );
     assert!(!result.is_partial);
 }
+
+/// Manual Vulkan verification (ticket 06 checkbox): loads the engine the way
+/// the saved «Vulkan» mode does and records what actually happened — on a GPU
+/// machine the model must bind to vulkan; without a driver the load must
+/// still succeed with the CPU fallback flagged for the warning channel.
+/// Never fails on missing hardware: it reports the fact and passes.
+///
+/// Run it ALONE (`-- --ignored --exact
+/// forced_vulkan_reports_the_actual_backend`): the allowed-backend mask is
+/// fixed process-wide, so running it together with the CPU smoke in the same
+/// binary would honestly report a mask-already-fixed CPU fallback rather than
+/// the GPU fact.
+#[tokio::test]
+#[ignore = "live native smoke: requires the staged transcribe.cpp runtime; run on a GPU machine to record the Vulkan fact"]
+async fn forced_vulkan_reports_the_actual_backend() {
+    let Some(library_path) = staged_or_env_library() else {
+        eprintln!("SKIP: staged transcribe.cpp runtime not present");
+        return;
+    };
+
+    // The engine constructor is the production Vulkan path (mask gate +
+    // device selection); provider and session threads are covered by the
+    // CPU smoke above.
+    let library = TranscribeCpp::load_from(&library_path).expect("staged library passes the gate");
+    let engine = load_native_engine(ComputeMode::Vulkan).expect("vulkan request must never fail");
+    let selection = engine.selection().clone();
+    let contract_backends = library.contract().backends.clone();
+    drop(engine);
+
+    if selection.fell_back_to_cpu {
+        eprintln!(
+            "Vulkan requested, contract backends {contract_backends:?}: fell back to CPU \
+             (the dispatcher warns the user) — acceptable without a GPU driver"
+        );
+    } else {
+        eprintln!(
+            "Vulkan requested, contract backends {contract_backends:?}: registered and \
+             pinned device index {:?} — GPU acceleration in effect",
+            selection.device_index
+        );
+        assert_eq!(selection.mode, ComputeMode::Vulkan);
+    }
+}
