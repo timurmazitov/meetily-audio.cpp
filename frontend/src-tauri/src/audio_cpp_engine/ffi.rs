@@ -108,17 +108,6 @@ type FnRequestSetAudio =
 type FnRequestSetOption =
     unsafe extern "C" fn(*mut audiocpp_request, *const c_char, *const c_char) -> c_int;
 type FnResultFree = unsafe extern "C" fn(*mut audiocpp_result);
-type FnResultText =
-    unsafe extern "C" fn(*const audiocpp_result, *mut *const c_char, *mut *const c_char) -> c_int;
-type FnResultSegmentCount = unsafe extern "C" fn(*const audiocpp_result) -> usize;
-type FnResultSegment = unsafe extern "C" fn(
-    *const audiocpp_result,
-    usize,
-    *mut i64,
-    *mut i64,
-    *mut f32,
-    *mut *const c_char,
-) -> c_int;
 type FnResultSpeakerTurnCount = unsafe extern "C" fn(*const audiocpp_result) -> usize;
 type FnResultSpeakerTurn = unsafe extern "C" fn(
     *const audiocpp_result,
@@ -163,9 +152,6 @@ pub struct AudiocppApi {
     pub request_set_audio: FnRequestSetAudio,
     pub request_set_option: FnRequestSetOption,
     pub result_free: FnResultFree,
-    pub result_text: FnResultText,
-    pub result_segment_count: FnResultSegmentCount,
-    pub result_segment: FnResultSegment,
     pub result_speaker_turn_count: FnResultSpeakerTurnCount,
     pub result_speaker_turn: FnResultSpeakerTurn,
 }
@@ -222,9 +208,6 @@ impl AudiocppApi {
             request_set_audio: sym!("audiocpp_request_set_audio", FnRequestSetAudio),
             request_set_option: sym!("audiocpp_request_set_option", FnRequestSetOption),
             result_free: sym!("audiocpp_result_free", FnResultFree),
-            result_text: sym!("audiocpp_result_text", FnResultText),
-            result_segment_count: sym!("audiocpp_result_segment_count", FnResultSegmentCount),
-            result_segment: sym!("audiocpp_result_segment", FnResultSegment),
             result_speaker_turn_count: sym!(
                 "audiocpp_result_speaker_turn_count",
                 FnResultSpeakerTurnCount

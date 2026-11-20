@@ -39,8 +39,11 @@ const diarizationModel = (overrides: Partial<AudioCppModelInfo> = {}): AudioCppM
   ...overrides,
 });
 
-/** A leftover ASR entry: until the native catalog drops GigaAM, the manager
- *  must never render it — transcribe.cpp owns transcription now. */
+/** A foreign (non-diarization) entry a stale catalog state could still
+ *  report: the manager must never render it — the Rust catalog is
+ *  diarization-only now, and transcribe.cpp owns transcription. The cast
+ *  only satisfies the diar-only client type; at runtime the task stays 'asr',
+ *  which is what the manager's filter sees. */
 const asrModel = (overrides: Partial<AudioCppModelInfo> = {}): AudioCppModelInfo => ({
   name: 'gigaam-v3-e2e-ctc-f16',
   display_name: 'GigaAM v3 e2e CTC',
@@ -195,7 +198,7 @@ test('lists the diarization model with its purpose and size', async () => {
   expect(text).toContain('BF16');
 });
 
-test('a leftover ASR entry in the catalog never renders: transcription belongs to transcribe.cpp', async () => {
+test('a foreign ASR entry never renders: transcription belongs to transcribe.cpp', async () => {
   const client = new FakeClient();
   client.models = [asrModel(), diarizationModel()];
 
@@ -371,8 +374,8 @@ test('no runtime warning is shown when the native library is available', async (
 });
 
 test('events for a model this manager does not list are not announced', async () => {
-  // While the native catalog still carries GigaAM entries, its download events
-  // must not surface in the diarization section.
+  // A foreign model's download events (e.g. a stale ASR entry reported by an
+  // old catalog state) must not surface in the diarization section.
   const client = new FakeClient();
   client.models = [asrModel(), diarizationModel()];
   await render(client);

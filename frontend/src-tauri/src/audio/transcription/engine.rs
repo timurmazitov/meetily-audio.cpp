@@ -19,6 +19,10 @@ pub enum TranscriptionEngine {
 }
 
 /// Provider id for the audio.cpp engine (GLOSSARY: «провайдер транскрибации»).
+///
+/// The engine itself no longer transcribes (it only diarizes); the id stays
+/// so the settings soft migration can still recognize legacy saved configs
+/// that name it.
 pub const AUDIO_CPP_PROVIDER: &str = "audioCpp";
 
 /// Provider id for the transcribe.cpp engine (GLOSSARY: «провайдер транскрибации»).
@@ -155,26 +159,6 @@ pub async fn validate_transcription_model_ready<R: Runtime>(
                 }
             }
         }
-        AUDIO_CPP_PROVIDER => {
-            info!("🔍 Validating audioCpp model...");
-            match get_or_init_audio_cpp_provider(app).await {
-                Ok(provider) => {
-                    let model = provider
-                        .get_current_model()
-                        .await
-                        .unwrap_or_else(|| "unknown".to_string());
-                    info!(
-                        "✅ audioCpp model validation successful: {} is ready",
-                        model
-                    );
-                    Ok(())
-                }
-                Err(e) => {
-                    warn!("❌ audioCpp model validation failed: {}", e);
-                    Err(e)
-                }
-            }
-        }
         TRANSCRIBE_CPP_PROVIDER => {
             info!("🔍 Validating transcribeCpp model...");
             match get_or_init_transcribe_cpp_provider(app).await {
@@ -201,7 +185,7 @@ pub async fn validate_transcription_model_ready<R: Runtime>(
                 other
             );
             Err(format!(
-                "Provider '{}' is not supported for local transcription. Please select 'localWhisper', 'parakeet', 'audioCpp' or 'transcribeCpp'.",
+                "Provider '{}' is not supported for local transcription. Please select 'localWhisper', 'parakeet' or 'transcribeCpp'.",
                 other
             ))
         }
@@ -280,11 +264,6 @@ pub async fn get_or_init_transcription_engine<R: Runtime>(
                 ),
             }
         }
-        AUDIO_CPP_PROVIDER => {
-            info!("🎙️ Initializing audioCpp transcription engine");
-            let provider = get_or_init_audio_cpp_provider(app).await?;
-            Ok(TranscriptionEngine::Provider(provider))
-        }
         TRANSCRIBE_CPP_PROVIDER => {
             info!("🧠 Initializing transcribeCpp transcription engine");
             let provider = get_or_init_transcribe_cpp_provider(app).await?;
@@ -298,136 +277,6 @@ pub async fn get_or_init_transcription_engine<R: Runtime>(
     }
 }
 
-/// Get or initialize the audioCpp transcription provider from the configured
-/// model.
-///
-/// The provider is cached process-wide, so a second recording reuses the
-/// already-loaded model. Failures are returned as user-facing messages: a
-/// missing, downloading or corrupted model never reaches the native session
-/// setup, and a native load/session error is reported instead of panicking.
-pub async fn get_or_init_audio_cpp_provider<R: Runtime>(
-    app: &AppHandle<R>,
-) -> Result<Arc<dyn TranscriptionProvider>, String> {
-    get_or_init_audio_cpp_provider_with_model(app, None).await
-}
-
-/// Get or initialize the audioCpp provider, optionally for a specific model.
-///
-/// Batch jobs (retranscription, audio import) let the user pick any installed
-/// audioCpp model in the dialog, which may differ from the configured one.
-/// When `requested_model` is `Some`, that exact model is loaded — with no
-/// fallback to another installed model, since silently transcribing with a
-/// different model would defeat the comparison the user is making — and a
-/// cached provider is reused only when it already runs that model.
-pub async fn get_or_init_audio_cpp_provider_with_model<R: Runtime>(
-    app: &AppHandle<R>,
-    requested_model: Option<String>,
-) -> Result<Arc<dyn TranscriptionProvider>, String> {
-    if let Some(provider) = crate::audio_cpp_engine::transcription::provider() {
-        if provider.is_model_loaded().await {
-            let current = provider
-                .get_current_model()
-                .await
-                .unwrap_or_else(|| "unknown".to_string());
-            let reuse = match &requested_model {
-                Some(requested) => current == *requested,
-                None => true,
-            };
-            if reuse {
-                info!("✅ audioCpp model '{}' already loaded, reusing", current);
-                return Ok(provider);
-            }
-            info!(
-                "🔄 Loaded audioCpp model '{}' does not match requested '{}', reloading",
-                current,
-                requested_model.as_deref().unwrap_or("")
-            );
-        }
-    }
-
-    // The transcript config supplies the model only when no explicit model
-    // was requested; a batch job with an explicit model must not depend on
-    // (or validate against) the configured provider.
-    let configured_model = match requested_model {
-        Some(_) => String::new(),
-        None => match crate::api::api::api_get_transcript_config(
-            app.clone(),
-            app.clone().state(),
-            None,
-        )
-        .await
-        {
-            Ok(Some(config)) if config.provider == AUDIO_CPP_PROVIDER => config.model,
-            Ok(Some(config)) => {
-                return Err(format!(
-                    "Cannot initialize audioCpp: the transcript provider is '{}'. This is a bug in the transcription task initialization.",
-                    config.provider
-                ))
-            }
-            Ok(None) => String::new(),
-            Err(e) => {
-                warn!("⚠️ Failed to get transcript config for audioCpp: {}", e);
-                String::new()
-            }
-        },
-    };
-
-    let manager = crate::audio_cpp_engine::commands::model_manager().ok_or_else(|| {
-        "The audioCpp model manager is not initialized. Restart Samobranka and try again.".to_string()
-    })?;
-
-    let models = manager
-        .discover_models()
-        .await
-        .map_err(|e| format!("Failed to discover audioCpp models: {}", e))?;
-
-    let model = match &requested_model {
-        Some(requested) => {
-            crate::audio_cpp_engine::transcription::select_requested_transcription_model(
-                &models, requested,
-            )
-        }
-        None => crate::audio_cpp_engine::transcription::select_transcription_model(
-            &models,
-            &configured_model,
-        ),
-    }
-    .map_err(|not_ready| {
-        warn!("❌ audioCpp model not ready: {}", not_ready);
-        not_ready.to_string()
-    })?;
-
-    info!(
-        "Loading audioCpp model '{}' from {}",
-        model.name,
-        model.path.display()
-    );
-
-    // Library detection, registry creation and model load all block; keep
-    // them off the async runtime (docs/research/audio-cpp-c-api.md).
-    let load_result = tokio::task::spawn_blocking(move || {
-        crate::audio_cpp_engine::transcription::load_native_provider(&model)
-            .map_err(|e| e.to_string())
-    })
-    .await
-    .map_err(|e| format!("audioCpp model load task failed: {}", e))?;
-
-    match load_result {
-        Ok(provider) => {
-            info!(
-                "✅ audioCpp provider ready: model '{}', family '{}'",
-                provider.model_name(),
-                provider.family()
-            );
-            let cached = crate::audio_cpp_engine::transcription::set_provider(provider);
-            Ok(cached)
-        }
-        Err(message) => {
-            warn!("❌ audioCpp model load failed: {}", message);
-            Err(message)
-        }
-    }
-}
 
 /// Get or initialize the transcribeCpp transcription provider from the
 /// configured model.

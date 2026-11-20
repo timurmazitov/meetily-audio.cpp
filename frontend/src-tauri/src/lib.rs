@@ -804,7 +804,6 @@ pub fn run() {
             audio_cpp_engine::commands::audiocpp_model_init,
             audio_cpp_engine::commands::audiocpp_get_available_models,
             audio_cpp_engine::commands::audiocpp_has_available_models,
-            audio_cpp_engine::commands::audiocpp_has_transcription_model,
             audio_cpp_engine::commands::audiocpp_get_models_directory,
             audio_cpp_engine::commands::audiocpp_download_model,
             audio_cpp_engine::commands::audiocpp_cancel_download,

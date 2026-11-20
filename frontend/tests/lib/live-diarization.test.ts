@@ -298,13 +298,13 @@ describe('mirrored native texts', () => {
 
 describe('hasInstalledDiarizationModel', () => {
   test('accepts only an installed diarization model', () => {
-    const expected: Array<[Array<{ task: 'asr' | 'diar'; status: unknown }>, boolean]> = [
+    // audio.cpp is diarization-only: the catalog exposes no `asr` task any
+    // more, so only the diar artifact states below can occur.
+    const expected: Array<[Array<{ task: 'diar'; status: unknown }>, boolean]> = [
       [[], false],
-      [[{ task: 'asr', status: 'Available' }], false],
       [[{ task: 'diar', status: 'Missing' }], false],
       [[{ task: 'diar', status: { Downloading: { progress: 40 } } }], false],
       [[{ task: 'diar', status: 'Available' }], true],
-      [[{ task: 'asr', status: 'Available' }, { task: 'diar', status: 'Available' }], true],
     ];
 
     for (const [models, expectedPresence] of expected) {

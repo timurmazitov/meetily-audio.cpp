@@ -4,11 +4,10 @@
 // after transcription and returns speaker turns (GLOSSARY: «поворот
 // спикера»), which the caller overlays onto transcript segments.
 //
-// Design notes (mirror of audio_cpp_provider.rs, which see):
+// Design notes:
 // - The model and its session live on a dedicated thread for their whole
 //   lifetime; audio.cpp handles are not thread-safe individually. The
-//   thread machinery itself is shared with the provider in
-//   `audio_cpp_engine::session_thread`.
+//   thread machinery is `audio_cpp_engine::session_thread`.
 // - Input is the pipeline contract: 16 kHz mono f32, exactly what the
 //   recording decoder produces.
 // - Capability gate: the model must support `diar` / `offline`.
@@ -327,14 +326,6 @@ mod tests {
             Ok(task == DIAR_TASK && mode == OFFLINE_MODE && self.supports_diar_offline)
         }
 
-        fn transcribe_asr(
-            &mut self,
-            _audio: &[f32],
-            _sample_rate: i32,
-        ) -> Result<crate::audio_cpp_engine::TranscriptionOutput, AudioCppError> {
-            unimplemented!("the diarizer never transcribes")
-        }
-
         fn diarize(
             &mut self,
             audio: &[f32],
@@ -412,22 +403,25 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_transcription_model_is_rejected_with_an_actionable_message() {
-        let mut engine = FakeEngine::new("gigaam_asr");
+    async fn a_model_without_offline_diarization_support_is_rejected_with_an_actionable_message() {
+        // The audio.cpp catalog holds only the Nemotron diarization model;
+        // any other artifact (e.g. a stray GGUF from an older install) must
+        // be rejected by the capability gate, not loaded.
+        let mut engine = FakeEngine::new("some_other_family");
         Arc::get_mut(&mut engine).unwrap().supports_diar_offline = false;
 
         let error = AudioCppDiarizer::load(
             engine,
-            "gigaam-v3-e2e-ctc-f16",
-            PathBuf::from("/models/asr.gguf"),
+            "not-a-diarization-model",
+            PathBuf::from("/models/not-a-diarization-model.gguf"),
         )
         .await
         .unwrap_err();
 
         match &error {
             DiarizerLoadError::UnsupportedCapability { model, family } => {
-                assert_eq!(model, "gigaam-v3-e2e-ctc-f16");
-                assert_eq!(family, "gigaam_asr");
+                assert_eq!(model, "not-a-diarization-model");
+                assert_eq!(family, "some_other_family");
             }
             other => panic!("expected UnsupportedCapability, got {other:?}"),
         }

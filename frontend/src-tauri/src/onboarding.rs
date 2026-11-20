@@ -6,14 +6,15 @@ use anyhow::Result;
 
 use crate::state::AppState;
 use crate::database::repositories::setting::SettingsRepository;
-use crate::audio::transcription::engine::AUDIO_CPP_PROVIDER;
+use crate::audio::transcription::engine::TRANSCRIBE_CPP_PROVIDER;
 
-/// audio.cpp transcription model onboarding installs and configures.
+/// Transcription model onboarding installs and configures.
 ///
-/// The catalog (`audio_cpp_engine::catalog`) is the source of truth for model
-/// names; `onboarding_transcript_model_is_a_catalogued_asr_model` guards this
-/// constant against drifting from it.
-pub const ONBOARDING_TRANSCRIPT_MODEL: &str = "gigaam-v3-e2e-ctc-f16";
+/// Transcription runs exclusively on transcribe.cpp; the transcribe.cpp
+/// catalog (`transcribe_cpp_engine::catalog`) is the source of truth for
+/// model names, and `onboarding_transcript_model_is_a_catalogued_model`
+/// guards this constant against drifting from it.
+pub const ONBOARDING_TRANSCRIPT_MODEL: &str = crate::config::DEFAULT_TRANSCRIBE_CPP_MODEL;
 
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -63,11 +64,11 @@ impl Default for OnboardingStatus {
     }
 }
 
-/// Transcript configuration onboarding writes on completion: the audio.cpp
-/// provider with the GigaAM v3 e2e CTC model. Diarization is not part of the
-/// config — it is resolved from the installed catalog models.
+/// Transcript configuration onboarding writes on completion: the
+/// transcribe.cpp provider with the catalog default model. Diarization is
+/// not part of the config — it is resolved from the installed catalog models.
 pub fn onboarding_transcript_config() -> (&'static str, &'static str) {
-    (AUDIO_CPP_PROVIDER, ONBOARDING_TRANSCRIPT_MODEL)
+    (TRANSCRIBE_CPP_PROVIDER, ONBOARDING_TRANSCRIPT_MODEL)
 }
 
 
@@ -220,7 +221,7 @@ pub async fn complete_onboarding<R: Runtime>(
     }
     info!("Saved builtin-ai model config: model={}", model);
 
-    // Save transcription model config (audio.cpp provider) - GigaAM v3 e2e CTC
+    // Save transcription model config (transcribe.cpp provider)
     let (transcript_provider, transcript_model) = onboarding_transcript_config();
     if let Err(e) = SettingsRepository::save_transcript_config(
         pool,
@@ -348,20 +349,18 @@ mod tests {
     }
 
     #[test]
-    fn onboarding_selects_audiocpp_gigaam_transcript_config() {
+    fn onboarding_selects_the_transcribe_cpp_transcript_config() {
         let (provider, model) = onboarding_transcript_config();
 
-        assert_eq!(provider, "audioCpp");
-        assert_eq!(model, "gigaam-v3-e2e-ctc-f16");
-        assert_eq!(provider, crate::audio::transcription::engine::AUDIO_CPP_PROVIDER);
+        assert_eq!(provider, "transcribeCpp");
+        assert_eq!(model, crate::config::DEFAULT_TRANSCRIBE_CPP_MODEL);
+        assert_eq!(provider, crate::audio::transcription::engine::TRANSCRIBE_CPP_PROVIDER);
     }
 
     #[test]
-    fn onboarding_transcript_model_is_a_catalogued_asr_model() {
+    fn onboarding_transcript_model_is_a_catalogued_transcribe_cpp_model() {
         let (_, model) = onboarding_transcript_config();
-        let spec = crate::audio_cpp_engine::catalog::find_model(model)
+        crate::transcribe_cpp_engine::catalog::find_model(model)
             .expect("onboarding transcript model must be catalogued");
-
-        assert_eq!(spec.task, crate::audio_cpp_engine::catalog::ModelTask::Asr);
     }
 }

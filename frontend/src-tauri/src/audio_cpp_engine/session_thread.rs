@@ -5,9 +5,8 @@
 //! (docs/research/audio-cpp-c-api.md): one session is serviced by one thread.
 //! `tokio::task::spawn_blocking` is not enough, because its pool may hand a
 //! later request to a different thread while a handle is still live. Both
-//! app-level consumers of the engine therefore go through this module:
+//! app-level consumer of the engine therefore goes through this module:
 //!
-//! - the transcription provider (`audio/transcription/audio_cpp_provider.rs`),
 //! - the diarizer (`audio/transcription/audio_cpp_diarizer.rs`).
 //!
 //! A [`SessionThread`] is parameterized by the work one request does on the
@@ -31,7 +30,7 @@ pub trait SessionTask: Send + 'static {
     /// The result of one request.
     type Output: Send + 'static;
 
-    /// The audio.cpp task token this consumer drives (`"asr"`, `"diar"`).
+    /// The audio.cpp task token this consumer drives (`"diar"`).
     const TASK: &'static str;
 
     /// Runs one request on the thread that owns the model.
