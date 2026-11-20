@@ -3,7 +3,8 @@
     "resources": {
       "templates": "templates",
       "binaries/onnxruntime": ".",
-      "audiocpp-runtime": "."
+      "audiocpp-runtime": ".",
+      "transcribecpp-runtime": "."
     }
   }
 }
