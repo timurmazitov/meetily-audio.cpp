@@ -108,6 +108,9 @@ thiserror = "2.0.16"                # Error handling for Parakeet
 # audio.cpp in-process FFI: loading libaudiocpp.so / audiocpp.dll at runtime
 libloading = "0.8"
 
+# SHA-256 validation of transcribe.cpp model artifacts (pinned HF digests)
+sha2 = "0.10"
+
 # Async
 tokio = { version = "1.32.0", features = ["full", "tracing"] }
 tokio-util = "0.7"  # Utilities for tokio including CancellationToken
