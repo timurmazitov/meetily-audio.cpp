@@ -11,7 +11,7 @@
 //!   `tokio::task::spawn_blocking`.
 //! - The thread count is set per backend in [`BackendConfig`].
 
-use std::ffi::{c_char, c_int, CString};
+use std::ffi::{c_char, CString};
 use std::path::{Path, PathBuf};
 use std::ptr::NonNull;
 use std::sync::Arc;
@@ -284,7 +284,7 @@ pub struct Model {
 unsafe impl Send for Model {}
 
 impl Model {
-    /// Family of the loaded model, e.g. "gigaam_asr".
+    /// Family of the loaded model, e.g. "nemotron_3_diar".
     pub fn family(&self) -> String {
         let ptr = unsafe { (self.api.model_family)(self.ptr.as_ptr()) };
         if ptr.is_null() {
@@ -518,15 +518,6 @@ impl Drop for Request {
     }
 }
 
-/// A transcript segment with sample-based timestamps and confidence.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Segment {
-    pub start_sample: i64,
-    pub end_sample: i64,
-    pub confidence: f32,
-    pub text: String,
-}
-
 /// A speaker turn with sample-based timestamps, speaker id and confidence.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SpeakerTurn {
@@ -546,63 +537,6 @@ pub struct AudioCppResult {
 unsafe impl Send for AudioCppResult {}
 
 impl AudioCppResult {
-    /// Full transcript text, or `None` when the task produced no text.
-    pub fn text(&self) -> Result<Option<String>, AudioCppError> {
-        let mut raw_text: *const c_char = std::ptr::null();
-        let mut _language: *const c_char = std::ptr::null();
-        let status =
-            unsafe { (self.api.result_text)(self.ptr.as_ptr(), &mut raw_text, &mut _language) };
-        if status == Status::NotAvailable as c_int {
-            return Ok(None);
-        }
-        self.api.check(status, "audiocpp_result_text")?;
-        if raw_text.is_null() {
-            return Ok(None);
-        }
-        Ok(Some(
-            unsafe { std::ffi::CStr::from_ptr(raw_text) }
-                .to_string_lossy()
-                .into_owned(),
-        ))
-    }
-
-    /// Transcript segments (chunked output of long recordings).
-    pub fn segments(&self) -> Result<Vec<Segment>, AudioCppError> {
-        let count = unsafe { (self.api.result_segment_count)(self.ptr.as_ptr()) };
-        let mut segments = Vec::with_capacity(count);
-        for index in 0..count {
-            let mut start: i64 = 0;
-            let mut end: i64 = 0;
-            let mut confidence: f32 = 0.0;
-            let mut raw_text: *const c_char = std::ptr::null();
-            let status = unsafe {
-                (self.api.result_segment)(
-                    self.ptr.as_ptr(),
-                    index,
-                    &mut start,
-                    &mut end,
-                    &mut confidence,
-                    &mut raw_text,
-                )
-            };
-            self.api.check(status, "audiocpp_result_segment")?;
-            let text = if raw_text.is_null() {
-                String::new()
-            } else {
-                unsafe { std::ffi::CStr::from_ptr(raw_text) }
-                    .to_string_lossy()
-                    .into_owned()
-            };
-            segments.push(Segment {
-                start_sample: start,
-                end_sample: end,
-                confidence,
-                text,
-            });
-        }
-        Ok(segments)
-    }
-
     /// Speaker turns from a diarization run.
     pub fn speaker_turns(&self) -> Result<Vec<SpeakerTurn>, AudioCppError> {
         let count = unsafe { (self.api.result_speaker_turn_count)(self.ptr.as_ptr()) };

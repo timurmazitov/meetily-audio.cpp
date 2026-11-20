@@ -20,7 +20,7 @@ use super::audio_cpp_diarizer::{AudioCppDiarizer, DiarizerLoadError};
 use super::diarization::{attribute_segments_to_speakers, SpeakerTurnInterval};
 use crate::audio_cpp_engine::catalog::{ModelInfo, ModelStatus, ModelTask};
 use crate::audio_cpp_engine::engine::SAMPLE_RATE;
-use crate::audio_cpp_engine::transcription::load_native_engine;
+use crate::audio_cpp_engine::engine::load_native_engine;
 
 /// Hint emitted (and shown to the user) when speaker labels were skipped
 /// because the diarization model is not installed. One constant so the import,
@@ -378,10 +378,7 @@ mod tests {
 
     #[test]
     fn an_installed_diarization_model_is_selected() {
-        let models = vec![
-            model("gigaam-v3-e2e-ctc-f16", ModelStatus::Available),
-            model("nemotron-3-diarization-bf16", ModelStatus::Available),
-        ];
+        let models = vec![model("nemotron-3-diarization-bf16", ModelStatus::Available)];
 
         let selected = select_diarization_model(&models).unwrap();
 
@@ -391,10 +388,7 @@ mod tests {
 
     #[test]
     fn a_missing_diarization_model_is_not_selected() {
-        let models = vec![
-            model("gigaam-v3-e2e-ctc-f16", ModelStatus::Available),
-            model("nemotron-3-diarization-bf16", ModelStatus::Missing),
-        ];
+        let models = vec![model("nemotron-3-diarization-bf16", ModelStatus::Missing)];
 
         assert!(select_diarization_model(&models).is_none());
     }
@@ -413,8 +407,20 @@ mod tests {
     }
 
     #[test]
-    fn a_transcription_model_is_never_used_for_diarization() {
-        let models = vec![model("gigaam-v3-e2e-ctc-f16", ModelStatus::Available)];
+    fn only_a_fully_installed_diarization_model_is_selected() {
+        // The catalog holds no ASR entries any more, so the task filter is a
+        // compile-time guarantee (ModelTask has only Diar); what selection can
+        // still reject on the seam is an artifact that is not Available.
+        let models = vec![
+            model(
+                "nemotron-3-diarization-bf16",
+                ModelStatus::Error("hash mismatch".to_string()),
+            ),
+            model(
+                "nemotron-3-diarization-bf16",
+                ModelStatus::Downloading { progress: 99 },
+            ),
+        ];
 
         assert!(select_diarization_model(&models).is_none());
     }

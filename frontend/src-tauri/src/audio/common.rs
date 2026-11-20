@@ -20,7 +20,6 @@ pub(crate) async fn acquire_engine_lifecycle_lock() -> OwnedMutexGuard<()> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BatchEngine {
     Parakeet,
-    AudioCpp,
     /// Runs transcribe.cpp offline ASR over the batch segments (retranscription
     /// and import build the provider with the exact requested model).
     TranscribeCpp,
@@ -35,7 +34,6 @@ impl BatchEngine {
     pub(crate) fn from_provider_name(provider: Option<&str>) -> Self {
         match provider {
             Some("parakeet") => Self::Parakeet,
-            Some(crate::audio::transcription::engine::AUDIO_CPP_PROVIDER) => Self::AudioCpp,
             _ => Self::TranscribeCpp,
         }
     }
@@ -79,14 +77,9 @@ async fn unload_engine_after_batch_locked(
                 e.unload_model().await;
             }
         }
-        BatchEngine::AudioCpp => {
-            // Releases the model and its session thread, mirroring the
-            // Whisper/Parakeet unload above.
-            crate::audio_cpp_engine::transcription::unload_provider();
-        }
         BatchEngine::TranscribeCpp => {
-            // Releases the model and its session thread, mirroring audio.cpp.
-            // The session-thread join runs on a blocking thread inside
+            // Releases the model and its session thread. The session-thread
+            // join runs on a blocking thread inside
             // (async callers must not wait out in-flight native inference
             // on the runtime).
             crate::transcribe_cpp_engine::transcription::unload_provider().await;
@@ -307,14 +300,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn batch_engine_selection_recognizes_audio_cpp() {
-        assert_eq!(
-            BatchEngine::from_provider_name(Some("audioCpp")),
-            BatchEngine::AudioCpp
-        );
-    }
-
-    #[test]
     fn batch_engine_selection_recognizes_transcribe_cpp() {
         assert_eq!(
             BatchEngine::from_provider_name(Some("transcribeCpp")),
@@ -332,10 +317,15 @@ mod tests {
 
     #[test]
     fn batch_engine_selection_defaults_to_transcribe_cpp() {
+        // "audioCpp" is one of the removed transcription providers: with the
+        // ASR path gone it is just an unrecognized name and lands on
+        // transcribe.cpp (the settings soft migration normalizes it to
+        // transcribeCpp before it ever reaches a batch job).
         for provider in [
             None,
             Some("whisper"),
             Some("localWhisper"),
+            Some("audioCpp"),
             Some("deepgram"),
             Some(""),
         ] {

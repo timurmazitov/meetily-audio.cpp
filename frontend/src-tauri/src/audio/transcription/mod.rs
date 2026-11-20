@@ -3,7 +3,6 @@
 // Transcription module: Provider abstraction, engine management, and worker pool.
 
 pub mod audio_cpp_diarizer;
-pub mod audio_cpp_provider;
 pub mod diarization;
 pub mod diarization_run;
 pub mod diarization_service;
@@ -15,7 +14,6 @@ pub mod worker;
 
 // Re-export commonly used types
 pub use audio_cpp_diarizer::{AudioCppDiarizer, DiarizationError, DiarizerLoadError};
-pub use audio_cpp_provider::{AudioCppProvider, ProviderLoadError};
 pub use diarization::{attribute_segments_to_speakers, SpeakerTurnInterval};
 pub use diarization_service::{
     apply_speaker_labels, decide_diarization, diarize_recording_folder_with_model,
@@ -24,7 +22,6 @@ pub use diarization_service::{
     SPEAKER_NAMES_RESET_EVENT, SPEAKER_NAMES_RESET_MESSAGE,
 };
 pub use engine::{
-    get_or_init_audio_cpp_provider, get_or_init_audio_cpp_provider_with_model,
     get_or_init_transcribe_cpp_provider, get_or_init_transcribe_cpp_provider_for_batch,
     get_or_init_transcribe_cpp_provider_with_model, get_or_init_transcription_engine,
     validate_transcription_model_ready, TranscriptionEngine, AUDIO_CPP_PROVIDER,

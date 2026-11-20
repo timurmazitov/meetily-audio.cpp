@@ -516,12 +516,12 @@ mod tests {
     fn test_catalog(payload: &'static [u8]) -> &'static [ModelSpec] {
         Box::leak(
             vec![ModelSpec {
-                name: "test-asr-f16",
-                display_name: "Test ASR",
-                family: "gigaam_asr",
-                task: catalog::ModelTask::Asr,
-                quantization: "F16",
-                filename: "test-asr-f16.gguf",
+                name: "test-diar-bf16",
+                display_name: "Test Diar",
+                family: "nemotron_3_diar",
+                task: catalog::ModelTask::Diar,
+                quantization: "BF16",
+                filename: "test-diar-bf16.gguf",
                 size_mb: (payload.len() as u64 / (1024 * 1024)) as u32,
                 exact_bytes: payload.len() as u64,
                 description: "test model",
@@ -540,7 +540,7 @@ mod tests {
     }
 
     fn artifact_path(dir: &std::path::Path) -> PathBuf {
-        dir.join("audiocpp").join("test-asr-f16.gguf")
+        dir.join("audiocpp").join("test-diar-bf16.gguf")
     }
 
     /// Wait (bounded) for the downloader to create its partial file, so the
@@ -613,10 +613,10 @@ mod tests {
         let models = manager.discover_models().await.unwrap();
 
         assert_eq!(models.len(), 1);
-        assert_eq!(models[0].name, "test-asr-f16");
-        assert_eq!(models[0].family, "gigaam_asr");
+        assert_eq!(models[0].name, "test-diar-bf16");
+        assert_eq!(models[0].family, "nemotron_3_diar");
         assert!(matches!(models[0].status, ModelStatus::Missing));
-        assert!(!manager.is_model_available("test-asr-f16").await);
+        assert!(!manager.is_model_available("test-diar-bf16").await);
     }
 
     #[tokio::test]
@@ -629,7 +629,7 @@ mod tests {
         let models = manager.discover_models().await.unwrap();
 
         assert!(matches!(models[0].status, ModelStatus::Available));
-        assert!(manager.is_model_available("test-asr-f16").await);
+        assert!(manager.is_model_available("test-diar-bf16").await);
     }
 
     #[tokio::test]
@@ -651,7 +651,7 @@ mod tests {
             }
             other => panic!("expected Corrupted, got {other:?}"),
         }
-        assert!(!manager.is_model_available("test-asr-f16").await);
+        assert!(!manager.is_model_available("test-diar-bf16").await);
     }
 
     #[tokio::test]
@@ -664,7 +664,7 @@ mod tests {
         let models = manager.discover_models().await.unwrap();
 
         assert!(matches!(models[0].status, ModelStatus::Corrupted { .. }));
-        assert!(!manager.is_model_available("test-asr-f16").await);
+        assert!(!manager.is_model_available("test-diar-bf16").await);
     }
 
     #[tokio::test]
@@ -675,9 +675,9 @@ mod tests {
         std::fs::write(artifact_path(dir.path()), payload).unwrap();
         manager.discover_models().await.unwrap();
 
-        let message = manager.delete_model("test-asr-f16").await.unwrap();
+        let message = manager.delete_model("test-diar-bf16").await.unwrap();
 
-        assert!(message.contains("test-asr-f16"), "message: {message}");
+        assert!(message.contains("test-diar-bf16"), "message: {message}");
         assert!(!artifact_path(dir.path()).exists());
         let models = manager.discover_models().await.unwrap();
         assert!(matches!(models[0].status, ModelStatus::Missing));
@@ -689,7 +689,7 @@ mod tests {
         let payload = test_payload_static(1024);
         let manager = manager(dir.path(), payload);
 
-        manager.delete_model("test-asr-f16").await.unwrap();
+        manager.delete_model("test-diar-bf16").await.unwrap();
         assert!(matches!(
             manager.discover_models().await.unwrap()[0].status,
             ModelStatus::Missing
@@ -717,8 +717,8 @@ mod tests {
         let reported_by_callback = Arc::clone(&reported);
         manager
             .download_artifact(
-                "test-asr-f16",
-                "test-asr-f16.gguf",
+                "test-diar-bf16",
+                "test-diar-bf16.gguf",
                 &url,
                 payload.len() as u64,
                 Some(Box::new(move |progress| {
@@ -734,7 +734,7 @@ mod tests {
         assert_eq!(reported.first(), Some(&0));
         assert_eq!(reported.last(), Some(&100));
         assert!(reported.windows(2).all(|pair| pair[0] <= pair[1]));
-        assert!(manager.is_model_available("test-asr-f16").await);
+        assert!(manager.is_model_available("test-diar-bf16").await);
     }
 
     #[tokio::test]
@@ -746,8 +746,8 @@ mod tests {
 
         let error = manager
             .download_artifact(
-                "test-asr-f16",
-                "test-asr-f16.gguf",
+                "test-diar-bf16",
+                "test-diar-bf16.gguf",
                 &url,
                 payload.len() as u64,
                 None,
@@ -777,8 +777,8 @@ mod tests {
 
         let error = manager
             .download_artifact(
-                "test-asr-f16",
-                "test-asr-f16.gguf",
+                "test-diar-bf16",
+                "test-diar-bf16.gguf",
                 &url,
                 expected.len() as u64,
                 None,
@@ -803,7 +803,7 @@ mod tests {
         for filename in ["", "../escape.gguf", "nested/model.gguf", "..\\escape.gguf"] {
             let error = manager
                 .download_artifact(
-                    "test-asr-f16",
+                    "test-diar-bf16",
                     filename,
                     "http://127.0.0.1:9/model.gguf",
                     payload.len() as u64,
@@ -825,14 +825,14 @@ mod tests {
         let manager = manager(dir.path(), payload);
 
         let _owner = manager
-            .reserve_active_download("test-asr-f16")
+            .reserve_active_download("test-diar-bf16")
             .await
             .unwrap();
 
         let error = manager
             .download_artifact(
-                "test-asr-f16",
-                "test-asr-f16.gguf",
+                "test-diar-bf16",
+                "test-diar-bf16.gguf",
                 "http://127.0.0.1:9/model.gguf",
                 payload.len() as u64,
                 None,
@@ -853,8 +853,8 @@ mod tests {
         let download = tokio::spawn(async move {
             download_manager
                 .download_artifact(
-                    "test-asr-f16",
-                    "test-asr-f16.gguf",
+                    "test-diar-bf16",
+                    "test-diar-bf16.gguf",
                     &url,
                     payload.len() as u64,
                     None,
@@ -865,7 +865,7 @@ mod tests {
         headers_ready.await.unwrap();
         wait_for_file(&artifact_path(dir.path())).await;
 
-        let outcome = manager.cancel_download("test-asr-f16").await.unwrap();
+        let outcome = manager.cancel_download("test-diar-bf16").await.unwrap();
         assert_eq!(outcome, CancelDownloadOutcome::Cancelled);
 
         let error = download.await.unwrap().unwrap_err();
@@ -887,7 +887,7 @@ mod tests {
         let manager = manager(dir.path(), payload);
 
         assert_eq!(
-            manager.cancel_download("test-asr-f16").await.unwrap(),
+            manager.cancel_download("test-diar-bf16").await.unwrap(),
             CancelDownloadOutcome::Cancelled
         );
     }
@@ -898,11 +898,11 @@ mod tests {
         let payload = test_payload_static(1024);
         let manager = manager(dir.path(), payload);
         let _owner = manager
-            .reserve_active_download("test-asr-f16")
+            .reserve_active_download("test-diar-bf16")
             .await
             .unwrap();
 
-        let error = manager.delete_model("test-asr-f16").await.unwrap_err();
+        let error = manager.delete_model("test-diar-bf16").await.unwrap_err();
         assert!(error.to_string().contains("currently downloading"));
     }
 
@@ -915,8 +915,8 @@ mod tests {
             let (url, server) = serve_body(payload).await;
             manager
                 .download_artifact(
-                    "test-asr-f16",
-                    "test-asr-f16.gguf",
+                    "test-diar-bf16",
+                    "test-diar-bf16.gguf",
                     &url,
                     payload.len() as u64,
                     None,
