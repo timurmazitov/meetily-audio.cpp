@@ -2,10 +2,10 @@
 name = "samobranka"
 version = "1.0.0"
 description = "Samobranka - privacy-first AI meeting assistant (record, transcribe, summarize)"
-authors = ["Sujith S"]
+authors = ["Timur Mazitov"]
 license = "MIT"
 repository = "https://github.com/timurmazitov/samobranka"
-edition = "2021"
+edition = "2026"
 rust-version = "1.77"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

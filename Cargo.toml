@@ -7,7 +7,7 @@ members = [
 
 # Shared workspace settings
 [workspace.package]
-edition = "2021"
+edition = "2026"
 rust-version = "1.77"
 
 # Shared dependencies that can be inherited by workspace members
