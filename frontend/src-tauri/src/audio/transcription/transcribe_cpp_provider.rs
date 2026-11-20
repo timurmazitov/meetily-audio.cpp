@@ -19,12 +19,11 @@
 // - Input is the pipeline contract: 16 kHz mono f32 (transcribe.cpp v0.4.2
 //   accepts no other rate; no resampler is linked into the library).
 // - Language hints are forwarded to `transcribe_run` as-is (models that do
-//   not consume a hint ignore it natively). Translation is not supported:
-//   like audio.cpp, refusing `auto-translate` is the backend half of the
-//   frontend capability rule.
+//   not consume a hint ignore it natively). Transcription is always
+//   same-language: the translate-only mode the legacy Whisper engine had is
+//   gone with it.
 // - Transcript timestamps stay owned by the worker: every provider result
-//   is attributed to the VAD speech segment that produced it, exactly as
-//   for Whisper, Parakeet and audio.cpp.
+//   is attributed to the VAD speech segment that produced it.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -35,9 +34,7 @@ use log::info;
 use serde::Serialize;
 
 use super::engine::TRANSCRIBE_CPP_PROVIDER;
-use super::provider::{
-    check_translation_support, TranscriptResult, TranscriptionError, TranscriptionProvider,
-};
+use super::provider::{TranscriptResult, TranscriptionError, TranscriptionProvider};
 use crate::transcribe_cpp_engine::engine::{
     TranscribeCppEngine, TranscribeCppModel, TranscriptionOutput, MIN_SAMPLES,
 };
@@ -229,8 +226,6 @@ impl TranscriptionProvider for TranscribeCppProvider {
         audio: Vec<f32>,
         language: Option<String>,
     ) -> std::result::Result<TranscriptResult, TranscriptionError> {
-        check_translation_support(TRANSCRIBE_CPP_PROVIDER, language.as_deref())?;
-
         if audio.len() < MIN_SAMPLES {
             return Err(TranscriptionError::AudioTooShort {
                 samples: audio.len(),
@@ -293,7 +288,6 @@ mod tests {
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     use super::*;
-    use crate::audio::transcription::provider::AUTO_TRANSLATE_LANGUAGE;
     use crate::transcribe_cpp_engine::engine::SAMPLE_RATE;
     use crate::transcribe_cpp_engine::error::Status;
     use crate::transcribe_cpp_engine::wrapper::Segment;
@@ -608,25 +602,6 @@ mod tests {
         .await
         .expect("unload must not hang")
         .expect("unload task");
-    }
-
-    #[tokio::test]
-    async fn automatic_translation_is_refused_with_a_whisper_explanation() {
-        let engine = FakeEngine::new("cpu");
-        let provider = provider(Arc::clone(&engine)).await;
-
-        let error = provider
-            .transcribe(
-                audio(SAMPLE_RATE as usize),
-                Some(AUTO_TRANSLATE_LANGUAGE.to_string()),
-            )
-            .await
-            .unwrap_err();
-
-        assert!(matches!(error, TranscriptionError::TranslationNotSupported));
-        let text = error.to_string();
-        assert!(text.contains("Whisper"), "text: {text}");
-        assert!(!engine.ran(), "translation must not silently transcribe");
     }
 
     #[tokio::test]

@@ -3,9 +3,7 @@
 use crate::api::TranscriptSegment;
 use crate::audio::decoder::{decode_audio_file, decode_audio_file_with_progress};
 use crate::audio::vad::get_speech_chunks_with_progress;
-use crate::config::DEFAULT_WHISPER_MODEL;
 use crate::state::AppState;
-use crate::whisper_engine::WhisperEngine;
 use anyhow::{anyhow, Result};
 use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
@@ -326,7 +324,7 @@ async fn run_import<R: Runtime>(
         title, source_path, language, model, provider
     );
 
-    // Determine which provider to use (default to whisper)
+    // Determine which provider to use (defaults to transcribe.cpp)
     let engine_kind = BatchEngine::from_provider_name(provider.as_deref());
 
     emit_progress(&app, "copying", 5, "Creating meeting folder...");
@@ -521,12 +519,6 @@ async fn run_import<R: Runtime>(
 
     emit_progress(&app, "transcribing", 30, "Loading transcription engine...");
 
-    // Initialize the appropriate engine
-    let whisper_engine = if engine_kind == BatchEngine::Whisper && total_segments > 0 {
-        Some(get_or_init_whisper(&app, model.as_deref()).await?)
-    } else {
-        None
-    };
     // Exact model selection with no fallback: a batch request naming a model
     // the user picked in the dialog — or falling back to the configured
     // model, then the catalog default — must fail loudly when that model is
@@ -608,11 +600,15 @@ async fn run_import<R: Runtime>(
         }
 
         // Transcribe
-        let (text, conf) = if let Some(provider) = transcribe_cpp_provider.as_ref() {
-            // Same trait contract as the live pipeline. The provider applies
-            // the language hint itself ("auto"/None travels as the native
-            // autodetect hint) and refuses "auto-translate" with the
-            // Whisper-only explanation.
+        let (text, conf) = {
+            // The only batch engine this build ships: the provider the init
+            // above loaded for BatchEngine::TranscribeCpp. Same trait
+            // contract as the live pipeline; the provider applies the
+            // language hint itself ("auto"/None travels as the native
+            // autodetect hint).
+            let provider = transcribe_cpp_provider
+                .as_ref()
+                .ok_or_else(|| anyhow!("transcribeCpp provider was not initialized"))?;
             let result = provider
                 .transcribe(segment.samples.clone(), language.clone())
                 .await
@@ -624,13 +620,6 @@ async fn run_import<R: Runtime>(
                     )
                 })?;
             (result.text, result.confidence.unwrap_or(0.9f32))
-        } else {
-            let engine = whisper_engine.as_ref().unwrap();
-            let (text, conf, _) = engine
-                .transcribe_audio_with_confidence(segment.samples.clone(), language.clone())
-                .await
-                .map_err(|e| anyhow!("Whisper transcription failed on segment {}: {}", i, e))?;
-            (text, conf)
         };
 
         let trimmed = text.trim();
@@ -844,79 +833,6 @@ async fn create_meeting_with_transcripts(
     Ok((meeting_id, reconcile))
 }
 
-/// Get or initialize the Whisper engine
-async fn get_or_init_whisper<R: Runtime>(
-    app: &AppHandle<R>,
-    requested_model: Option<&str>,
-) -> Result<Arc<WhisperEngine>> {
-    use crate::whisper_engine::commands::WHISPER_ENGINE;
-
-    let engine = {
-        let guard = WHISPER_ENGINE.lock().unwrap_or_else(|e| e.into_inner());
-        guard.as_ref().cloned()
-    };
-
-    match engine {
-        Some(e) => {
-            let target_model = match requested_model {
-                Some(model) => model.to_string(),
-                None => get_configured_model(app, "whisper").await?,
-            };
-
-            let current_model = e.get_current_model().await;
-            let needs_load = match &current_model {
-                Some(loaded) => loaded != &target_model,
-                None => true,
-            };
-
-            if needs_load {
-                info!(
-                    "Loading Whisper model '{}' (current: {:?})",
-                    target_model, current_model
-                );
-
-                if let Err(e) = e.discover_models().await {
-                    warn!("Model discovery error (continuing): {}", e);
-                }
-
-                e.load_model(&target_model)
-                    .await
-                    .map_err(|e| anyhow!("Failed to load model '{}': {}", target_model, e))?;
-            }
-
-            Ok(e)
-        }
-        None => Err(anyhow!("Whisper engine not initialized")),
-    }
-}
-
-/// Get the configured model from database
-async fn get_configured_model<R: Runtime>(
-    app: &AppHandle<R>,
-    provider_type: &str,
-) -> Result<String> {
-    let app_state = app
-        .try_state::<AppState>()
-        .ok_or_else(|| anyhow!("App state not available"))?;
-
-    let result: Option<(String, String)> =
-        sqlx::query_as("SELECT provider, model FROM transcript_settings WHERE id = '1'")
-            .fetch_optional(app_state.db_manager.pool())
-            .await
-            .map_err(|e| anyhow!("Failed to query config: {}", e))?;
-
-    match result {
-        Some((provider, model)) => {
-            if provider_type == "whisper" && (provider == "localWhisper" || provider == "whisper") {
-                Ok(model)
-            } else {
-                // Return default model for the requested type
-                Ok(DEFAULT_WHISPER_MODEL.to_string())
-            }
-        }
-        None => Ok(DEFAULT_WHISPER_MODEL.to_string()),
-    }
-}
 
 /// Write metadata.json to a meeting folder (atomic write with temp file)
 fn write_import_metadata(
