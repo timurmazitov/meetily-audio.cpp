@@ -604,6 +604,51 @@ pub async fn get_or_init_transcribe_cpp_provider_with_model<R: Runtime>(
     }
 }
 
+/// Get or initialize the transcribeCpp provider for a batch job
+/// (retranscription or audio import), using the model exactly as requested.
+///
+/// Spec ticket 07: «без тихого фолбэка на другую установленную модель».
+/// [`get_or_init_transcribe_cpp_provider_with_model`] keeps the configured-
+/// wins fallback for `None` (the recording path needs it: a deleted model
+/// must not block recording), so the batch entry resolves `None` to a
+/// concrete name first — the dialog's choice, else the configured model,
+/// else the catalog default — and always demands that exact model
+/// ([`crate::transcribe_cpp_engine::transcription::select_requested_transcription_model`]):
+/// not installed or not fully downloaded is an error surfaced through the
+/// batch's existing error events, never a silent substitution of another
+/// Available model.
+pub async fn get_or_init_transcribe_cpp_provider_for_batch<R: Runtime>(
+    app: &AppHandle<R>,
+    requested_model: Option<String>,
+) -> Result<Arc<dyn TranscriptionProvider>, String> {
+    // Read the transcript config directly (not through
+    // api_get_transcript_config): the batch dialog may pick transcribeCpp
+    // while the saved provider is something else, which is not an error —
+    // it just means no configured model applies, and the catalog default
+    // takes over (the same empty-model rule api_get_transcript_config uses).
+    let (configured_provider, configured_model) =
+        match crate::api::api::api_get_transcript_config(app.clone(), app.clone().state(), None)
+            .await
+        {
+            Ok(Some(config)) => (config.provider, config.model),
+            Ok(None) => (String::new(), String::new()),
+            Err(e) => {
+                warn!(
+                    "⚠️ Failed to get transcript config for the transcribeCpp batch: {}",
+                    e
+                );
+                (String::new(), String::new())
+            }
+        };
+
+    let model = crate::transcribe_cpp_engine::transcription::batch_transcribe_cpp_model_name(
+        requested_model.as_deref(),
+        &configured_provider,
+        &configured_model,
+    );
+    get_or_init_transcribe_cpp_provider_with_model(app, Some(model)).await
+}
+
 /// The saved transcribe.cpp compute mode ("Авто / Vulkan / CPU"), read through
 /// the same transcript config the model comes from. Absent, unreadable or
 /// unknown values mean Auto, matching the column's schema default.

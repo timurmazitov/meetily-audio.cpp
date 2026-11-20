@@ -1178,7 +1178,7 @@ async fn stop_recording_for_session<R: Runtime>(
                     "Current transcribeCpp model before unload: '{}'",
                     current_model
                 );
-                crate::transcribe_cpp_engine::transcription::unload_provider();
+                crate::transcribe_cpp_engine::transcription::unload_provider().await;
                 info!(
                     "✅ transcribeCpp model '{}' unloaded successfully",
                     current_model

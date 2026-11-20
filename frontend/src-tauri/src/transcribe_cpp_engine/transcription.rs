@@ -67,12 +67,32 @@ pub fn set_provider(provider: TranscribeCppProvider, mode: ComputeMode) -> Arc<T
 }
 
 /// Drop the global provider, releasing the model and its session thread.
-pub fn unload_provider() {
-    let mut guard = TRANSCRIBECPP_PROVIDER
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if let Some(cached) = guard.take() {
-        cached.provider.unload();
+///
+/// Async: releasing the model joins the session thread, which waits out any
+/// in-flight native inference (segment-sized, seconds). The join therefore
+/// runs on a blocking thread instead of the async worker (AGENTS.md: do not
+/// block async tasks with expensive work). Deterministic-release semantics
+/// are preserved: the session thread is joined before this returns, so the
+/// caller can observe the release (a re-load sees no previous model). The
+/// synchronous join lives in [`TranscribeCppProvider::unload`]; call that
+/// directly from synchronous code (tests, ignored smoke harnesses).
+pub async fn unload_provider() {
+    let cached = {
+        let mut guard = TRANSCRIBECPP_PROVIDER
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        guard.take()
+    };
+    if let Some(cached) = cached {
+        // The provider holds no live SessionHandle clones in the unload
+        // paths (workers drop theirs when the batch or recording ends), so
+        // the join ends with the thread instead of waiting on a sender.
+        if tokio::task::spawn_blocking(move || cached.provider.unload())
+            .await
+            .is_err()
+        {
+            log::warn!("transcribe.cpp unload task failed (panicked session thread?)");
+        }
     }
 }
 
@@ -317,6 +337,41 @@ pub fn select_requested_transcription_model(
             model: requested.to_string(),
         }),
     }
+}
+
+/// The concrete model name a transcribe.cpp batch job (retranscription or
+/// import) transcribes with.
+///
+/// Batch jobs must use the model they asked for exactly (spec ticket 07:
+/// «без тихого фолбэка на другую установленную модель»), so the batch call
+/// sites always request a concrete name: the dialog's choice when it named
+/// one, otherwise the CONFIGURED model from the transcript config — falling
+/// back to the catalog default when the config is absent, from another
+/// provider, or names no model, mirroring `api_get_transcript_config` so
+/// both agree on one model. The name then goes through
+/// [`select_requested_transcription_model`], so a configured model that is
+/// not installed errors instead of being replaced by another Available
+/// model — which is what the configured-wins
+/// [`select_transcription_model`] fallback would silently do for `None`.
+///
+/// Pure over the config values so the resolution rule is unit-testable
+/// without a database or an app handle; the async glue that reads the
+/// config lives beside the batch init in `audio::transcription::engine`.
+pub fn batch_transcribe_cpp_model_name(
+    requested: Option<&str>,
+    configured_provider: &str,
+    configured_model: &str,
+) -> String {
+    if let Some(requested) = requested.map(str::trim).filter(|name| !name.is_empty()) {
+        return requested.to_string();
+    }
+    if configured_provider
+        == crate::audio::transcription::engine::TRANSCRIBE_CPP_PROVIDER
+        && !configured_model.trim().is_empty()
+    {
+        return configured_model.trim().to_string();
+    }
+    crate::config::DEFAULT_TRANSCRIBE_CPP_MODEL.to_string()
 }
 
 #[cfg(test)]
@@ -651,6 +706,85 @@ mod tests {
             "error: {error:?}"
         );
         assert!(error.to_string().contains("corrupted"), "text: {error}");
+    }
+
+    // --- Batch model resolution (spec ticket 07, no silent fallback) ------
+    //
+    // The batch call sites (retranscription, import) always hand the init a
+    // concrete Some(name) so the configured-wins fallback in
+    // select_transcription_model can never substitute another Available
+    // model. These pin that resolution rule and its end-to-end selection
+    // semantics without a database or an app handle.
+
+    const CPP: &str = crate::audio::transcription::engine::TRANSCRIBE_CPP_PROVIDER;
+
+    #[test]
+    fn a_batch_dialog_choice_wins_over_the_configured_model() {
+        assert_eq!(
+            batch_transcribe_cpp_model_name(Some("gigaam-v3-e2e-ctc-Q8_0"), CPP, "parakeet-ultra-Q8_0"),
+            "gigaam-v3-e2e-ctc-Q8_0"
+        );
+        // A blank dialog choice is no choice at all: the configured model
+        // decides.
+        assert_eq!(
+            batch_transcribe_cpp_model_name(Some("  "), CPP, "parakeet-ultra-Q8_0"),
+            "parakeet-ultra-Q8_0"
+        );
+    }
+
+    #[test]
+    fn a_batch_without_a_chosen_model_uses_the_configured_model_exactly() {
+        assert_eq!(
+            batch_transcribe_cpp_model_name(None, CPP, "gigaam-v3-e2e-ctc-Q8_0"),
+            "gigaam-v3-e2e-ctc-Q8_0"
+        );
+
+        // And the resolution is demanded exactly: a configured model that
+        // is not installed errors — even though another model IS installed —
+        // instead of silently transcribing with that other model.
+        let models = vec![gigaam(ModelStatus::Available)];
+        let name = batch_transcribe_cpp_model_name(None, CPP, "parakeet-ultra-Q8_0");
+        let error = select_requested_transcription_model(&models, &name)
+            .expect_err("the configured model is not installed");
+        match &error {
+            ModelNotReady::NotFound { model } => assert_eq!(model, "parakeet-ultra-Q8_0"),
+            other => panic!("expected NotFound, got {other:?}"),
+        }
+
+        // The same catalog state through the configured-wins selector WOULD
+        // have silently substituted gigaam — the exact regression this rule
+        // prevents.
+        let substituted = select_transcription_model(&models, "parakeet-ultra-Q8_0")
+            .expect("recording keeps an installed fallback");
+        assert_eq!(substituted.name, "gigaam-v3-e2e-ctc-Q8_0");
+    }
+
+    #[test]
+    fn a_batch_with_an_installed_configured_model_uses_it_exactly() {
+        let models = vec![gigaam(ModelStatus::Available), ultra(ModelStatus::Available)];
+        let name = batch_transcribe_cpp_model_name(None, CPP, "parakeet-ultra-Q8_0");
+        let selected = select_requested_transcription_model(&models, &name)
+            .expect("the configured model is installed");
+        assert_eq!(selected.name, "parakeet-ultra-Q8_0");
+    }
+
+    #[test]
+    fn a_batch_without_any_config_falls_back_to_the_catalog_default_exactly() {
+        // No config row, another provider configured, or an empty model
+        // (the api_get_transcript_config empty-model rule): all resolve to
+        // the catalog default, and still as an exact request.
+        for (provider, model) in [("", ""), (CPP, ""), ("parakeet", "large-v3")] {
+            assert_eq!(
+                batch_transcribe_cpp_model_name(None, provider, model),
+                crate::config::DEFAULT_TRANSCRIBE_CPP_MODEL
+            );
+        }
+
+        // The default is demanded exactly: only another model installed is
+        // a NotFound error, not a substitution.
+        let models = vec![gigaam(ModelStatus::Available)];
+        let name = batch_transcribe_cpp_model_name(None, "", "");
+        assert!(select_requested_transcription_model(&models, &name).is_err());
     }
 
     // The dispatcher (audio::transcription::engine) resolves the configured

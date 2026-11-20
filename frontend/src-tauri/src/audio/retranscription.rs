@@ -9,7 +9,7 @@ use super::transcription::diarization_service::{
     SPEAKER_NAMES_RESET_EVENT, SPEAKER_NAMES_RESET_MESSAGE,
 };
 use super::transcription::engine::get_or_init_audio_cpp_provider_with_model;
-use super::transcription::engine::get_or_init_transcribe_cpp_provider_with_model;
+use super::transcription::engine::get_or_init_transcribe_cpp_provider_for_batch;
 use super::transcription::provider::TranscriptionProvider;
 use crate::audio::decoder::decode_audio_file;
 use crate::audio::vad::get_speech_chunks_with_progress;
@@ -339,13 +339,14 @@ async fn run_retranscription<R: Runtime>(
             None
         };
     // Exact model selection with no fallback: a batch request naming a model
-    // the user picked in the dialog must fail loudly when that model is
+    // the user picked in the dialog — or falling back to the configured
+    // model, then the catalog default — must fail loudly when that model is
     // missing or corrupted, never silently transcribe with another installed
-    // model (the same rule as audio.cpp's batch path above).
+    // model (spec ticket 07; the same rule as audio.cpp's batch path above).
     let transcribe_cpp_provider: Option<Arc<dyn TranscriptionProvider>> =
         if engine_kind == BatchEngine::TranscribeCpp {
             Some(
-                get_or_init_transcribe_cpp_provider_with_model(&app, model.clone())
+                get_or_init_transcribe_cpp_provider_for_batch(&app, model.clone())
                     .await
                     .map_err(|e| anyhow!(e))?,
             )

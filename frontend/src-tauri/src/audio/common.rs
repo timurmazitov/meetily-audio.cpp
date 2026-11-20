@@ -89,7 +89,10 @@ async fn unload_engine_after_batch_locked(
         }
         BatchEngine::TranscribeCpp => {
             // Releases the model and its session thread, mirroring audio.cpp.
-            crate::transcribe_cpp_engine::transcription::unload_provider();
+            // The session-thread join runs on a blocking thread inside
+            // (async callers must not wait out in-flight native inference
+            // on the runtime).
+            crate::transcribe_cpp_engine::transcription::unload_provider().await;
         }
         BatchEngine::Whisper => {
             use crate::whisper_engine::commands::WHISPER_ENGINE;
@@ -503,7 +506,7 @@ mod tests {
     #[tokio::test]
     async fn a_finished_batch_unloads_the_transcribe_cpp_provider_and_its_thread() {
         let _serial = PROVIDER_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        crate::transcribe_cpp_engine::transcription::unload_provider();
+        crate::transcribe_cpp_engine::transcription::unload_provider().await;
 
         let provider = loaded_transcribe_cpp_provider().await;
         assert!(global_provider().is_some(), "the batch ran with a loaded model");
@@ -535,7 +538,7 @@ mod tests {
     #[tokio::test]
     async fn an_active_recording_keeps_the_transcribe_cpp_provider_loaded() {
         let _serial = PROVIDER_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        crate::transcribe_cpp_engine::transcription::unload_provider();
+        crate::transcribe_cpp_engine::transcription::unload_provider().await;
 
         let provider = loaded_transcribe_cpp_provider().await;
 
@@ -550,7 +553,7 @@ mod tests {
 
         // Cleanup: the idle path does unload, proving the skip was the
         // recording flag and not a broken unload arm.
-        crate::transcribe_cpp_engine::transcription::unload_provider();
+        crate::transcribe_cpp_engine::transcription::unload_provider().await;
         assert!(global_provider().is_none());
     }
 

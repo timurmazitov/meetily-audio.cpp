@@ -215,7 +215,7 @@ async fn batch_retranscription_flow_transcribes_a_real_file_and_unloads() {
 
     // 5. Post-batch unload: the global provider must be gone and the session
     //    thread joined (this returning proves the join did not hang).
-    unload_provider();
+    unload_provider().await;
     assert!(provider().is_none(), "the batch must drop the global provider");
 
     transcribe_result.expect("every segment transcribes");
