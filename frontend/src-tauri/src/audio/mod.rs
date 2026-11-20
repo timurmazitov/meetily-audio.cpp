@@ -38,7 +38,10 @@ pub mod playback_monitor; // NEW: Playback device detection for BT warnings
 pub mod transcription;
 
 // Shared utilities for import and retranscription
-pub(crate) mod common;
+// `pub` (rather than crate-only) so the #[ignore]d live batch smoke test can
+// drive the real split helper; the items themselves keep their own, narrower
+// visibility.
+pub mod common;
 
 // Shared constants
 pub mod constants;
