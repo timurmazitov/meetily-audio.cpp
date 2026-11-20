@@ -26,9 +26,10 @@ pub use diarization_service::{
 };
 pub use engine::{
     get_or_init_audio_cpp_provider, get_or_init_audio_cpp_provider_with_model,
-    get_or_init_transcribe_cpp_provider, get_or_init_transcribe_cpp_provider_with_model,
-    get_or_init_transcription_engine, get_or_init_whisper, validate_transcription_model_ready,
-    TranscriptionEngine, AUDIO_CPP_PROVIDER, TRANSCRIBE_CPP_PROVIDER,
+    get_or_init_transcribe_cpp_provider, get_or_init_transcribe_cpp_provider_for_batch,
+    get_or_init_transcribe_cpp_provider_with_model, get_or_init_transcription_engine,
+    get_or_init_whisper, validate_transcription_model_ready, TranscriptionEngine,
+    AUDIO_CPP_PROVIDER, TRANSCRIBE_CPP_PROVIDER,
 };
 pub use parakeet_provider::ParakeetProvider;
 pub use provider::{TranscriptResult, TranscriptionError, TranscriptionProvider};
