@@ -273,6 +273,13 @@ pub async fn start_import<R: Runtime>(
     IMPORT_CANCELLED.store(false, Ordering::SeqCst);
 
     let engine_kind = BatchEngine::from_provider_name(provider.as_deref());
+    // Batch flows for transcribeCpp arrive with ticket 07; fail early with a
+    // clear message instead of creating a meeting folder and then erroring.
+    if engine_kind == BatchEngine::TranscribeCpp {
+        return Err(anyhow!(
+            "Transcribe.cpp audio import transcription is not available yet. Select Whisper, Parakeet or audio.cpp."
+        ));
+    }
     let result = run_import(app.clone(), source_path, title, language, model, provider).await;
 
     // Unload the engine after the batch job (success, failure, or cancellation)

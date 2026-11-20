@@ -1,4 +1,4 @@
-use crate::audio::transcription::engine::AUDIO_CPP_PROVIDER;
+use crate::audio::transcription::engine::{AUDIO_CPP_PROVIDER, TRANSCRIBE_CPP_PROVIDER};
 use crate::database::models::{Setting, TranscriptSetting};
 use crate::summary::CustomOpenAIConfig;
 use sqlx::SqlitePool;
@@ -181,6 +181,7 @@ impl SettingsRepository {
             "localWhisper" => "whisperApiKey",
             "parakeet" => return Ok(()), // Parakeet doesn't need an API key, return early
             AUDIO_CPP_PROVIDER => return Ok(()), // audio.cpp models run locally, no API key
+            TRANSCRIBE_CPP_PROVIDER => return Ok(()), // transcribe.cpp models run locally, no API key
             "deepgram" => "deepgramApiKey",
             "elevenLabs" => "elevenLabsApiKey",
             "groq" => "groqApiKey",
@@ -216,6 +217,7 @@ impl SettingsRepository {
             "localWhisper" => "whisperApiKey",
             "parakeet" => return Ok(None), // Parakeet doesn't need an API key
             AUDIO_CPP_PROVIDER => return Ok(None), // audio.cpp models run locally, no API key
+            TRANSCRIBE_CPP_PROVIDER => return Ok(None), // transcribe.cpp models run locally, no API key
             "deepgram" => "deepgramApiKey",
             "elevenLabs" => "elevenLabsApiKey",
             "groq" => "groqApiKey",
@@ -473,6 +475,34 @@ mod tests {
         assert_eq!(
             saved_provider(&pool).await,
             ("audioCpp".to_string(), "gigaam-v3-e2e-ctc-f16".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn transcribecpp_needs_no_api_key_and_saving_one_is_a_no_op() {
+        let pool = test_pool().await;
+        SettingsRepository::save_transcript_config(&pool, "transcribeCpp", "parakeet-ultra-Q8_0")
+            .await
+            .unwrap();
+
+        // Neither call may fail with "Invalid provider": the settings modal
+        // saves the provider and an optional key together.
+        SettingsRepository::save_transcript_api_key(&pool, "transcribeCpp", "ignored")
+            .await
+            .unwrap();
+
+        assert_eq!(
+            SettingsRepository::get_transcript_api_key(&pool, "transcribeCpp")
+                .await
+                .unwrap(),
+            None
+        );
+        assert_eq!(
+            saved_provider(&pool).await,
+            (
+                "transcribeCpp".to_string(),
+                "parakeet-ultra-Q8_0".to_string()
+            )
         );
     }
 

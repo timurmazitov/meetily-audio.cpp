@@ -1,17 +1,131 @@
-//! Model selection rules for the transcribeCpp provider.
+//! App-level wiring of the transcribeCpp transcription provider: model
+//! selection from the catalog, the global provider handle the transcription
+//! dispatcher uses, and the native loading path.
 //!
-//! The selection rules are pure functions over catalog state, so they are
-//! tested without a native library or a Tauri app handle. The transcribe.cpp
-//! catalog is ASR-only, so unlike audio.cpp there is no task split: every
-//! catalogued model can transcribe, and "ready" is purely an on-disk state.
-//!
-//! The provider handle and the native loading path are added to this module
-//! together with the FFI layer (they touch the native library and are out of
-//! scope for the catalog/model-management slice).
+//! The model *selection* rules are pure functions over catalog state, so they
+//! are tested without a native library or a Tauri app handle. Only the
+//! [`load_native_provider`] path touches the native FFI layer, and the global
+//! handle mirrors `audio_cpp_engine::transcription`.
+
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
 
+use super::backend::ComputeMode;
 use super::catalog::{ModelInfo, ModelStatus};
+use super::engine::NativeTranscribeCppEngine;
+use super::error::TranscribeCppError;
+use super::wrapper::TranscribeCpp;
+use crate::audio::transcription::transcribe_cpp_provider::{
+    ProviderLoadError, TranscribeCppProvider,
+};
+
+/// The loaded provider, shared by the transcription dispatcher. Mirrors
+/// `AUDIOCPP_PROVIDER`: one process-wide model, reloaded only when the
+/// requested model differs.
+pub static TRANSCRIBECPP_PROVIDER: Mutex<Option<Arc<TranscribeCppProvider>>> = Mutex::new(None);
+
+/// The currently loaded provider, if any.
+pub fn provider() -> Option<Arc<TranscribeCppProvider>> {
+    TRANSCRIBECPP_PROVIDER
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .as_ref()
+        .cloned()
+}
+
+/// Replace the global provider.
+pub fn set_provider(provider: TranscribeCppProvider) -> Arc<TranscribeCppProvider> {
+    let provider = Arc::new(provider);
+    let mut guard = TRANSCRIBECPP_PROVIDER
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    *guard = Some(Arc::clone(&provider));
+    provider
+}
+
+/// Drop the global provider, releasing the model and its session thread.
+pub fn unload_provider() {
+    let mut guard = TRANSCRIBECPP_PROVIDER
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(provider) = guard.take() {
+        provider.unload();
+    }
+}
+
+/// Name of the development staging directory the transcribe-native staging
+/// script fills next to `src-tauri` (gitignored; ticket 01). Windows bundles
+/// the same directory into the install root via the Tauri resource map, so
+/// the flat layout finds it there at runtime; on Linux dev builds the test/
+/// dev binary runs from the target directory, so probe it explicitly.
+#[cfg(all(target_os = "linux", debug_assertions))]
+const DEV_RUNTIME_DIR: &str = "transcribecpp-runtime";
+
+/// Resolves the native library through the wrapper discovery order
+/// (env override → `transcribe-libs/<lane>/` → flat next to exe) and, on
+/// Linux debug builds, additionally probes the repository-local staging
+/// directory next to the crate root. An env override that points at a
+/// missing file stays an error; only the not-found search falls back.
+///
+/// Blocking: gate + dlopen. Call from `tokio::task::spawn_blocking`.
+pub fn resolve_library_path() -> Result<PathBuf, TranscribeCppError> {
+    match super::wrapper::resolve_library_path() {
+        Ok(path) => Ok(path),
+        #[cfg(all(target_os = "linux", debug_assertions))]
+        Err(primary_error @ TranscribeCppError::LibraryNotFound { .. }) => {
+            let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+            let staged = manifest_dir
+                .join(DEV_RUNTIME_DIR)
+                .join(super::wrapper::LIBRARY_FILE_NAMES[0]);
+            if staged.is_file() {
+                log::info!(
+                    "transcribe.cpp library not found next to the executable; using the staged runtime {}",
+                    staged.display()
+                );
+                return Ok(staged);
+            }
+            Err(primary_error)
+        }
+        Err(error) => Err(error),
+    }
+}
+
+/// Loads the native transcribe.cpp library into an engine on `mode`.
+///
+/// This is the single place that constructs the engine, shared by every
+/// provider load. Ticket 06 replaces the hard-coded [`ComputeMode::Auto`]
+/// with the user's stored selection.
+///
+/// Blocking: the dynamic library load, ABI gate and backend registration
+/// all block. From async code call this inside `tokio::task::spawn_blocking`.
+pub fn load_native_engine(
+    mode: ComputeMode,
+) -> Result<Arc<dyn super::engine::TranscribeCppEngine>, TranscribeCppError> {
+    let path = resolve_library_path()?;
+    log::info!("loading transcribe.cpp library from {}", path.display());
+    let library = TranscribeCpp::load_from(&path)?;
+    log::info!(
+        "transcribe.cpp runtime {} (backends: {})",
+        library.version(),
+        library.contract().backends.join(", ")
+    );
+    Ok(Arc::new(NativeTranscribeCppEngine::new(library, mode)?))
+}
+
+/// Loads the native library and the selected model into a provider on the
+/// Auto compute mode (ticket 06 adds the user selection).
+///
+/// Blocking: the library load and model load are slow. From async code call
+/// this inside `tokio::task::spawn_blocking`.
+pub fn load_native_provider(
+    model: &ModelInfo,
+) -> Result<TranscribeCppProvider, ProviderLoadError> {
+    let engine = load_native_engine(ComputeMode::Auto)
+        .map_err(|error| ProviderLoadError::Engine(error.to_string()))?;
+    TranscribeCppProvider::load_blocking(engine, model.name.clone(), &model.path)
+}
 
 /// Why a configured transcribe.cpp model cannot transcribe right now.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -325,5 +439,75 @@ mod tests {
             .to_string();
 
         assert!(text.contains("55%"), "text: {text}");
+    }
+
+    // The dispatcher (audio::transcription::engine) resolves the configured
+    // model through manager.discover_models + select_transcription_model;
+    // these cover that composition against real disk states without a native
+    // library: recording must fail with a user-facing pointer to the model
+    // manager, never attempt a native load.
+
+    #[tokio::test]
+    async fn an_empty_models_directory_points_the_user_at_the_model_manager() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let manager = crate::transcribe_cpp_engine::models::TranscribeCppModelManager::new(
+            Some(root.path().to_path_buf()),
+        )
+        .expect("manager");
+
+        // Nothing downloaded: every catalogued model is Missing, so the
+        // configured model reports "not downloaded" with the Settings
+        // pointer — the recording gate's user-facing error.
+        let models = manager.discover_models().await.expect("discover");
+        let error = select_transcription_model(&models, "parakeet-ultra-Q8_0").unwrap_err();
+
+        assert!(
+            matches!(&error, ModelNotReady::Status { model, status: ModelStatus::Missing }
+                if model == "parakeet-ultra-Q8_0"),
+            "error: {error:?}"
+        );
+        let text = error.to_string();
+        assert!(text.contains("not downloaded"), "text: {text}");
+        assert!(text.contains("Settings"), "text: {text}");
+
+        // An empty catalog slice (defensive) reports nothing installed.
+        let empty: Vec<crate::transcribe_cpp_engine::catalog::ModelInfo> = Vec::new();
+        let text = select_transcription_model(&empty, "parakeet-ultra-Q8_0")
+            .unwrap_err()
+            .to_string();
+        assert!(
+            text.contains("No Transcribe.cpp model is installed"),
+            "text: {text}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_truncated_artifact_on_disk_is_reported_corrupted_not_loaded() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let manager = crate::transcribe_cpp_engine::models::TranscribeCppModelManager::new(
+            Some(root.path().to_path_buf()),
+        )
+        .expect("manager");
+
+        // A partial download (right magic, wrong size) must surface as a
+        // user-facing corrupted error; the dispatcher never loads it.
+        let spec = crate::transcribe_cpp_engine::catalog::find_model("gigaam-v3-ctc-Q4_K_M")
+            .expect("catalogued");
+        std::fs::write(
+            manager.models_directory().join(spec.filename),
+            b"GGUF partial",
+        )
+        .expect("write fixture");
+
+        let models = manager.discover_models().await.expect("discover");
+        let error = select_transcription_model(&models, spec.name).unwrap_err();
+
+        assert!(
+            matches!(&error, ModelNotReady::Status { model, status }
+                if model == spec.name && matches!(status, ModelStatus::Corrupted { file_size: 12, .. })),
+            "error: {error:?}"
+        );
+        let text = error.to_string();
+        assert!(text.contains("corrupted"), "text: {text}");
     }
 }

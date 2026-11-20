@@ -740,9 +740,20 @@ pub async fn api_get_transcript_config<R: Runtime>(
             match SettingsRepository::get_transcript_api_key(pool, &config.provider).await {
                 Ok(api_key) => {
                     log_info!("Successfully retrieved transcript config and API key.");
+                    // A transcribeCpp row without a model predates the model
+                    // being saved; fall back to the catalog default so the
+                    // dispatcher and the settings UI agree on one model.
+                    let model = if config.provider
+                        == crate::audio::transcription::engine::TRANSCRIBE_CPP_PROVIDER
+                        && config.model.is_empty()
+                    {
+                        crate::config::DEFAULT_TRANSCRIBE_CPP_MODEL.to_string()
+                    } else {
+                        config.model
+                    };
                     Ok(Some(TranscriptConfig {
                         provider: config.provider,
-                        model: config.model,
+                        model,
                         api_key,
                     }))
                 }

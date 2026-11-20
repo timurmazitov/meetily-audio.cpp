@@ -1169,6 +1169,24 @@ async fn stop_recording_for_session<R: Runtime>(
                 warn!("⚠️ No audioCpp provider found to unload model");
             }
         }
+        Some(crate::audio::transcription::engine::TRANSCRIBE_CPP_PROVIDER) => {
+            info!("🧠 Unloading transcribeCpp model...");
+            let loaded = crate::transcribe_cpp_engine::transcription::provider();
+            if let Some(provider) = loaded {
+                let current_model = provider.model_name().to_string();
+                info!(
+                    "Current transcribeCpp model before unload: '{}'",
+                    current_model
+                );
+                crate::transcribe_cpp_engine::transcription::unload_provider();
+                info!(
+                    "✅ transcribeCpp model '{}' unloaded successfully",
+                    current_model
+                );
+            } else {
+                warn!("⚠️ No transcribeCpp provider found to unload model");
+            }
+        }
         Some("parakeet") => {
             info!("🦜 Unloading Parakeet model...");
             let engine_clone = {

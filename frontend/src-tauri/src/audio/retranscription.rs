@@ -112,6 +112,13 @@ pub async fn start_retranscription<R: Runtime>(
     RETRANSCRIPTION_CANCELLED.store(false, Ordering::SeqCst);
 
     let engine_kind = BatchEngine::from_provider_name(provider.as_deref());
+    // Batch flows for transcribeCpp arrive with ticket 07; fail early with a
+    // clear message instead of decoding the audio and then erroring.
+    if engine_kind == BatchEngine::TranscribeCpp {
+        return Err(anyhow!(
+            "Transcribe.cpp retranscription is not available yet. Select Whisper, Parakeet or audio.cpp."
+        ));
+    }
     let result = run_retranscription(
         app.clone(),
         meeting_id.clone(),
