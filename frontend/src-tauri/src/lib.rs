@@ -52,7 +52,6 @@ pub mod anthropic;
 pub mod groq;
 pub mod model_downloader;
 pub mod openrouter;
-pub mod parakeet_engine;
 pub mod state;
 pub mod summary;
 pub mod tray;
@@ -190,63 +189,6 @@ fn split_startup_logger<R: Runtime>(
     })
 }
 static RECORDING_FLAG: AtomicBool = AtomicBool::new(false);
-
-#[cfg(target_os = "windows")]
-static ONNX_RUNTIME_INIT_ERROR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-
-pub(crate) fn ensure_onnx_runtime_available() -> anyhow::Result<()> {
-    #[cfg(target_os = "windows")]
-    if let Some(error) = ONNX_RUNTIME_INIT_ERROR.get() {
-        anyhow::bail!("{error}");
-    }
-
-    Ok(())
-}
-
-#[cfg(target_os = "windows")]
-fn catch_onnx_runtime_init<F, E>(init: F) -> Result<(), String>
-where
-    F: FnOnce() -> Result<(), E>,
-    E: std::fmt::Display,
-{
-    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(init)) {
-        Ok(result) => result.map_err(|error| error.to_string()),
-        Err(payload) => {
-            let message = payload
-                .downcast_ref::<&str>()
-                .copied()
-                .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
-                .unwrap_or("unknown panic");
-            Err(format!("ONNX Runtime initialization panicked: {message}"))
-        }
-    }
-}
-
-#[cfg(target_os = "windows")]
-fn record_onnx_runtime_failure(error: String) {
-    log::error!("{error}");
-    let _ = ONNX_RUNTIME_INIT_ERROR.set(error);
-}
-
-#[cfg(all(test, target_os = "windows"))]
-mod onnx_runtime_tests {
-    use super::catch_onnx_runtime_init;
-
-    #[test]
-    fn catch_onnx_runtime_init_converts_errors_and_panics() {
-        assert!(catch_onnx_runtime_init(|| Ok::<(), &str>(())).is_ok());
-        assert_eq!(
-            catch_onnx_runtime_init(|| Err::<(), _>("initializer error")),
-            Err("initializer error".to_string())
-        );
-
-        let error = catch_onnx_runtime_init(|| -> Result<(), &str> {
-            panic!("synthetic loader panic");
-        })
-        .unwrap_err();
-        assert!(error.contains("synthetic loader panic"));
-    }
-}
 
 // Global language preference storage (default to "auto-translate" for automatic translation to English)
 static LANGUAGE_PREFERENCE: std::sync::LazyLock<StdMutex<String>> =
@@ -596,35 +538,6 @@ pub fn run() {
             }
 
             log::info!("Starting application...");
-
-            #[cfg(target_os = "windows")]
-            match _app.path().resolve(
-                "onnxruntime.dll",
-                tauri::path::BaseDirectory::Resource,
-            ) {
-                Ok(runtime_path) => {
-                    match catch_onnx_runtime_init(|| {
-                        ort::init_from(runtime_path.to_string_lossy().into_owned())
-                            .with_telemetry(false)
-                            .commit()
-                            .map(|_| ())
-                    }) {
-                        Ok(()) => log::info!(
-                            "Initialized bundled ONNX Runtime from {}",
-                            runtime_path.display()
-                        ),
-                        Err(error) => record_onnx_runtime_failure(format!(
-                            "Failed to initialize bundled ONNX Runtime from {}: {}",
-                            runtime_path.display(),
-                            error
-                        )),
-                    }
-                }
-                Err(error) => record_onnx_runtime_failure(format!(
-                    "Failed to resolve bundled ONNX Runtime resource: {}",
-                    error
-                )),
-            };
             log::info!("Application setup complete");
 
             // Initialize system tray
@@ -665,16 +578,6 @@ pub fn run() {
             tauri::async_runtime::spawn(async {
                 if let Err(e) = whisper_engine::commands::whisper_init().await {
                     log::error!("Failed to initialize Whisper engine on startup: {}", e);
-                }
-            });
-
-            // Set Parakeet models directory
-            parakeet_engine::commands::set_models_directory(&_app.handle());
-
-            // Initialize Parakeet engine on startup
-            tauri::async_runtime::spawn(async {
-                if let Err(e) = parakeet_engine::commands::parakeet_init().await {
-                    log::error!("Failed to initialize Parakeet engine on startup: {}", e);
                 }
             });
 
@@ -781,21 +684,6 @@ pub fn run() {
             whisper_engine::commands::whisper_download_model,
             whisper_engine::commands::whisper_cancel_download,
             whisper_engine::commands::whisper_delete_corrupted_model,
-            // Parakeet engine commands
-            parakeet_engine::commands::parakeet_init,
-            parakeet_engine::commands::parakeet_get_available_models,
-            parakeet_engine::commands::parakeet_load_model,
-            parakeet_engine::commands::parakeet_get_current_model,
-            parakeet_engine::commands::parakeet_is_model_loaded,
-            parakeet_engine::commands::parakeet_has_available_models,
-            parakeet_engine::commands::parakeet_validate_model_ready,
-            parakeet_engine::commands::parakeet_transcribe_audio,
-            parakeet_engine::commands::parakeet_get_models_directory,
-            parakeet_engine::commands::parakeet_download_model,
-            parakeet_engine::commands::parakeet_retry_download,
-            parakeet_engine::commands::parakeet_cancel_download,
-            parakeet_engine::commands::parakeet_delete_corrupted_model,
-            parakeet_engine::commands::open_parakeet_models_folder,
             // audio.cpp engine commands (FFI layer)
             audio_cpp_engine::commands::audiocpp_diagnostics,
             // transcribe.cpp engine diagnostics (FFI layer)

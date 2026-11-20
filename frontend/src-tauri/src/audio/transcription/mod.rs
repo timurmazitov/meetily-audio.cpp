@@ -7,7 +7,6 @@ pub mod diarization;
 pub mod diarization_run;
 pub mod diarization_service;
 pub mod engine;
-pub mod parakeet_provider;
 pub mod provider;
 pub mod transcribe_cpp_provider;
 pub mod whisper_provider;
@@ -28,7 +27,6 @@ pub use engine::{
     get_or_init_whisper, validate_transcription_model_ready, TranscriptionEngine,
     AUDIO_CPP_PROVIDER, TRANSCRIBE_CPP_PROVIDER,
 };
-pub use parakeet_provider::ParakeetProvider;
 pub use provider::{TranscriptResult, TranscriptionError, TranscriptionProvider};
 pub use transcribe_cpp_provider::TranscribeCppProvider;
 pub use whisper_provider::WhisperProvider;

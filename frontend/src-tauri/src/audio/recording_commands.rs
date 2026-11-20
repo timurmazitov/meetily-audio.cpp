@@ -486,13 +486,6 @@ pub async fn start_recording_with_meeting_name<R: Runtime>(
         return Err("Recording already in progress".to_string());
     }
 
-    if let Err(error) = crate::ensure_onnx_runtime_available() {
-        return Err(map_recording_start_error(
-            &app,
-            RecordingStartError::TranscriptionRuntime(error),
-        ));
-    }
-
     // Validate that transcription models are available before starting recording
     info!("🔍 Validating transcription model availability before starting recording...");
     if let Err(validation_error) = transcription::validate_transcription_model_ready(&app).await {
@@ -746,13 +739,6 @@ pub async fn start_recording_with_devices_and_meeting<R: Runtime>(
     info!("🔍 IS_RECORDING state check: {}", current_recording_state);
     if current_recording_state || IS_RECORDING_STOPPING.load(Ordering::SeqCst) {
         return Err("Recording already in progress".to_string());
-    }
-
-    if let Err(error) = crate::ensure_onnx_runtime_available() {
-        return Err(map_recording_start_error(
-            &app,
-            RecordingStartError::TranscriptionRuntime(error),
-        ));
     }
 
     // Validate that transcription models are available before starting recording
@@ -1170,34 +1156,6 @@ async fn stop_recording_for_session<R: Runtime>(
                 );
             } else {
                 warn!("⚠️ No transcribeCpp provider found to unload model");
-            }
-        }
-        Some("parakeet") => {
-            info!("🦜 Unloading Parakeet model...");
-            let engine_clone = {
-                let engine_guard = crate::parakeet_engine::commands::PARAKEET_ENGINE
-                    .lock()
-                    .unwrap();
-                engine_guard.as_ref().cloned()
-            };
-
-            if let Some(engine) = engine_clone {
-                let current_model = engine
-                    .get_current_model()
-                    .await
-                    .unwrap_or_else(|| "unknown".to_string());
-                info!("Current Parakeet model before unload: '{}'", current_model);
-
-                if engine.unload_model().await {
-                    info!(
-                        "✅ Parakeet model '{}' unloaded successfully",
-                        current_model
-                    );
-                } else {
-                    warn!("⚠️ Failed to unload Parakeet model '{}'", current_model);
-                }
-            } else {
-                warn!("⚠️ No Parakeet engine found to unload model");
             }
         }
         _ => {

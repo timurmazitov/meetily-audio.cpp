@@ -3,8 +3,7 @@
 use crate::api::TranscriptSegment;
 use crate::audio::decoder::{decode_audio_file, decode_audio_file_with_progress};
 use crate::audio::vad::get_speech_chunks_with_progress;
-use crate::config::{DEFAULT_PARAKEET_MODEL, DEFAULT_WHISPER_MODEL};
-use crate::parakeet_engine::ParakeetEngine;
+use crate::config::DEFAULT_WHISPER_MODEL;
 use crate::state::AppState;
 use crate::whisper_engine::WhisperEngine;
 use anyhow::{anyhow, Result};
@@ -528,11 +527,6 @@ async fn run_import<R: Runtime>(
     } else {
         None
     };
-    let parakeet_engine = if engine_kind == BatchEngine::Parakeet && total_segments > 0 {
-        Some(get_or_init_parakeet(&app, model.as_deref()).await?)
-    } else {
-        None
-    };
     // Exact model selection with no fallback: a batch request naming a model
     // the user picked in the dialog — or falling back to the configured
     // model, then the catalog default — must fail loudly when that model is
@@ -614,14 +608,7 @@ async fn run_import<R: Runtime>(
         }
 
         // Transcribe
-        let (text, conf) = if engine_kind == BatchEngine::Parakeet {
-            let engine = parakeet_engine.as_ref().unwrap();
-            let text = engine
-                .transcribe_audio(segment.samples.clone())
-                .await
-                .map_err(|e| anyhow!("Parakeet transcription failed on segment {}: {}", i, e))?;
-            (text, 0.9f32)
-        } else if let Some(provider) = transcribe_cpp_provider.as_ref() {
+        let (text, conf) = if let Some(provider) = transcribe_cpp_provider.as_ref() {
             // Same trait contract as the live pipeline. The provider applies
             // the language hint itself ("auto"/None travels as the native
             // autodetect hint) and refuses "auto-translate" with the
@@ -903,52 +890,6 @@ async fn get_or_init_whisper<R: Runtime>(
     }
 }
 
-/// Get or initialize the Parakeet engine
-async fn get_or_init_parakeet<R: Runtime>(
-    app: &AppHandle<R>,
-    requested_model: Option<&str>,
-) -> Result<Arc<ParakeetEngine>> {
-    use crate::parakeet_engine::commands::PARAKEET_ENGINE;
-
-    let engine = {
-        let guard = PARAKEET_ENGINE.lock().unwrap_or_else(|e| e.into_inner());
-        guard.as_ref().cloned()
-    };
-
-    match engine {
-        Some(e) => {
-            let target_model = match requested_model {
-                Some(model) => model.to_string(),
-                None => get_configured_model(app, "parakeet").await?,
-            };
-
-            let current_model = e.get_current_model().await;
-            let needs_load = match &current_model {
-                Some(loaded) => loaded != &target_model,
-                None => true,
-            };
-
-            if needs_load {
-                info!(
-                    "Loading Parakeet model '{}' (current: {:?})",
-                    target_model, current_model
-                );
-
-                if let Err(e) = e.discover_models().await {
-                    warn!("Model discovery error (continuing): {}", e);
-                }
-
-                e.load_model(&target_model)
-                    .await
-                    .map_err(|e| anyhow!("Failed to load model '{}': {}", target_model, e))?;
-            }
-
-            Ok(e)
-        }
-        None => Err(anyhow!("Parakeet engine not initialized")),
-    }
-}
-
 /// Get the configured model from database
 async fn get_configured_model<R: Runtime>(
     app: &AppHandle<R>,
@@ -966,24 +907,14 @@ async fn get_configured_model<R: Runtime>(
 
     match result {
         Some((provider, model)) => {
-            if (provider_type == "whisper" && (provider == "localWhisper" || provider == "whisper"))
-                || (provider_type == "parakeet" && provider == "parakeet")
-            {
+            if provider_type == "whisper" && (provider == "localWhisper" || provider == "whisper") {
                 Ok(model)
             } else {
                 // Return default model for the requested type
-                Ok(if provider_type == "parakeet" {
-                    DEFAULT_PARAKEET_MODEL.to_string()
-                } else {
-                    DEFAULT_WHISPER_MODEL.to_string()
-                })
+                Ok(DEFAULT_WHISPER_MODEL.to_string())
             }
         }
-        None => Ok(if provider_type == "parakeet" {
-            DEFAULT_PARAKEET_MODEL.to_string()
-        } else {
-            DEFAULT_WHISPER_MODEL.to_string()
-        }),
+        None => Ok(DEFAULT_WHISPER_MODEL.to_string()),
     }
 }
 
