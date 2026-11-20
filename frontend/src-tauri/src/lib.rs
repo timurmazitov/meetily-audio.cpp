@@ -798,6 +798,8 @@ pub fn run() {
             parakeet_engine::commands::open_parakeet_models_folder,
             // audio.cpp engine commands (FFI layer)
             audio_cpp_engine::commands::audiocpp_diagnostics,
+            // transcribe.cpp engine diagnostics (FFI layer)
+            transcribe_cpp_engine::diagnostics::transcribecpp_diagnostics,
             // audio.cpp model management
             audio_cpp_engine::commands::audiocpp_model_init,
             audio_cpp_engine::commands::audiocpp_get_available_models,
