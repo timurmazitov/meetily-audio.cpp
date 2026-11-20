@@ -751,6 +751,10 @@
     "providerWhisper": "🏠 Локальный Whisper (высокая точность)",
     "providerAudioCpp": "🎙️ audioCpp (GigaAM — русский)",
     "providerTranscribeCpp": "🧠 Transcribe.cpp",
+    "transcribeBackendLabel": "Режим вычислений",
+    "transcribeBackendAuto": "Авто",
+    "transcribeBackendVulkan": "Vulkan (ГПУ)",
+    "transcribeBackendCpu": "CPU",
     "diarization": {
       "title": "Диаризация спикеров",
       "description": "Установите эту модель, чтобы размечать, кто что сказал. Она работает с любым провайдером транскрибации выше."

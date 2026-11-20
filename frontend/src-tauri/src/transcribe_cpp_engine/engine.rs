@@ -16,7 +16,7 @@
 
 use std::path::Path;
 
-use super::backend::{select_device, ComputeMode, DeviceSelection};
+use super::backend::{fix_process_backends, select_device, ComputeMode, DeviceSelection};
 use super::error::TranscribeCppError;
 use super::wrapper::{Model, Segment, Session, TranscribeCpp};
 
@@ -77,12 +77,17 @@ impl NativeTranscribeCppEngine {
     /// mask and registers the ggml modules shipped next to the library
     /// (once per process), then picks the device for `mode`. Blocking;
     /// call via `spawn_blocking` from async code.
+    ///
+    /// The mask is fixed process-wide at the first registration, so a later
+    /// load with a different saved mode registers under the mask already in
+    /// force (only a restart changes it) while still selecting the device for
+    /// the requested `mode`: a request outside the fixed mask degrades to CPU
+    /// through [`select_device`], the same path a missing driver takes.
     pub fn new(library: TranscribeCpp, mode: ComputeMode) -> Result<Self, TranscribeCppError> {
         // The mask must be fixed before any device query or model load
-        // (transcribe.h: "call once, first"). It is idempotent per
-        // directory, but a DIFFERENT mask afterwards fails — so every
-        // engine in the process must agree on one mode.
-        library.init_backends(mode.allowed_mask())?;
+        // (transcribe.h: "call once, first").
+        let registered = fix_process_backends(mode).effective();
+        library.init_backends(registered.allowed_mask())?;
         let selection = select_device(mode, &library);
         Ok(Self {
             library,

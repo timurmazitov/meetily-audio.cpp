@@ -42,7 +42,10 @@ pub mod session_thread;
 pub mod transcription;
 pub mod wrapper;
 
-pub use backend::{select_device, ComputeMode, DeviceQuery, DeviceSelection};
+pub use backend::{
+    fix_process_backends, process_backends, select_device, ComputeMode, DeviceQuery,
+    DeviceSelection, ProcessBackends,
+};
 pub use catalog::{ModelInfo, ModelSpec, ModelStatus};
 pub use commands::*;
 pub use diagnostics::{transcribecpp_diagnostics, TranscribeCppDiagnostics};

@@ -490,6 +490,7 @@ mod tests {
             )
             .await
             .expect("fake model loads"),
+            crate::transcribe_cpp_engine::backend::ComputeMode::Auto,
         )
     }
 

@@ -181,7 +181,7 @@ async fn batch_retranscription_flow_transcribes_a_real_file_and_unloads() {
         cpp_provider.model_name(),
         cpp_provider.backend()
     );
-    set_provider(cpp_provider);
+    set_provider(cpp_provider, ComputeMode::Cpu);
 
     let language = Some("en".to_string());
     let mut texts = Vec::new();

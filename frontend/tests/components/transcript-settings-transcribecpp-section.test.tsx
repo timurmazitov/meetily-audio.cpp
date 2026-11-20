@@ -123,7 +123,7 @@ const { TranscriptSettings } = settingsModule;
 type Provider = 'localWhisper' | 'parakeet' | 'audioCpp' | 'transcribeCpp';
 
 let renderer: ReactTestRenderer | undefined;
-let savedConfig: { provider: string; model: string } | undefined;
+let savedConfig: { provider: string; model: string; transcribeBackend?: string } | undefined;
 
 afterEach(async () => {
   if (renderer) await act(async () => renderer!.unmount());
@@ -134,11 +134,15 @@ afterEach(async () => {
   invokeCalls.length = 0;
 });
 
-async function render(provider: Provider, model = 'some-model') {
+async function render(
+  provider: Provider,
+  model = 'some-model',
+  transcribeBackend?: 'auto' | 'vulkan' | 'cpu',
+) {
   await act(async () => {
     renderer = create(
       <TranscriptSettings
-        transcriptModelConfig={{ provider, model }}
+        transcriptModelConfig={{ provider, model, transcribeBackend }}
         setTranscriptModelConfig={config => { savedConfig = config; }}
       />,
     );
@@ -182,11 +186,18 @@ test('selecting transcribeCpp mounts its manager and persists the config', async
     .toBe(true);
 
   // Switching to a local provider saves it immediately, without an API key.
+  // The compute mode travels with the save: without it the backend would
+  // normalize the saved mode back to 'auto'.
   const saveCall = invokeCalls.find(
     call => call.command === 'api_save_transcript_config',
   );
   expect(saveCall).toBeDefined();
-  expect(saveCall!.args).toEqual({ provider: 'transcribeCpp', model: '', apiKey: null });
+  expect(saveCall!.args).toEqual({
+    provider: 'transcribeCpp',
+    model: '',
+    apiKey: null,
+    transcribeBackend: 'auto',
+  });
   expect(savedConfig?.provider).toBe('transcribeCpp');
 });
 
@@ -198,9 +209,73 @@ test('a transcribeCpp selection receives the configured model only while it is t
 });
 
 test('the transcribeCpp provider renders no cloud model dropdown', async () => {
-  // Every rendered Select is a dropdown; the second one would be the cloud
-  // model list, which local providers must not show.
-  await render('transcribeCpp');
+  // Every rendered Select is a dropdown; a third one would be the cloud
+  // model list, which local providers must not show. transcribeCpp renders
+  // exactly two: the provider selector and its compute-mode selector.
+  await render('transcribeCpp', 'parakeet-ultra-Q8_0');
 
-  expect(selectRenders).toHaveLength(1);
+  expect(selectRenders).toHaveLength(2);
+  const values = selectRenders.map(entry => entry.value);
+  expect(values).toContain('transcribeCpp'); // provider selector
+  expect(values).toContain('auto'); // compute-mode selector
+  expect(values).not.toContain('parakeet-ultra-Q8_0'); // no cloud model list
+});
+
+test('the compute-mode selector offers Auto, Vulkan and CPU', async () => {
+  const view = await render('transcribeCpp', 'parakeet-ultra-Q8_0');
+
+  const text = textOf(view);
+  expect(text).toContain('Compute mode');
+  expect(text).toContain('Auto');
+  expect(text).toContain('Vulkan');
+  expect(text).toContain('CPU');
+});
+
+test('choosing Vulkan persists the mode through the transcript config save', async () => {
+  await render('transcribeCpp', 'parakeet-ultra-Q8_0');
+
+  const modeSelect = selectRenders.find(entry => entry.value === 'auto');
+  expect(modeSelect?.onValueChange).toBeDefined();
+  await act(async () => { modeSelect!.onValueChange?.('vulkan'); });
+
+  const saveCall = invokeCalls.find(
+    call => call.command === 'api_save_transcript_config',
+  );
+  expect(saveCall).toBeDefined();
+  expect(saveCall!.args).toEqual({
+    provider: 'transcribeCpp',
+    model: 'parakeet-ultra-Q8_0',
+    apiKey: null,
+    transcribeBackend: 'vulkan',
+  });
+  expect(savedConfig?.transcribeBackend).toBe('vulkan');
+});
+
+test('the manager autoSave carries the saved mode so a model change keeps it', async () => {
+  await render('transcribeCpp', 'parakeet-ultra-Q8_0', 'vulkan');
+
+  const [transcription] = managerRenders.filter(props => props.manager === 'transcribeCpp');
+  const saveSelection = transcription!.saveSelection as (config: {
+    provider: string;
+    model: string;
+    apiKey: null;
+  }) => Promise<void>;
+  expect(typeof saveSelection).toBe('function');
+
+  await act(async () => {
+    await saveSelection({ provider: 'transcribeCpp', model: 'gigaam-v3-ctc-Q8_0', apiKey: null });
+  });
+
+  const saveCall = invokeCalls.find(
+    call => call.command === 'api_save_transcript_config',
+  );
+  expect(saveCall).toBeDefined();
+  // The model payload from the manager gains the current mode: selecting a
+  // model must not reset the user's «режим вычислений».
+  expect(saveCall!.args).toEqual({
+    provider: 'transcribeCpp',
+    model: 'gigaam-v3-ctc-Q8_0',
+    apiKey: null,
+    transcribeBackend: 'vulkan',
+  });
 });

@@ -21,27 +21,48 @@ use crate::audio::transcription::transcribe_cpp_provider::{
     ProviderLoadError, TranscribeCppProvider,
 };
 
+/// The loaded provider plus the compute mode it was loaded on, so the
+/// dispatcher can decide whether a changed `transcribeBackend` setting
+/// requires a reload (mirrors how a changed model requires a reload).
+/// Public because the global static is re-exported from the module root;
+/// read it through [`provider_with_mode`] rather than locking directly.
+pub struct CachedProvider {
+    provider: Arc<TranscribeCppProvider>,
+    /// The mode the user asked for when this provider was loaded.
+    mode: ComputeMode,
+}
+
 /// The loaded provider, shared by the transcription dispatcher. Mirrors
 /// `AUDIOCPP_PROVIDER`: one process-wide model, reloaded only when the
-/// requested model differs.
-pub static TRANSCRIBECPP_PROVIDER: Mutex<Option<Arc<TranscribeCppProvider>>> = Mutex::new(None);
+/// requested model differs or the saved compute mode changed.
+pub static TRANSCRIBECPP_PROVIDER: Mutex<Option<CachedProvider>> = Mutex::new(None);
 
 /// The currently loaded provider, if any.
 pub fn provider() -> Option<Arc<TranscribeCppProvider>> {
+    provider_with_mode().map(|(provider, _)| provider)
+}
+
+/// The currently loaded provider together with the compute mode it was
+/// requested with. A single lock keeps the two views consistent, so the
+/// dispatcher can compare the saved mode without racing a concurrent load.
+pub fn provider_with_mode() -> Option<(Arc<TranscribeCppProvider>, ComputeMode)> {
     TRANSCRIBECPP_PROVIDER
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .as_ref()
-        .cloned()
+        .map(|cached| (Arc::clone(&cached.provider), cached.mode))
 }
 
-/// Replace the global provider.
-pub fn set_provider(provider: TranscribeCppProvider) -> Arc<TranscribeCppProvider> {
+/// Replace the global provider, recording the compute mode it was loaded on.
+pub fn set_provider(provider: TranscribeCppProvider, mode: ComputeMode) -> Arc<TranscribeCppProvider> {
     let provider = Arc::new(provider);
     let mut guard = TRANSCRIBECPP_PROVIDER
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    *guard = Some(Arc::clone(&provider));
+    *guard = Some(CachedProvider {
+        provider: Arc::clone(&provider),
+        mode,
+    });
     provider
 }
 
@@ -50,8 +71,8 @@ pub fn unload_provider() {
     let mut guard = TRANSCRIBECPP_PROVIDER
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if let Some(provider) = guard.take() {
-        provider.unload();
+    if let Some(cached) = guard.take() {
+        cached.provider.unload();
     }
 }
 
@@ -95,16 +116,20 @@ pub fn resolve_library_path() -> Result<PathBuf, TranscribeCppError> {
 /// Loads the native transcribe.cpp library into an engine on `mode`.
 ///
 /// This is the single place that constructs the engine, shared by every
-/// provider load. Ticket 06 replaces the hard-coded [`ComputeMode::Auto`]
-/// with the user's stored selection.
+/// provider load; the compute mode comes from the caller (ticket 06: the
+/// user's stored `transcribeBackend` selection, not a hard-coded Auto).
 ///
 /// Blocking: the dynamic library load, ABI gate and backend registration
 /// all block. From async code call this inside `tokio::task::spawn_blocking`.
 pub fn load_native_engine(
     mode: ComputeMode,
-) -> Result<Arc<dyn super::engine::TranscribeCppEngine>, TranscribeCppError> {
+) -> Result<Arc<NativeTranscribeCppEngine>, TranscribeCppError> {
     let path = resolve_library_path()?;
-    log::info!("loading transcribe.cpp library from {}", path.display());
+    log::info!(
+        "loading transcribe.cpp library from {} (compute mode '{}')",
+        path.display(),
+        mode.as_str()
+    );
     let library = TranscribeCpp::load_from(&path)?;
     log::info!(
         "transcribe.cpp runtime {} (backends: {})",
@@ -114,17 +139,69 @@ pub fn load_native_engine(
     Ok(Arc::new(NativeTranscribeCppEngine::new(library, mode)?))
 }
 
-/// Loads the native library and the selected model into a provider on the
-/// Auto compute mode (ticket 06 adds the user selection).
+/// A freshly loaded provider plus what the engine actually did about the
+/// requested compute mode.
+pub struct NativeProviderLoad {
+    /// The loaded provider, ready for the dispatcher's global handle.
+    pub provider: TranscribeCppProvider,
+    /// True when Vulkan was requested and the engine ended up on CPU, either
+    /// because the module never registered (see `DeviceSelection::fell_back_to_cpu`
+    /// in [`super::backend`]) or because the loaded model reports a CPU
+    /// backend.
+    pub fell_back_to_cpu: bool,
+}
+
+/// Loads the native library and the selected model into a provider on `mode`.
 ///
 /// Blocking: the library load and model load are slow. From async code call
 /// this inside `tokio::task::spawn_blocking`.
 pub fn load_native_provider(
     model: &ModelInfo,
-) -> Result<TranscribeCppProvider, ProviderLoadError> {
-    let engine = load_native_engine(ComputeMode::Auto)
+    mode: ComputeMode,
+) -> Result<NativeProviderLoad, ProviderLoadError> {
+    let engine = load_native_engine(mode)
         .map_err(|error| ProviderLoadError::Engine(error.to_string()))?;
-    TranscribeCppProvider::load_blocking(engine, model.name.clone(), &model.path)
+    let selection_fell_back = engine.selection().fell_back_to_cpu;
+    let provider =
+        TranscribeCppProvider::load_blocking(engine, model.name.clone(), &model.path)?;
+    Ok(NativeProviderLoad {
+        fell_back_to_cpu: vulkan_fell_back(mode, selection_fell_back, &provider.backend()),
+        provider,
+    })
+}
+
+/// Whether a live cached provider can be reused instead of reloaded: it must
+/// run the requested model (any model when `requested_model` is `None`) and
+/// the requested compute mode. Pure so the reuse/reload rule — a changed
+/// `transcribeBackend` setting reloads the provider, mirroring the
+/// model-change reload — is unit-testable without a native library.
+pub fn provider_is_reusable(
+    current_model: &str,
+    requested_model: Option<&str>,
+    cached_mode: ComputeMode,
+    requested_mode: ComputeMode,
+) -> bool {
+    cached_mode == requested_mode
+        && requested_model.map_or(true, |requested| current_model == requested)
+}
+
+/// Whether a Vulkan request ended up on CPU: either the device selection
+/// degraded before the load (the Vulkan module never registered), or the
+/// model reports the "cpu" backend after it. Pure so the fallback UX is
+/// testable without a native library.
+fn vulkan_fell_back(mode: ComputeMode, selection_fell_back: bool, actual_backend: &str) -> bool {
+    mode == ComputeMode::Vulkan
+        && (selection_fell_back
+            || actual_backend.eq_ignore_ascii_case("cpu")
+            || actual_backend.is_empty())
+}
+
+/// The user-facing warning for a Vulkan→CPU fallback, or `None` when nothing
+/// fell back. The dispatcher sends it over the transcription warning channel.
+pub fn vulkan_fallback_warning(fell_back_to_cpu: bool) -> Option<String> {
+    fell_back_to_cpu.then(|| {
+        "Transcribe.cpp could not start on Vulkan (missing driver or device) and continues on the CPU backend; the transcripts are unaffected, but transcription will be slower. See Settings → Transcription models → Compute mode.".to_string()
+    })
 }
 
 /// Why a configured transcribe.cpp model cannot transcribe right now.
@@ -245,8 +322,106 @@ pub fn select_requested_transcription_model(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::transcribe_cpp_engine::backend::{select_device, DeviceQuery};
     use crate::transcribe_cpp_engine::catalog;
+    use crate::transcribe_cpp_engine::ffi;
     use std::path::PathBuf;
+
+    /// Device registry with no Vulkan module registered (missing driver):
+    /// only a CPU device answers `backend_available`, the shape
+    /// `select_device` must degrade from a Vulkan request for.
+    struct NoVulkanDevices;
+
+    impl DeviceQuery for NoVulkanDevices {
+        fn backend_available(&self, kind: std::os::raw::c_int) -> bool {
+            kind == ffi::TRANSCRIBE_BACKEND_CPU
+        }
+        fn device_count(&self) -> i32 {
+            1
+        }
+        fn device_kind(&self, index: i32) -> Option<String> {
+            (index == 0).then(|| "cpu".to_string())
+        }
+    }
+
+    #[test]
+    fn saved_backend_tokens_map_to_compute_modes() {
+        // The DB column stores exactly these tokens; anything else (junk,
+        // absent, empty) reads as Auto, the schema default.
+        assert_eq!(ComputeMode::parse(Some("auto")), ComputeMode::Auto);
+        assert_eq!(ComputeMode::parse(Some("vulkan")), ComputeMode::Vulkan);
+        assert_eq!(ComputeMode::parse(Some("cpu")), ComputeMode::Cpu);
+        assert_eq!(ComputeMode::parse(Some("VULKAN ")), ComputeMode::Vulkan);
+        assert_eq!(ComputeMode::parse(Some("")), ComputeMode::Auto);
+        assert_eq!(ComputeMode::parse(Some("cuda")), ComputeMode::Auto);
+        assert_eq!(ComputeMode::parse(None), ComputeMode::Auto);
+    }
+
+    #[test]
+    fn a_changed_saved_mode_forces_a_reload_like_a_model_change() {
+        // Same model, same requested-mode shape as the dispatcher's reuse gate.
+        assert!(provider_is_reusable("parakeet-ultra-Q8_0", None, ComputeMode::Auto, ComputeMode::Auto));
+        assert!(provider_is_reusable(
+            "parakeet-ultra-Q8_0",
+            Some("parakeet-ultra-Q8_0"),
+            ComputeMode::Cpu,
+            ComputeMode::Cpu
+        ));
+        // Saved mode changed → reload, even with the model unchanged.
+        assert!(!provider_is_reusable(
+            "parakeet-ultra-Q8_0",
+            None,
+            ComputeMode::Auto,
+            ComputeMode::Vulkan
+        ));
+        assert!(!provider_is_reusable(
+            "parakeet-ultra-Q8_0",
+            Some("parakeet-ultra-Q8_0"),
+            ComputeMode::Cpu,
+            ComputeMode::Auto
+        ));
+        // Model mismatch still reloads regardless of the mode.
+        assert!(!provider_is_reusable(
+            "parakeet-ultra-Q8_0",
+            Some("gigaam-v3-ctc-Q8_0"),
+            ComputeMode::Auto,
+            ComputeMode::Auto
+        ));
+        // Any installed model is fine when no exact model was requested.
+        assert!(provider_is_reusable("anything", None, ComputeMode::Vulkan, ComputeMode::Vulkan));
+    }
+
+    #[test]
+    fn a_vulkan_request_without_a_registered_vulkan_falls_back_and_warns() {
+        // Fake DeviceQuery where the Vulkan module never registered: the
+        // selection degrades to CPU, the load reports it, and the fallback
+        // predicate raises the user warning.
+        let selection = select_device(ComputeMode::Vulkan, &NoVulkanDevices);
+        assert!(selection.fell_back_to_cpu, "vulkan unavailable must degrade to cpu");
+
+        assert!(
+            vulkan_fell_back(ComputeMode::Vulkan, selection.fell_back_to_cpu, "cpu"),
+            "the degraded selection must be reported as a fallback"
+        );
+        let warning = vulkan_fallback_warning(true).expect("the user is warned");
+        assert!(warning.contains("Vulkan"), "warning: {warning}");
+        assert!(warning.contains("CPU"), "warning: {warning}");
+    }
+
+    #[test]
+    fn the_model_backend_decides_the_fallback_when_the_selection_did_not() {
+        // The mask was fixed to CPU by an earlier Auto/CPU load while the
+        // process gate let the Vulkan request through selection: the loaded
+        // model reporting "cpu" still means the user must be warned.
+        assert!(vulkan_fell_back(ComputeMode::Vulkan, false, "cpu"));
+        // A genuine Vulkan binding warns about nothing.
+        assert!(!vulkan_fell_back(ComputeMode::Vulkan, false, "vulkan"));
+        // Auto and CPU modes never warn, whatever backend they landed on.
+        assert!(!vulkan_fell_back(ComputeMode::Auto, false, "cpu"));
+        assert!(!vulkan_fell_back(ComputeMode::Auto, false, "vulkan"));
+        assert!(!vulkan_fell_back(ComputeMode::Cpu, false, "cpu"));
+        assert!(vulkan_fallback_warning(false).is_none());
+    }
 
     fn info(name: &str, status: ModelStatus) -> ModelInfo {
         catalog::find_model(name)

@@ -15,11 +15,16 @@
 //! mapping is unit-testable without a native library.
 //!
 //! IMPORTANT (transcribe.h): the mask must be fixed before any device
-//! query or model load — call `TranscribeCpp::init_backends(mask)` once,
-//! with the mask from [`ComputeMode::allowed_mask`], BEFORE using
-//! [`select_device`].
+//! query or model load, and the FIRST registration fixes it for the whole
+//! process — [`fix_process_backends`] claims the mask from
+//! [`ComputeMode::allowed_mask`] once, and every engine must then register
+//! with that same mask BEFORE any device query or [`select_device`].
+//! Device selection can still follow the user's current request within the
+//! fixed mask: requesting Vulkan under a CPU-only mask degrades to CPU
+//! exactly like a missing driver would.
 
 use std::os::raw::c_int;
+use std::sync::Mutex;
 
 /// The compute backend the app asks the engine to run on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -115,6 +120,66 @@ pub struct DeviceSelection {
     /// selection degraded to CPU (ticket 06 uses this to warn about a
     /// Vulkan→CPU fallback; compare with `Model::backend()` after load).
     pub fell_back_to_cpu: bool,
+}
+
+/// What the process-wide allowed-backend mask is fixed to. The library fixes
+/// it at the FIRST backend registration and rejects a later registration with
+/// a different mask (`transcribe_init_backends_ex`: "the mask is fixed at
+/// first backend registration... Call once, first"), so every engine in one
+/// process must register under one mask. The first load of a run claims the
+/// user's mode; a different saved mode afterwards only takes effect after a
+/// restart, while in the meantime it degrades like any unavailable backend.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProcessBackends {
+    /// This load fixed the mask to the requested mode.
+    Applied(ComputeMode),
+    /// An earlier load already fixed the mask to `fixed`; `requested` (the
+    /// newly saved setting) can only register after a restart.
+    AlreadyFixed {
+        fixed: ComputeMode,
+        requested: ComputeMode,
+    },
+}
+
+impl ProcessBackends {
+    /// The mask-equaling mode every engine in this process must register under.
+    pub fn effective(self) -> ComputeMode {
+        match self {
+            Self::Applied(mode) => mode,
+            Self::AlreadyFixed { fixed, .. } => fixed,
+        }
+    }
+}
+
+/// The backends claimed by the first engine load of this process (see
+/// [`ProcessBackends`]); `None` until the first load fixes the mask.
+static PROCESS_BACKENDS: Mutex<Option<ComputeMode>> = Mutex::new(None);
+
+/// Claims the process-wide backend mask for `requested`, or reports the mode
+/// an earlier load already fixed. Call before registering backends; register
+/// with the mask of [`ProcessBackends::effective`], then still select devices
+/// for the user's `requested` mode — a request outside the fixed mask
+/// degrades to CPU through [`select_device`] exactly like a missing driver.
+pub fn fix_process_backends(requested: ComputeMode) -> ProcessBackends {
+    let mut guard = PROCESS_BACKENDS.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    match *guard {
+        Some(fixed) if fixed == requested => ProcessBackends::Applied(requested),
+        Some(fixed) => ProcessBackends::AlreadyFixed {
+            fixed,
+            requested,
+        },
+        None => {
+            *guard = Some(requested);
+            ProcessBackends::Applied(requested)
+        }
+    }
+}
+
+/// The backends this process is fixed on, if any load has claimed them yet.
+pub fn process_backends() -> Option<ComputeMode> {
+    *PROCESS_BACKENDS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 /// Picks a device for `mode` from the (already-initialized) registry.
@@ -266,5 +331,38 @@ mod tests {
         assert_eq!(ComputeMode::parse(Some(" Vulkan ")), ComputeMode::Vulkan);
         assert_eq!(ComputeMode::parse(Some("cuda")), ComputeMode::Auto);
         assert_eq!(ComputeMode::parse(None), ComputeMode::Auto);
+    }
+
+    #[test]
+    fn the_first_load_claims_the_process_mask_and_later_loads_keep_it() {
+        // One test fn on purpose: the gate is process-wide static state.
+        // Nothing else in the library registers backends, so this is the
+        // only writer.
+        assert_eq!(process_backends(), None, "tests start unfixed");
+
+        // The first request claims the mask.
+        assert_eq!(fix_process_backends(ComputeMode::Vulkan), ProcessBackends::Applied(ComputeMode::Vulkan));
+        assert_eq!(process_backends(), Some(ComputeMode::Vulkan));
+
+        // The same mode again is idempotent.
+        assert_eq!(fix_process_backends(ComputeMode::Vulkan), ProcessBackends::Applied(ComputeMode::Vulkan));
+
+        // A different saved mode reports the mask already in force: engines
+        // register under it (a later load must not fail with
+        // TRANSCRIBE_ERR_BACKEND) while device selection still follows the
+        // user's request, degrading through select_device.
+        assert_eq!(
+            fix_process_backends(ComputeMode::Cpu),
+            ProcessBackends::AlreadyFixed {
+                fixed: ComputeMode::Vulkan,
+                requested: ComputeMode::Cpu,
+            }
+        );
+        assert_eq!(process_backends(), Some(ComputeMode::Vulkan), "the mask never moves");
+        assert_eq!(
+            fix_process_backends(ComputeMode::Auto).effective(),
+            ComputeMode::Vulkan,
+            "engines must register with the fixed mask"
+        );
     }
 }

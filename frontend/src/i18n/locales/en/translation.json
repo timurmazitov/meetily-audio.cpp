@@ -739,6 +739,10 @@
     "providerWhisper": "🏠 Local Whisper (High Accuracy)",
     "providerAudioCpp": "🎙️ audioCpp (GigaAM — Russian)",
     "providerTranscribeCpp": "🧠 Transcribe.cpp",
+    "transcribeBackendLabel": "Compute mode",
+    "transcribeBackendAuto": "Auto",
+    "transcribeBackendVulkan": "Vulkan (GPU)",
+    "transcribeBackendCpu": "CPU",
     "diarization": {
       "title": "Speaker diarization",
       "description": "Install this model to label who said what. It works with every transcription provider above."

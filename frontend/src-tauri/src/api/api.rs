@@ -110,6 +110,10 @@ pub struct TranscriptConfig {
     pub model: String,
     #[serde(rename = "apiKey")]
     pub api_key: Option<String>,
+    /// Transcribe.cpp compute mode ("auto" | "vulkan" | "cpu"); absent means
+    /// Auto. Only meaningful for the transcribeCpp provider.
+    #[serde(rename = "transcribeBackend", default)]
+    pub transcribe_backend: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -118,6 +122,10 @@ pub struct SaveTranscriptConfigRequest {
     pub model: String,
     #[serde(rename = "apiKey")]
     pub api_key: Option<String>,
+    /// Transcribe.cpp compute mode; absent or invalid means "auto"
+    /// (normalized in `api_save_transcript_config`).
+    #[serde(rename = "transcribeBackend", default)]
+    pub transcribe_backend: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -751,10 +759,19 @@ pub async fn api_get_transcript_config<R: Runtime>(
                     } else {
                         config.model
                     };
+                    // Normalize the compute-mode token so the settings UI and
+                    // the dispatcher agree on one canonical value; an unknown
+                    // or absent value reads as Auto.
+                    let transcribe_backend = crate::transcribe_cpp_engine::backend::ComputeMode::parse(
+                        config.transcribe_backend.as_deref(),
+                    )
+                    .as_str()
+                    .to_string();
                     Ok(Some(TranscriptConfig {
                         provider: config.provider,
                         model,
                         api_key,
+                        transcribe_backend: Some(transcribe_backend),
                     }))
                 }
                 Err(e) => {
@@ -773,6 +790,11 @@ pub async fn api_get_transcript_config<R: Runtime>(
                 provider: "parakeet".to_string(),
                 model: crate::config::DEFAULT_PARAKEET_MODEL.to_string(),
                 api_key: None,
+                transcribe_backend: Some(
+                    crate::transcribe_cpp_engine::backend::ComputeMode::Auto
+                        .as_str()
+                        .to_string(),
+                ),
             }))
         }
         Err(e) => {
@@ -789,16 +811,32 @@ pub async fn api_save_transcript_config<R: Runtime>(
     provider: String,
     model: String,
     api_key: Option<String>,
+    transcribe_backend: Option<String>,
     _auth_token: Option<String>,
 ) -> Result<serde_json::Value, String> {
+    // The compute mode travels with the same save as provider/model. An
+    // absent or invalid value normalizes to 'auto', the column's default, so
+    // older clients (and saves from other providers) never lose the setting
+    // semantics.
+    let transcribe_backend =
+        crate::transcribe_cpp_engine::backend::ComputeMode::parse(transcribe_backend.as_deref())
+            .as_str();
     log_info!(
-        "Transcript config save requested; provider={}, model={}",
+        "Transcript config save requested; provider={}, model={}, transcribeBackend={}",
         provider,
-        model
+        model,
+        transcribe_backend
     );
     let pool = state.db_manager.pool();
 
-    if let Err(e) = SettingsRepository::save_transcript_config(pool, &provider, &model).await {
+    if let Err(e) = SettingsRepository::save_transcript_config(
+        pool,
+        &provider,
+        &model,
+        transcribe_backend,
+    )
+    .await
+    {
         log_error!("Failed to save transcript config: {}", e);
         return Err(e.to_string());
     }

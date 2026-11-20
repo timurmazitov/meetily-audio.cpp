@@ -167,4 +167,12 @@ pub struct TranscriptSetting {
     #[sqlx(rename = "openaiApiKey")]
     #[serde(rename = "openaiApiKey")]
     pub openai_api_key: Option<String>,
+    /// Transcribe.cpp compute mode ("auto" | "vulkan" | "cpu"). The column is
+    /// NOT NULL DEFAULT 'auto' (migration), so real rows always read back a
+    /// token; `None` only happens on hand-built schemas without the column
+    /// and means Auto, exactly like an unknown token read through
+    /// [`crate::transcribe_cpp_engine::backend::ComputeMode::parse`].
+    #[sqlx(rename = "transcribeBackend", default)]
+    #[serde(rename = "transcribeBackend", default)]
+    pub transcribe_backend: Option<String>,
 }

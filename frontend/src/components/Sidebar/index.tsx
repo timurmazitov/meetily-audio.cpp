@@ -218,7 +218,11 @@ const Sidebar: React.FC = () => {
       const payload = {
         provider: configToSave.provider,
         model: configToSave.model,
-        apiKey: configToSave.apiKey ?? null
+        apiKey: configToSave.apiKey ?? null,
+        // Carry the saved compute mode: the backend normalizes an absent
+        // value to 'auto', so omitting it here would silently reset the
+        // user's transcribe.cpp mode on any sidebar save.
+        transcribeBackend: configToSave.transcribeBackend ?? 'auto'
       };
       console.log('Saving transcript config with payload:', payload);
 
@@ -226,6 +230,7 @@ const Sidebar: React.FC = () => {
         provider: payload.provider,
         model: payload.model,
         apiKey: payload.apiKey,
+        transcribeBackend: payload.transcribeBackend,
       });
 
 
