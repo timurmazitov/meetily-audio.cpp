@@ -811,6 +811,8 @@ mod tests {
 
     #[test]
     fn a_missing_library_reports_every_searched_path() {
+        let _guard = ENV_LOCK.lock().expect("env lock");
+        std::env::remove_var(TRANSCRIBECPP_LIBRARY_ENV);
         let dir = tempfile::tempdir().expect("tempdir");
 
         let error =

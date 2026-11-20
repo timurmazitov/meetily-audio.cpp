@@ -243,6 +243,7 @@ mod tests {
 
     struct FakeModel {
         calls: Arc<Mutex<Vec<std::thread::ThreadId>>>,
+        run_panic: bool,
     }
 
     impl TranscribeCppModel for FakeModel {
@@ -256,6 +257,9 @@ mod tests {
             sample_rate: i32,
             language: Option<&str>,
         ) -> Result<TranscriptionOutput, TranscribeCppError> {
+            if self.run_panic {
+                panic!("simulated native crash");
+            }
             self.calls.lock().unwrap().push(std::thread::current().id());
             Ok(TranscriptionOutput {
                 backend: "cpu".into(),
@@ -269,6 +273,7 @@ mod tests {
     struct FakeEngine {
         calls: Arc<Mutex<Vec<std::thread::ThreadId>>>,
         load_error: Option<String>,
+        run_panic: bool,
     }
 
     impl TranscribeCppEngine for FakeEngine {
@@ -285,6 +290,7 @@ mod tests {
                 }),
                 None => Ok(Box::new(FakeModel {
                     calls: Arc::clone(&self.calls),
+                    run_panic: self.run_panic,
                 })),
             }
         }
@@ -311,6 +317,7 @@ mod tests {
         let engine = Arc::new(FakeEngine {
             calls: Arc::clone(&calls),
             load_error: None,
+            run_panic: false,
         });
         let thread = SessionThread::<TranscriptionOutput>::spawn::<AsrTask>(
             engine,
@@ -328,6 +335,9 @@ mod tests {
             .expect("request");
         assert_eq!(output.text, "160@16000/Some(\"ru\")");
 
+        // The thread loop ends when the LAST sender is gone: the caller's
+        // handle clones must be dropped before shutdown() may join.
+        drop(handle);
         thread.shutdown();
         let calls = calls.lock().unwrap();
         assert_eq!(calls.len(), 2, "one load + one run");
@@ -339,6 +349,7 @@ mod tests {
         let engine = Arc::new(FakeEngine {
             calls: Arc::new(Mutex::new(Vec::new())),
             load_error: Some("corrupt GGUF".into()),
+            run_panic: false,
         });
         let error = match SessionThread::<TranscriptionOutput>::spawn::<AsrTask>(
             engine,
@@ -353,10 +364,17 @@ mod tests {
     }
 
     #[test]
-    fn requests_after_shutdown_report_the_gone_thread() {
+    fn a_crashed_run_ends_the_thread_and_later_requests_report_it() {
+        // A native run that dies takes the thread with it: the request
+        // whose run panicked resolves as ThreadStopped (its oneshot dies
+        // with the unwound loop), and once the thread is fully gone the
+        // channel is disconnected, so the next request reports ThreadGone.
+        // (The same two outcomes a shutdown-raced request sees in
+        // production: the provider drops its handles before shutdown.)
         let engine = Arc::new(FakeEngine {
             calls: Arc::new(Mutex::new(Vec::new())),
             load_error: None,
+            run_panic: true,
         });
         let thread = SessionThread::<TranscriptionOutput>::spawn::<AsrTask>(
             engine,
@@ -365,13 +383,32 @@ mod tests {
         )
         .expect("fake loads");
         let handle = thread.handle();
-        thread.shutdown();
 
-        let error = tokio::runtime::Builder::new_current_thread()
+        let runtime = tokio::runtime::Builder::new_current_thread()
             .build()
-            .expect("runtime")
+            .expect("runtime");
+        let error = runtime
             .block_on(handle.request(vec![0.0f32; 160], None))
-            .expect_err("thread is gone");
-        assert!(matches!(error, SessionRequestError::ThreadGone));
+            .expect_err("the run panics on the session thread");
+        assert!(matches!(error, SessionRequestError::ThreadStopped));
+
+        // The thread is dead now (join below proves it, deterministically:
+        // join on an exited thread returns immediately). Requesting again
+        // must fail — either the queued request dies with the receiver
+        // (ThreadStopped) or the disconnected channel refuses it
+        // (ThreadGone); both mean "the session thread is no longer there".
+        let error = runtime
+            .block_on(handle.request(vec![0.0f32; 160], None))
+            .expect_err("the thread is gone");
+        assert!(
+            matches!(
+                error,
+                SessionRequestError::ThreadGone | SessionRequestError::ThreadStopped
+            ),
+            "got {error:?}"
+        );
+
+        drop(handle);
+        thread.shutdown();
     }
 }

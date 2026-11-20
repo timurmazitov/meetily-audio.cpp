@@ -18,7 +18,7 @@ use std::path::Path;
 
 use super::backend::{select_device, ComputeMode, DeviceSelection};
 use super::error::TranscribeCppError;
-use super::wrapper::{Model, RunOutput, Segment, Session, TranscribeCpp};
+use super::wrapper::{Model, Segment, Session, TranscribeCpp};
 
 /// The sample rate transcribe.cpp v1 accepts: 16 kHz mono float32 PCM,
 /// no resampler is linked into the library.
