@@ -321,6 +321,16 @@ jobs:
             Write-Host "OK: $path"
           }
 
+      - name: Stage transcribe.cpp runtime for bundling (Linux)
+        if: contains(inputs.platform, 'ubuntu')
+        working-directory: frontend
+        run: node scripts/stage-transcribe-native.mjs
+
+      - name: Verify transcribe.cpp runtime staging (Linux)
+        if: contains(inputs.platform, 'ubuntu')
+        working-directory: frontend
+        run: node scripts/stage-transcribe-native.mjs --verify
+
       - name: Prepare Vulkan SDK for Ubuntu 22.04
         if: contains(inputs.platform, 'ubuntu-22.04')
         run: |

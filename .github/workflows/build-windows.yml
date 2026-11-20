@@ -321,6 +321,16 @@ jobs:
             Write-Host "OK: $path"
           }
 
+      - name: Stage transcribe.cpp runtime for bundling
+        working-directory: frontend
+        shell: pwsh
+        run: node scripts/stage-transcribe-native.mjs
+
+      - name: Verify transcribe.cpp runtime staging
+        working-directory: frontend
+        shell: pwsh
+        run: node scripts/stage-transcribe-native.mjs --verify
+
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
