@@ -19,7 +19,7 @@ export function SummaryModelSettings({ refetchTrigger }: SummaryModelSettingsPro
   const [modelConfig, setModelConfig] = useState<ModelConfig>({
     provider: 'ollama',
     model: 'llama3.2:latest',
-    whisperModel: 'large-v3',
+    whisperModel: '',
     apiKey: null,
     ollamaEndpoint: null
   });

@@ -421,17 +421,32 @@ mod tests {
 
         apply_full_migration_chain(&pool).await;
 
-        // The existing row keeps its values and reads back as Auto.
+        // The existing row keeps its stored values and reads back as Auto.
+        // (The soft migration normalizes the removed provider to
+        // transcribeCpp on read — covered in the settings repository tests;
+        // here the point is that the pre-existing row still opens and its
+        // new column defaults to 'auto'.)
         let setting = SettingsRepository::get_transcript_config(&pool)
             .await
             .unwrap()
             .expect("the pre-existing row still opens");
-        assert_eq!(setting.provider, "audioCpp");
-        assert_eq!(setting.model, "gigaam-v3-e2e-ctc-f16");
+        assert_eq!(setting.provider, "transcribeCpp");
+        assert_eq!(setting.model, crate::config::DEFAULT_TRANSCRIBE_CPP_MODEL);
         assert_eq!(
             setting.transcribe_backend.as_deref(),
             Some("auto"),
             "existing rows keep their values and default to the pre-selector behaviour"
+        );
+        let raw: (String, String) = sqlx::query_as(
+            "SELECT provider, model FROM transcript_settings WHERE id = '1'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            raw,
+            ("audioCpp".to_string(), "gigaam-v3-e2e-ctc-f16".to_string()),
+            "the soft migration is read-only: no migration touches the stored row"
         );
 
         // A fresh database gets the same default through the same chain.

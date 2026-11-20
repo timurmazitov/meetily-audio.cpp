@@ -4,6 +4,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import { TranscriptModelProps } from '@/components/TranscriptSettings';
 import { SelectedDevices } from '@/components/DeviceSelection';
 import { configService, ModelConfig } from '@/services/configService';
+import { DEFAULT_TRANSCRIBE_CPP_MODEL } from '@/constants/modelDefaults';
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
 import i18n from '@/i18n';
@@ -98,16 +99,18 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   const [modelConfig, setModelConfig] = useState<ModelConfig>({
     provider: 'ollama',
     model: 'llama3.2:latest',
-    whisperModel: 'large-v3',
+    whisperModel: '',
     ollamaEndpoint: null
   });
   const [isModelConfigLoading, setIsModelConfigLoading] = useState(true);
 
 
-  // Transcript model configuration state
+  // Transcript model configuration state. transcribe.cpp is the only local
+  // engine; the settings repository soft-migrates the removed providers, so
+  // every client default lands on the same pair (see `modelDefaults.ts`).
   const [transcriptModelConfig, setTranscriptModelConfig] = useState<TranscriptModelProps>({
-    provider: 'parakeet',
-    model: 'parakeet-tdt-0.6b-v3-int8',
+    provider: 'transcribeCpp',
+    model: DEFAULT_TRANSCRIBE_CPP_MODEL,
     apiKey: null
   });
 
@@ -193,8 +196,10 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
         if (config) {
           console.log('[ConfigContext] Loaded saved transcript config:', config);
           setTranscriptModelConfig({
-            provider: config.provider || 'parakeet',
-            model: config.model || 'parakeet-tdt-0.6b-v3-int8',
+            // The repository soft-migrates removed providers on read; the
+            // fallback for an empty value is the same transcribe.cpp pair.
+            provider: config.provider || 'transcribeCpp',
+            model: config.model || DEFAULT_TRANSCRIBE_CPP_MODEL,
             apiKey: config.apiKey || null,
             transcribeBackend: config.transcribeBackend ?? 'auto',
           });
@@ -240,7 +245,6 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
                   ...prev,
                   provider: data.provider,
                   model: resolvedModel || prev.model,
-                  whisperModel: data.whisperModel || prev.whisperModel,
                   customOpenAIEndpoint: customConfig.endpoint,
                   customOpenAIModel: customConfig.model,
                   customOpenAIApiKey: customConfig.apiKey,
@@ -268,7 +272,6 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
             ...prev,
             provider: data.provider,
             model: data.model || prev.model,
-            whisperModel: data.whisperModel || prev.whisperModel,
             ollamaEndpoint: data.ollamaEndpoint,
           }));
 

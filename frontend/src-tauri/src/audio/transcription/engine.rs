@@ -74,22 +74,22 @@ pub async fn validate_transcription_model_ready<R: Runtime>(
                 config
             }
             Ok(None) => {
-                info!("📝 No transcript config found, defaulting to parakeet");
+                info!("📝 No transcript config found, defaulting to transcribe.cpp");
                 crate::api::api::TranscriptConfig {
-                    provider: "parakeet".to_string(),
-                    model: crate::config::DEFAULT_PARAKEET_MODEL.to_string(),
+                    provider: TRANSCRIBE_CPP_PROVIDER.to_string(),
+                    model: crate::config::DEFAULT_TRANSCRIBE_CPP_MODEL.to_string(),
                     api_key: None,
                     transcribe_backend: None,
                 }
             }
             Err(e) => {
                 warn!(
-                    "⚠️ Failed to get transcript config: {}, defaulting to parakeet",
+                    "⚠️ Failed to get transcript config: {}, defaulting to transcribe.cpp",
                     e
                 );
                 crate::api::api::TranscriptConfig {
-                    provider: "parakeet".to_string(),
-                    model: crate::config::DEFAULT_PARAKEET_MODEL.to_string(),
+                    provider: TRANSCRIBE_CPP_PROVIDER.to_string(),
+                    model: crate::config::DEFAULT_TRANSCRIBE_CPP_MODEL.to_string(),
                     api_key: None,
                     transcribe_backend: None,
                 }
@@ -225,22 +225,22 @@ pub async fn get_or_init_transcription_engine<R: Runtime>(
                 config
             }
             Ok(None) => {
-                info!("📝 No transcript config found, defaulting to parakeet");
+                info!("📝 No transcript config found, defaulting to transcribe.cpp");
                 crate::api::api::TranscriptConfig {
-                    provider: "parakeet".to_string(),
-                    model: crate::config::DEFAULT_PARAKEET_MODEL.to_string(),
+                    provider: TRANSCRIBE_CPP_PROVIDER.to_string(),
+                    model: crate::config::DEFAULT_TRANSCRIBE_CPP_MODEL.to_string(),
                     api_key: None,
                     transcribe_backend: None,
                 }
             }
             Err(e) => {
                 warn!(
-                    "⚠️ Failed to get transcript config: {}, defaulting to parakeet",
+                    "⚠️ Failed to get transcript config: {}, defaulting to transcribe.cpp",
                     e
                 );
                 crate::api::api::TranscriptConfig {
-                    provider: "parakeet".to_string(),
-                    model: crate::config::DEFAULT_PARAKEET_MODEL.to_string(),
+                    provider: TRANSCRIBE_CPP_PROVIDER.to_string(),
+                    model: crate::config::DEFAULT_TRANSCRIBE_CPP_MODEL.to_string(),
                     api_key: None,
                     transcribe_backend: None,
                 }
