@@ -20,7 +20,6 @@ pub(crate) async fn acquire_engine_lifecycle_lock() -> OwnedMutexGuard<()> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BatchEngine {
     Whisper,
-    Parakeet,
     /// Runs transcribe.cpp offline ASR over the batch segments (retranscription
     /// and import build the provider with the exact requested model).
     TranscribeCpp,
@@ -33,7 +32,6 @@ impl BatchEngine {
     /// Whisper.
     pub(crate) fn from_provider_name(provider: Option<&str>) -> Self {
         match provider {
-            Some("parakeet") => Self::Parakeet,
             Some(crate::audio::transcription::engine::TRANSCRIBE_CPP_PROVIDER) => {
                 Self::TranscribeCpp
             }
@@ -70,16 +68,6 @@ async fn unload_engine_after_batch_locked(
     }
 
     match engine {
-        BatchEngine::Parakeet => {
-            use crate::parakeet_engine::commands::PARAKEET_ENGINE;
-            let engine = {
-                let guard = PARAKEET_ENGINE.lock().unwrap_or_else(|e| e.into_inner());
-                guard.as_ref().cloned()
-            };
-            if let Some(e) = engine {
-                e.unload_model().await;
-            }
-        }
         BatchEngine::TranscribeCpp => {
             // Releases the model and its session thread, mirroring audio.cpp.
             // The session-thread join runs on a blocking thread inside
@@ -321,23 +309,16 @@ mod tests {
     }
 
     #[test]
-    fn batch_engine_selection_recognizes_parakeet() {
-        assert_eq!(
-            BatchEngine::from_provider_name(Some("parakeet")),
-            BatchEngine::Parakeet
-        );
-    }
-
-    #[test]
     fn batch_engine_selection_defaults_to_whisper() {
-        // "audioCpp" is one of the removed transcription providers: with the
-        // ASR path gone it is just an unrecognized name and lands on the
-        // historical default (the settings soft migration normalizes it to
-        // transcribeCpp before it ever reaches a batch job).
+        // "parakeet" and "audioCpp" are removed transcription providers: with
+        // those paths gone they are just unrecognized names and land on the
+        // historical default (the settings soft migration normalizes them to
+        // transcribeCpp before they ever reach a batch job).
         for provider in [
             None,
             Some("whisper"),
             Some("localWhisper"),
+            Some("parakeet"),
             Some("audioCpp"),
             Some("deepgram"),
             Some(""),

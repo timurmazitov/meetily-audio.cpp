@@ -12,9 +12,8 @@ use super::transcription::engine::get_or_init_transcribe_cpp_provider_for_batch;
 use super::transcription::provider::TranscriptionProvider;
 use crate::audio::decoder::decode_audio_file;
 use crate::audio::vad::get_speech_chunks_with_progress;
-use crate::config::{DEFAULT_PARAKEET_MODEL, DEFAULT_WHISPER_MODEL};
+use crate::config::DEFAULT_WHISPER_MODEL;
 use crate::database::repositories::speaker;
-use crate::parakeet_engine::ParakeetEngine;
 use crate::state::AppState;
 use crate::whisper_engine::WhisperEngine;
 use anyhow::{anyhow, Result};
@@ -322,11 +321,6 @@ async fn run_retranscription<R: Runtime>(
     } else {
         None
     };
-    let parakeet_engine = if engine_kind == BatchEngine::Parakeet {
-        Some(get_or_init_parakeet(&app, model.as_deref()).await?)
-    } else {
-        None
-    };
     // Exact model selection with no fallback: a batch request naming a model
     // the user picked in the dialog — or falling back to the configured
     // model, then the catalog default — must fail loudly when that model is
@@ -408,14 +402,7 @@ async fn run_retranscription<R: Runtime>(
         }
 
         // Transcribe this segment
-        let (text, conf) = if engine_kind == BatchEngine::Parakeet {
-            let engine = parakeet_engine.as_ref().unwrap();
-            let text = engine
-                .transcribe_audio(segment.samples.clone())
-                .await
-                .map_err(|e| anyhow!("Parakeet transcription failed on segment {}: {}", i, e))?;
-            (text, 0.9f32)
-        } else if let Some(provider) = transcribe_cpp_provider.as_ref() {
+        let (text, conf) = if let Some(provider) = transcribe_cpp_provider.as_ref() {
             // Same trait contract as the live pipeline. The provider applies
             // the language hint itself ("auto"/None travels as the native
             // autodetect hint) and refuses "auto-translate" with the
@@ -741,116 +728,6 @@ async fn get_configured_whisper_model<R: Runtime>(app: &AppHandle<R>) -> Result<
                 DEFAULT_WHISPER_MODEL
             );
             Ok(DEFAULT_WHISPER_MODEL.to_string())
-        }
-    }
-}
-
-/// Get or initialize the Parakeet engine, auto-loading the model if needed
-async fn get_or_init_parakeet<R: Runtime>(
-    app: &AppHandle<R>,
-    requested_model: Option<&str>,
-) -> Result<Arc<ParakeetEngine>> {
-    use crate::parakeet_engine::commands::PARAKEET_ENGINE;
-
-    let engine = {
-        let guard = PARAKEET_ENGINE.lock().unwrap_or_else(|e| e.into_inner());
-        guard.as_ref().cloned()
-    };
-
-    match engine {
-        Some(e) => {
-            // Determine which model to use
-            let target_model = match requested_model {
-                Some(model) => model.to_string(),
-                None => get_configured_parakeet_model(app).await?,
-            };
-
-            // Check if the correct model is already loaded
-            let current_model = e.get_current_model().await;
-            let needs_load = match &current_model {
-                Some(loaded) => loaded != &target_model,
-                None => true,
-            };
-
-            if needs_load {
-                info!(
-                    "Loading Parakeet model '{}' (current: {:?})",
-                    target_model, current_model
-                );
-
-                // Discover available models first
-                info!("Discovering available Parakeet models...");
-                if let Err(discover_err) = e.discover_models().await {
-                    warn!(
-                        "Error during Parakeet model discovery (continuing anyway): {}",
-                        discover_err
-                    );
-                }
-
-                match e.load_model(&target_model).await {
-                    Ok(_) => {
-                        info!("Parakeet model '{}' loaded successfully", target_model);
-                        Ok(e)
-                    }
-                    Err(load_err) => {
-                        error!(
-                            "Failed to load Parakeet model '{}': {}",
-                            target_model, load_err
-                        );
-                        Err(anyhow!(
-                            "Failed to load Parakeet model '{}': {}",
-                            target_model,
-                            load_err
-                        ))
-                    }
-                }
-            } else {
-                info!("Parakeet model '{}' already loaded", target_model);
-                Ok(e)
-            }
-        }
-        None => Err(anyhow!("Parakeet engine not initialized")),
-    }
-}
-
-/// Get the configured Parakeet model name from the database
-async fn get_configured_parakeet_model<R: Runtime>(app: &AppHandle<R>) -> Result<String> {
-    debug!("Getting configured Parakeet model from database...");
-
-    let app_state = app.try_state::<AppState>().ok_or_else(|| {
-        error!("App state not available");
-        anyhow!("App state not available")
-    })?;
-
-    // Query the transcript settings from the database
-    let result: Option<(String, String)> =
-        sqlx::query_as("SELECT provider, model FROM transcript_settings WHERE id = '1'")
-            .fetch_optional(app_state.db_manager.pool())
-            .await
-            .map_err(|e| {
-                error!("Failed to query transcript config: {}", e);
-                anyhow!("Failed to query transcript config: {}", e)
-            })?;
-
-    match result {
-        Some((provider, model)) => {
-            info!(
-                "Found transcript config: provider={}, model={}",
-                provider, model
-            );
-
-            if provider == "parakeet" {
-                Ok(model)
-            } else {
-                // Default to configured Parakeet model
-                warn!("Configured provider is not Parakeet, using default model");
-                Ok(DEFAULT_PARAKEET_MODEL.to_string())
-            }
-        }
-        None => {
-            // Default to configured Parakeet model if no config exists
-            warn!("No transcript config found, using default Parakeet model");
-            Ok(DEFAULT_PARAKEET_MODEL.to_string())
         }
     }
 }

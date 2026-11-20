@@ -209,7 +209,6 @@ pub fn start_transcription_task<R: Runtime>(
         for worker_id in 0..NUM_WORKERS {
             let engine_clone = match &transcription_engine {
                 TranscriptionEngine::Whisper(e) => TranscriptionEngine::Whisper(e.clone()),
-                TranscriptionEngine::Parakeet(e) => TranscriptionEngine::Parakeet(e.clone()),
                 TranscriptionEngine::Provider(p) => TranscriptionEngine::Provider(p.clone()),
             };
             let app_clone = app.clone();
@@ -406,7 +405,7 @@ pub fn start_transcription_task<R: Runtime>(
     })
 }
 
-/// Transcribe audio chunk using the appropriate provider (Whisper, Parakeet, or trait-based)
+/// Transcribe audio chunk using the appropriate provider (Whisper or trait-based)
 /// Returns: (text, confidence Option, is_partial)
 async fn transcribe_chunk_with_provider<R: Runtime>(
     engine: &TranscriptionEngine,
@@ -436,24 +435,6 @@ async fn transcribe_chunk_with_provider<R: Runtime>(
                 Ok((text, confidence, is_partial)) => {
                     Ok((text.trim().to_string(), Some(confidence), is_partial))
                 }
-                Err(error) => {
-                    let transcription_error = TranscriptionError::EngineFailed(error.to_string());
-                    let _ = app.emit(
-                        "transcription-error",
-                        &serde_json::json!({
-                            "error": transcription_error.to_string(),
-                            "userMessage": format!("Transcription failed: {}", transcription_error),
-                            "actionable": false,
-                            "phase": "active"
-                        }),
-                    );
-                    Err(transcription_error)
-                }
-            }
-        }
-        TranscriptionEngine::Parakeet(parakeet_engine) => {
-            match parakeet_engine.transcribe_audio(speech_samples).await {
-                Ok(text) => Ok((text.trim().to_string(), None, false)),
                 Err(error) => {
                     let transcription_error = TranscriptionError::EngineFailed(error.to_string());
                     let _ = app.emit(
