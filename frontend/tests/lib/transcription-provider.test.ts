@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 
 import {
   AUDIO_CPP_PROVIDER,
+  TRANSCRIBE_CPP_PROVIDER,
   modelForProviderSwitch,
   supportsTranslation,
 } from '../../src/lib/transcription-provider';
@@ -41,6 +42,40 @@ const diarization = model({
   filename: 'nemotron-3-diarization-bf16.gguf',
   size_mb: 190,
   size_bytes: 198_720_928,
+});
+
+describe('transcribeCpp transcript provider', () => {
+  test('is the provider value saved in the transcript config', () => {
+    expect(TRANSCRIBE_CPP_PROVIDER).toBe('transcribeCpp');
+  });
+
+  test('checks readiness through the transcribe.cpp model manager', () => {
+    expect(getProviderCommands('transcribeCpp')).toEqual({
+      initialize: 'transcribecpp_model_init',
+      hasAvailableModels: 'transcribecpp_has_transcription_model',
+      getAvailableModels: 'transcribecpp_get_available_models',
+    });
+  });
+
+  test('cannot translate: translation stays a Whisper-only capability', () => {
+    expect(supportsTranslation('transcribeCpp')).toBeFalse();
+  });
+
+  test('does not carry another provider’s model id into transcribeCpp', () => {
+    // Whisper's "large-v3-turbo" is not a transcribe.cpp model id.
+    expect(modelForProviderSwitch('transcribeCpp', 'localWhisper', 'large-v3-turbo')).toBe('');
+    expect(modelForProviderSwitch('transcribeCpp', 'transcribeCpp', 'parakeet-ultra-Q8_0')).toBe(
+      'parakeet-ultra-Q8_0',
+    );
+  });
+
+  test('both interface languages name the provider in the selector', () => {
+    const en = enCatalog.settingsTranscription.providerTranscribeCpp;
+    const ru = ruCatalog.settingsTranscription.providerTranscribeCpp;
+    for (const label of [en, ru]) {
+      expect(label).toContain('Transcribe.cpp');
+    }
+  });
 });
 
 describe('audioCpp transcript provider', () => {

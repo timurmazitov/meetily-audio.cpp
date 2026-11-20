@@ -7,6 +7,9 @@
 /** Watched by name in the settings modal, saved by value in the database. */
 export const AUDIO_CPP_PROVIDER = 'audioCpp';
 
+/** Watched by name in the settings modal, saved by value in the database. */
+export const TRANSCRIBE_CPP_PROVIDER = 'transcribeCpp';
+
 // The user-facing explanation for "translation is Whisper-only" lives in the
 // interface catalog (`languageSelection.translationWhisperOnly`), because it has
 // to be translatable.

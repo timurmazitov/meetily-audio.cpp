@@ -119,13 +119,14 @@ interface LanguageSelectionProps {
   selectedLanguage: string;
   onLanguageChange: (language: string) => void;
   disabled?: boolean;
-  provider?: 'localWhisper' | 'parakeet' | 'audioCpp' | 'deepgram' | 'elevenLabs' | 'groq' | 'openai';
+  provider?: 'localWhisper' | 'parakeet' | 'audioCpp' | 'transcribeCpp' | 'deepgram' | 'elevenLabs' | 'groq' | 'openai';
 }
 
 /**
  * Automatic translation is a Whisper-only capability: the local Whisper
  * decoder translates to English through its `translate` flag, while audioCpp
- * (GigaAM) and Parakeet only transcribe in the language they hear.
+ * (GigaAM), transcribe.cpp and Parakeet only transcribe in the language they
+ * hear.
  */
 
 /** The language option value that requests translation to English. */
@@ -153,10 +154,13 @@ export function LanguageSelection({
   // audioCpp transcribes in the model's trained language (Russian for GigaAM)
   // and is the only provider that loses the translation option.
   const isAudioCpp = provider === 'audioCpp';
+  // transcribe.cpp behaves like audioCpp here: it transcribes (and detects)
+  // but cannot translate, so it loses the auto-translate option too.
+  const isTranscribeCpp = provider === 'transcribeCpp';
   const translationAvailable = supportsTranslation(provider);
   const availableLanguages = isParakeet
     ? LANGUAGES.filter(lang => lang.code === 'auto' || lang.code === AUTO_TRANSLATE_CODE)
-    : isAudioCpp
+    : isAudioCpp || isTranscribeCpp
       ? LANGUAGES.filter(lang => lang.code !== AUTO_TRANSLATE_CODE)
       : LANGUAGES;
 
@@ -190,11 +194,11 @@ export function LanguageSelection({
     ? nameOf(selectedOption)
     : nameOf(LANGUAGES[0]);
 
-  // audioCpp must not leave a stale translation preference active: the
-  // transcription would arrive untranslated while the UI claims English
-  // output. Parakeet's previous behaviour is untouched.
+  // audioCpp and transcribe.cpp must not leave a stale translation preference
+  // active: the transcription would arrive untranslated while the UI claims
+  // English output. Parakeet's previous behaviour is untouched.
   const staleTranslation =
-    isAudioCpp && selectedLanguage === AUTO_TRANSLATE_CODE && !translationAvailable;
+    (isAudioCpp || isTranscribeCpp) && selectedLanguage === AUTO_TRANSLATE_CODE && !translationAvailable;
 
   return (
     <div className="space-y-4">
@@ -234,6 +238,16 @@ export function LanguageSelection({
             <p className="font-medium">ℹ️ {t('languageSelection.audioCppTitle')}</p>
             <p className="mt-1 text-xs">
               {translationWhisperOnly}
+            </p>
+          </div>
+        )}
+
+        {/* transcribe.cpp: translation is Whisper-only, like audioCpp */}
+        {isTranscribeCpp && (
+          <div className="p-2 bg-amber-50 border border-amber-200 rounded text-amber-800" data-testid="transcribecpp-translation-notice">
+            <p className="font-medium">ℹ️ {t('languageSelection.transcribeCppTitle')}</p>
+            <p className="mt-1 text-xs">
+              {t('languageSelection.transcribeCppBody')}
             </p>
           </div>
         )}

@@ -23,6 +23,7 @@ const { LanguageSelection } = await import('../../src/components/LanguageSelecti
 const en = (await import('../../src/i18n/locales/en/translation.json')).default;
 const WHISPER_ONLY_MESSAGE = en.languageSelection.translationWhisperOnly;
 const AUDIOCPP_TITLE = en.languageSelection.audioCppTitle;
+const TRANSCRIBECPP_TITLE = en.languageSelection.transcribeCppTitle;
 const TRANSLATION_UNAVAILABLE = en.languageSelection.translationUnavailable;
 
 let renderer: ReactTestRenderer | undefined;
@@ -68,6 +69,24 @@ test('Whisper keeps automatic translation available', async () => {
 
   expect(optionValues(view)).toContain('auto-translate');
   expect(textOf(view)).not.toContain(AUDIOCPP_TITLE);
+});
+
+test('transcribeCpp disables auto-translation like audioCpp and explains it is Whisper-only', async () => {
+  const view = await render('transcribeCpp');
+
+  expect(optionValues(view)).not.toContain('auto-translate');
+  expect(textOf(view)).toContain(TRANSCRIBECPP_TITLE);
+  expect(textOf(view)).toContain('Transcribe.cpp');
+});
+
+test('a stale auto-translate preference does not misreport transcribeCpp output as translated', async () => {
+  // Whisper saved auto-translate, then the user switched to transcribe.cpp.
+  const view = await render('transcribeCpp', 'auto-translate');
+
+  expect(textOf(view)).toContain(TRANSLATION_UNAVAILABLE);
+  // The select falls back to auto-detect, so the UI does not claim English.
+  const select = view.root.findByType('select');
+  expect(select.props.value).toBe('auto');
 });
 
 test('Parakeet keeps auto-detection only', async () => {
