@@ -1,4 +1,4 @@
-import { AUDIO_CPP_PROVIDER } from './transcription-provider';
+import { AUDIO_CPP_PROVIDER, TRANSCRIBE_CPP_PROVIDER } from './transcription-provider';
 
 export interface ModelWithStatus {
   status?: unknown;
@@ -27,6 +27,13 @@ const PROVIDER_COMMANDS: Record<string, ProviderCommands> = {
     // alone is not enough, so this is not the generic catalog check.
     hasAvailableModels: 'audiocpp_has_transcription_model',
     getAvailableModels: 'audiocpp_get_available_models',
+  },
+  [TRANSCRIBE_CPP_PROVIDER]: {
+    initialize: 'transcribecpp_model_init',
+    // The transcribe.cpp catalog is ASR-only; this mirrors audio.cpp's gate
+    // so tightening it later does not need a frontend rename.
+    hasAvailableModels: 'transcribecpp_has_transcription_model',
+    getAvailableModels: 'transcribecpp_get_available_models',
   },
 };
 

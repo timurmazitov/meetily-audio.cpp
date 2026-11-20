@@ -103,6 +103,8 @@
     "parakeetBody": "Parakeet поддерживает только автоматическое определение языка. Ручной выбор языка недоступен. Если нужен конкретный язык, используйте Whisper.",
     "audioCppTitle": "Поддержка языков в audioCpp",
     "translationWhisperOnly": "Автоматический перевод доступен только с провайдером Whisper. audioCpp транскрибирует на языке записи.",
+    "transcribeCppTitle": "Поддержка языков в Transcribe.cpp",
+    "transcribeCppBody": "Автоматический перевод доступен только с провайдером Whisper. Transcribe.cpp транскрибирует на языке записи.",
     "current": "Текущий:",
     "translationUnavailable": "Перевод недоступен",
     "autoWarningTitle": "Автоопределение может ошибаться",
@@ -197,6 +199,7 @@
     "selectLanguage": "Выберите язык",
     "languageHint": "Выберите язык для повышения точности или используйте автоопределение",
     "languageAudioCppHint": "Выбор языка не поддерживается для audioCpp. GigaAM транскрибирует на языке обучения (русском).",
+    "languageTranscribeCppHint": "Выбор языка не поддерживается для Transcribe.cpp. Модель определяет язык автоматически.",
     "languageParakeetHint": "Выбор языка не поддерживается для Parakeet. Всегда используется автоматическое определение.",
     "modelLabel": "Модель",
     "selectModel": "Выберите модель",
@@ -331,6 +334,7 @@
       "label": "Язык",
       "placeholder": "Выберите язык",
       "audioCppUnsupported": "Для audioCpp выбор языка недоступен: GigaAM транскрибирует на языке обучения (русский).",
+      "transcribeCppUnsupported": "Для Transcribe.cpp выбор языка недоступен: модель определяет язык автоматически.",
       "parakeetUnsupported": "Для Parakeet выбор языка недоступен: всегда используется автоопределение."
     },
     "model": {
@@ -663,6 +667,10 @@
       "taskTranscription": "Транскрибация",
       "taskDiarization": "Диаризация"
     },
+    "transcribeCpp": {
+      "failedToLoadModels": "Не удалось загрузить модели transcribe.cpp",
+      "openModelsFolder": "Открыть папку моделей"
+    },
     "builtIn": {
       "downloaded": "Модель {{model}} успешно скачана",
       "downloadCancelled": "Загрузка модели {{model}} отменена",
@@ -742,6 +750,7 @@
     "providerParakeet": "⚡ Parakeet (рекомендуется — в реальном времени / точно)",
     "providerWhisper": "🏠 Локальный Whisper (высокая точность)",
     "providerAudioCpp": "🎙️ audioCpp (GigaAM — русский)",
+    "providerTranscribeCpp": "🧠 Transcribe.cpp",
     "diarization": {
       "title": "Диаризация спикеров",
       "description": "Установите эту модель, чтобы размечать, кто что сказал. Она работает с любым провайдером транскрибации выше."
