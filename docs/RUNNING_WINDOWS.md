@@ -18,7 +18,9 @@ pnpm install --frozen-lockfile
 pnpm run tauri:build
 ```
 
-Перед этим — шаги 1–5 (VS Build Tools, Rust, Node/pnpm, sidecars).
+Перед этим — шаги 1–5 (VS Build Tools, Rust, Node/pnpm, sidecars, стейджинг
+нативных библиотек провайдеров; transcribe.cpp — шаг 5a, нужен только
+провайдеру `transcribeCpp`).
 
 **Подпись не нужна для локальной сборки.** Скрипт `sign-windows.ps1` при
 отсутствии `DIGICERT_KEYPAIR_ALIAS` просто пишет `Skipping signing` и завершается
@@ -133,6 +135,71 @@ Windows-загрузчиком — отдельный VC++ Redistributable не 
 
 ---
 
+## 5a. Нативная библиотека для transcribeCpp (обязательно для провайдера)
+
+Провайдер `transcribeCpp` (четвёртый движок,
+[ADR 0006](adr/0006-transcribe-cpp-as-fourth-engine.md)) требует нативную
+библиотеку transcribe.cpp v0.4.2 с ABI-пином `version=0.4.2`,
+`header_hash=f99ad4169374b8f3` (сверяется по `contract.json` рядом с
+библиотекой до первого вызова; несовпадение — понятная ошибка несовместимого
+ABI, не краш). Кроссплатформенный скрипт стейджинга сам скачивает lane
+`windows-x86_64-cpu-vulkan` и хеш-проверяет архив:
+
+```powershell
+cd <repo>\frontend
+pnpm run stage:transcribe
+```
+
+Проверка — в каталоге должны появиться:
+
+```powershell
+Get-ChildItem frontend\src-tauri\transcribecpp-runtime
+# transcribe.dll
+# ggml*.dll (модули бэкендов CPU/Vulkan)
+# contract.json
+# licenses\LICENSE
+```
+
+Повторный запуск пропускается по штамп-файлу; проверка целостности —
+`pnpm run stage:transcribe -- --verify` (это же делает шаг
+`node scripts/stage-transcribe-native.mjs --verify` в
+`.github/workflows/build-windows.yml`). `tauri.windows.conf.json` маппит
+`transcribecpp-runtime` в корень установки, поэтому установленное приложение
+находит библиотеку в плоской раскладке рядом с `.exe`.
+
+**Системные зависимости (в отличие от audio.cpp — не бандлятся).** Upstream-сборка
+v0.4.2 исправляется `delvewheel repair --exclude vulkan-1.dll` и delvewheel никогда
+не вендорит MSVC-рантайм, поэтому в архиве нет `msvcp140*`/`vcruntime140*`/`vcomp140`.
+От целевой машины ожидаются:
+
+- **Visual C++ 2015-2022 Redistributable** (`vcruntime140*`, `msvcp*`);
+- **Vulkan-загрузчик `vulkan-1.dll`** — ставится с драйверами GPU.
+
+Без рабочего Vulkan-драйвера движок автоматически падает на CPU с
+пользовательским предупреждением — транскрибация продолжает работать, медленнее.
+Маска бэкендов фиксируется библиотекой на процесс при первой регистрации: смена
+режима «Режим вычислений» (Авто / Vulkan (ГПУ) / CPU) после первой загрузки движка
+применяется только после перезапуска приложения.
+
+Обнаружение библиотеки (`transcribe_cpp_engine/wrapper.rs`), по порядку:
+`TRANSCRIBECPP_LIBRARY_PATH` (путь к `transcribe.dll`; битый путь — ошибка, не
+тихий fallback) → `transcribe-libs\windows-x86_64-cpu-vulkan\` рядом с exe →
+плоско рядом с exe (корень установки). Для **dev-сборки** (`pnpm run tauri:dev`
+запускает exe из `target\debug\`) укажите переменную окружения:
+
+```powershell
+$env:TRANSCRIBECPP_LIBRARY_PATH = "<repo>\frontend\src-tauri\transcribecpp-runtime\transcribe.dll"
+```
+
+Диагностика — команда Tauri `transcribecpp_diagnostics` возвращает
+`{ available, library_path, version, header_hash, backends, error }`: путь к
+библиотеке, версию, ABI-хеш, бэкенды lane и текст ошибки при недоступности
+(`available: false`; ошибка в данных, команда не падает). Модели (дефолт —
+`parakeet-ultra` Q8_0) скачиваются в приложении, **Settings → Transcript Model →
+провайдер `Transcribe.cpp`**, и менеджер моделей работает без нативной библиотеки.
+
+---
+
 ## 6. Запуск в режиме разработки
 
 Из **Developer PowerShell for VS 2022**:
@@ -225,7 +292,15 @@ cd frontend
    метки `Speaker 1`, `Speaker 2`.
 
 Установка должна лежать в `%LOCALAPPDATA%\<app>\` с `audiocpp.dll`,
-`msvcp140*.dll`, `vcruntime140*.dll`, `vcomp140.dll` рядом с `.exe`.
+`msvcp140*.dll`, `vcruntime140*.dll`, `vcomp140.dll` рядом с `.exe`, а также с
+`transcribe.dll`, модулями `ggml*.dll`, `contract.json` и `licenses\` из
+`transcribecpp-runtime` (шаг 5a).
+
+> **Оговорка про «чистую» машину:** audio.cpp работает без VC++ Redistributable
+> (рантайм забандлен), а transcribe.cpp — **нет**: ему нужны системные
+> VC++ 2015-2022 Redistributable и `vulkan-1.dll` (шаг 5a). Проверка transcribeCpp
+> на «чистой» машине без них ожидает ошибку загрузки библиотеки или ошибку вида
+> «модуль `vcruntime140.dll` не найден» — это ожидаемое поведение, а не регрессия.
 
 ---
 
@@ -238,6 +313,9 @@ cd frontend
 | `Missing external binary ... llama-helper` | не выполнен шаг 4 |
 | Сборка `whisper-rs-sys` падает на CMake | нет CMake/Windows SDK — переустановить Build Tools с C++ workload |
 | `audiocpp.dll` не найден при запуске | не выполнен шаг 5 или скрипт упал на проверке SHA256 |
+| `transcribe.dll` не найден при запуске | не выполнен шаг 5a (`pnpm run stage:transcribe`) или не застейджен `transcribecpp-runtime` |
+| transcribeCpp: ошибка несовместимого ABI | `contract.json` рядом с `transcribe.dll` не совпадает с пином v0.4.2 / `f99ad4169374b8f3` — перестейджерите рантайм (`pnpm run stage:transcribe`) или укажите библиотеку через `TRANSCRIBECPP_LIBRARY_PATH` |
+| transcribeCpp: предупреждение про CPU | нет рабочего Vulkan-драйвера (нужен системный `vulkan-1.dll`) или не установлен VC++ Redistributable; фолбэк на CPU штатный, смена режима вычислений требует перезапуска |
 | Требуется `TAURI_SIGNING_PRIVATE_KEY` | он нужен только шагу `tauri signer sign` для Linux-пакетов; при `createUpdaterArtifacts: false` локальная сборка установщика его не требует |
 | Приложение падает на чистой машине | не забандлен MSVC-рантайм — проверить содержимое `audiocpp-runtime` в установке |
 | Долгая первая сборка | нормально: компилируются Whisper, llama.cpp, ONNX-обвязка и весь Rust-граф |
