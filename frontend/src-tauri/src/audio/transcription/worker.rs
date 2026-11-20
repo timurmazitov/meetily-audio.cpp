@@ -208,7 +208,6 @@ pub fn start_transcription_task<R: Runtime>(
 
         for worker_id in 0..NUM_WORKERS {
             let engine_clone = match &transcription_engine {
-                TranscriptionEngine::Whisper(e) => TranscriptionEngine::Whisper(e.clone()),
                 TranscriptionEngine::Parakeet(e) => TranscriptionEngine::Parakeet(e.clone()),
                 TranscriptionEngine::Provider(p) => TranscriptionEngine::Provider(p.clone()),
             };
@@ -316,12 +315,6 @@ pub fn start_transcription_task<R: Runtime>(
                                 let _ =
                                     app_clone.emit("transcription-warning", error.to_string());
                             }
-                            Err(error @ TranscriptionError::TranslationNotSupported) => {
-                                // audioCpp cannot translate; the frontend blocks the
-                                // option, so this only fires for a stale preference.
-                                stats.record_failure(WorkerFailureCategory::UnsupportedLanguage);
-                                let _ = app_clone.emit("transcription-warning", error.to_string());
-                            }
                         }
                     }
 
@@ -406,7 +399,7 @@ pub fn start_transcription_task<R: Runtime>(
     })
 }
 
-/// Transcribe audio chunk using the appropriate provider (Whisper, Parakeet, or trait-based)
+/// Transcribe audio chunk using the appropriate provider (Parakeet or trait-based)
 /// Returns: (text, confidence Option, is_partial)
 async fn transcribe_chunk_with_provider<R: Runtime>(
     engine: &TranscriptionEngine,
@@ -427,30 +420,6 @@ async fn transcribe_chunk_with_provider<R: Runtime>(
     }
 
     match engine {
-        TranscriptionEngine::Whisper(whisper_engine) => {
-            let language = crate::get_language_preference_internal();
-            match whisper_engine
-                .transcribe_audio_with_confidence(speech_samples, language)
-                .await
-            {
-                Ok((text, confidence, is_partial)) => {
-                    Ok((text.trim().to_string(), Some(confidence), is_partial))
-                }
-                Err(error) => {
-                    let transcription_error = TranscriptionError::EngineFailed(error.to_string());
-                    let _ = app.emit(
-                        "transcription-error",
-                        &serde_json::json!({
-                            "error": transcription_error.to_string(),
-                            "userMessage": format!("Transcription failed: {}", transcription_error),
-                            "actionable": false,
-                            "phase": "active"
-                        }),
-                    );
-                    Err(transcription_error)
-                }
-            }
-        }
         TranscriptionEngine::Parakeet(parakeet_engine) => {
             match parakeet_engine.transcribe_audio(speech_samples).await {
                 Ok(text) => Ok((text.trim().to_string(), None, false)),
@@ -470,12 +439,7 @@ async fn transcribe_chunk_with_provider<R: Runtime>(
             }
         }
         TranscriptionEngine::Provider(provider) => {
-            // Translation is per-provider: a stale auto-translate preference
-            // must not be handed to a provider that cannot translate.
-            let language = super::provider::language_hint_for_provider(
-                provider.provider_name(),
-                crate::get_language_preference_internal(),
-            );
+            let language = crate::get_language_preference_internal();
             match provider.transcribe(speech_samples, language).await {
                 Ok(result) => Ok((
                     result.text.trim().to_string(),

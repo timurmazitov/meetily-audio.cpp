@@ -1216,29 +1216,25 @@ async fn stop_recording_for_session<R: Runtime>(
             }
         }
         _ => {
-            // Default to Whisper
-            info!("🎤 Unloading Whisper model...");
-            let engine_clone = {
-                let engine_guard = crate::whisper_engine::commands::WHISPER_ENGINE
-                    .lock()
-                    .unwrap();
-                engine_guard.as_ref().cloned()
-            };
-
-            if let Some(engine) = engine_clone {
-                let current_model = engine
-                    .get_current_model()
-                    .await
-                    .unwrap_or_else(|| "unknown".to_string());
-                info!("Current Whisper model before unload: '{}'", current_model);
-
-                if engine.unload_model().await {
-                    info!("✅ Whisper model '{}' unloaded successfully", current_model);
-                } else {
-                    warn!("⚠️ Failed to unload Whisper model '{}'", current_model);
-                }
+            // Unrecognized or absent config: transcribe.cpp is the only
+            // local engine this build ships, and the soft migration reads
+            // removed providers as transcribeCpp, so this is the same model
+            // the recording would have used.
+            info!("🧠 Unloading transcribeCpp model...");
+            let loaded = crate::transcribe_cpp_engine::transcription::provider();
+            if let Some(provider) = loaded {
+                let current_model = provider.model_name().to_string();
+                info!(
+                    "Current transcribeCpp model before unload: '{}'",
+                    current_model
+                );
+                crate::transcribe_cpp_engine::transcription::unload_provider().await;
+                info!(
+                    "✅ transcribeCpp model '{}' unloaded successfully",
+                    current_model
+                );
             } else {
-                warn!("⚠️ No Whisper engine found to unload model");
+                warn!("⚠️ No transcribeCpp provider found to unload model");
             }
         }
     }

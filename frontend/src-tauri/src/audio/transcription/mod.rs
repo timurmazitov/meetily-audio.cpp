@@ -11,7 +11,6 @@ pub mod engine;
 pub mod parakeet_provider;
 pub mod provider;
 pub mod transcribe_cpp_provider;
-pub mod whisper_provider;
 pub mod worker;
 
 // Re-export commonly used types
@@ -28,11 +27,10 @@ pub use engine::{
     get_or_init_audio_cpp_provider, get_or_init_audio_cpp_provider_with_model,
     get_or_init_transcribe_cpp_provider, get_or_init_transcribe_cpp_provider_for_batch,
     get_or_init_transcribe_cpp_provider_with_model, get_or_init_transcription_engine,
-    get_or_init_whisper, validate_transcription_model_ready, TranscriptionEngine,
-    AUDIO_CPP_PROVIDER, TRANSCRIBE_CPP_PROVIDER,
+    validate_transcription_model_ready, TranscriptionEngine, AUDIO_CPP_PROVIDER,
+    TRANSCRIBE_CPP_PROVIDER,
 };
 pub use parakeet_provider::ParakeetProvider;
 pub use provider::{TranscriptResult, TranscriptionError, TranscriptionProvider};
 pub use transcribe_cpp_provider::TranscribeCppProvider;
-pub use whisper_provider::WhisperProvider;
 pub use worker::{reset_speech_detected_flag, start_transcription_task, TranscriptUpdate};

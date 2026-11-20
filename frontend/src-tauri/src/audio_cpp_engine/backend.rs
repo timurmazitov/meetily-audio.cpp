@@ -1,8 +1,8 @@
 //! Compute-backend selection for the audio.cpp engine.
 //!
 //! The engine picks its compute backend with the app's existing hardware
-//! autodetect (priority CUDA → Vulkan → CPU), exactly like the Whisper
-//! acceleration rules (`whisper_engine::acceleration`). The pinned audio.cpp
+//! autodetect (priority CUDA → Vulkan → CPU, see
+//! `crate::audio::hardware_detector`). The pinned audio.cpp
 //! release archives ship `cpu` and `vulkan` library variants only
 //! (`lib-<platform>-cpu`, `lib-<platform>-vulkan`), so an NVIDIA machine is
 //! served by the Vulkan variant, which accelerates on NVIDIA GPUs through

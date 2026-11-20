@@ -29,9 +29,7 @@ use log::info;
 use serde::Serialize;
 
 use super::engine::AUDIO_CPP_PROVIDER;
-use super::provider::{
-    check_translation_support, TranscriptResult, TranscriptionError, TranscriptionProvider,
-};
+use super::provider::{TranscriptResult, TranscriptionError, TranscriptionProvider};
 use crate::audio_cpp_engine::engine::{
     AudioCppEngine, AudioCppModel, TranscriptionOutput, ASR_TASK, MIN_SAMPLES, OFFLINE_MODE,
 };
@@ -236,8 +234,6 @@ impl TranscriptionProvider for AudioCppProvider {
         audio: Vec<f32>,
         language: Option<String>,
     ) -> std::result::Result<TranscriptResult, TranscriptionError> {
-        check_translation_support(AUDIO_CPP_PROVIDER, language.as_deref())?;
-
         if let Some(ref hint) = language {
             if hint != "auto" {
                 // GigaAM is a Russian ASR model and ignores language hints.
@@ -321,7 +317,6 @@ mod tests {
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     use super::*;
-    use crate::audio::transcription::provider::AUTO_TRANSLATE_LANGUAGE;
     use crate::audio_cpp_engine::engine::{AudioCppModel, SAMPLE_RATE};
     use crate::audio_cpp_engine::error::Status;
     use crate::audio_cpp_engine::wrapper::Segment;
@@ -695,25 +690,6 @@ mod tests {
             TranscriptionError::ModelNotLoaded
         ));
         assert!(!engine.ran());
-    }
-
-    #[tokio::test]
-    async fn automatic_translation_is_refused_with_a_whisper_explanation() {
-        let engine = FakeEngine::new("gigaam_asr");
-        let provider = provider(Arc::clone(&engine)).await;
-
-        let error = provider
-            .transcribe(
-                audio(SAMPLE_RATE as usize),
-                Some(AUTO_TRANSLATE_LANGUAGE.to_string()),
-            )
-            .await
-            .unwrap_err();
-
-        assert!(matches!(error, TranscriptionError::TranslationNotSupported));
-        let text = error.to_string();
-        assert!(text.contains("Whisper"), "text: {text}");
-        assert!(!engine.ran(), "translation must not silently transcribe");
     }
 
     #[tokio::test]

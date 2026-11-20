@@ -19,7 +19,7 @@ use super::wrapper::AudioCpp;
 use crate::audio::transcription::audio_cpp_provider::{AudioCppProvider, ProviderLoadError};
 
 /// The loaded provider, shared by the transcription dispatcher. Mirrors
-/// `WHISPER_ENGINE` and `PARAKEET_ENGINE`.
+/// `PARAKEET_ENGINE`.
 pub static AUDIOCPP_PROVIDER: Mutex<Option<Arc<AudioCppProvider>>> = Mutex::new(None);
 
 /// The currently loaded provider, if any.
