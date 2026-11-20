@@ -1,17 +1,20 @@
-//! Static catalog of the models the audio.cpp provider can use.
+//! Static catalog of the models the audio.cpp engine uses.
 //!
-//! The catalog is deliberately free of any engine interaction: it describes
-//! what a model *is* — its audio.cpp family (`gigaam_asr`,
-//! `nemotron_3_diar`), its task (`asr` / `diar`), the quantization of the
-//! published weights, the exact artifact size and where the weights live
-//! upstream. Nothing here loads the native library, so a model can be listed,
-//! downloaded, validated and deleted before transcription support exists.
+//! audio.cpp has one responsibility: speaker diarization. The catalog is
+//! deliberately free of any engine interaction: it describes what a model
+//! *is* — its audio.cpp family (`nemotron_3_diar`), its task (`diar`), the
+//! quantization of the published weights, the exact artifact size and where
+//! the weights live upstream. Nothing here loads the native library, so a
+//! model can be listed, downloaded, validated and deleted before a
+//! diarization pass exists.
+//!
+//! The ASR task and its GigaAM entry were removed with the transcribe.cpp
+//! consolidation: transcription runs exclusively on transcribe.cpp, while
+//! audio.cpp keeps only the diarization model it overlays on the finished
+//! transcript.
 //!
 //! Sources are pinned to a HuggingFace commit so that the artifact a user
 //! downloads is the artifact the catalog describes:
-//! - GigaAM v3 e2e CTC F16: `audio-cpp/audio.cpp-gguf`
-//!   (`GigaAM-ASR-GGUF/gigaam-v3-e2e-ctc-f16.gguf`). The handy-computer
-//!   package is built for transcribe.cpp and is not used here.
 //! - Nemotron-3-Diarization BF16: `audio-cpp/Nemotron-3-Diarization-GGUF`.
 //!   Q8_0 is not catalogued because it is not parity-safe for speaker turns.
 
@@ -19,12 +22,10 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
-/// The task a model performs, in audio.cpp terms (`asr` / `diar`).
+/// The task a model performs, in audio.cpp terms (`diar`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ModelTask {
-    /// Speech recognition (`audiocpp_model_supports(model, "asr", ...)`).
-    Asr,
     /// Speaker diarization (`audiocpp_model_supports(model, "diar", ...)`).
     Diar,
 }
@@ -34,7 +35,6 @@ impl ModelTask {
     /// queries.
     pub fn audio_cpp_name(self) -> &'static str {
         match self {
-            ModelTask::Asr => "asr",
             ModelTask::Diar => "diar",
         }
     }
@@ -42,15 +42,13 @@ impl ModelTask {
     /// Human-facing task description for the model manager UI.
     pub fn label(self) -> &'static str {
         match self {
-            ModelTask::Asr => "Transcription",
             ModelTask::Diar => "Diarization",
         }
     }
 }
 
-/// Installation state of a catalogued model. Mirrors the shape the Whisper
-/// and Parakeet managers expose so the frontend model managers stay
-/// consistent.
+/// Installation state of a catalogued model. Mirrors the shape the model
+/// managers expose so the frontend model managers stay consistent.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum ModelStatus {
     Available,
@@ -72,11 +70,11 @@ pub struct ModelInfo {
     pub name: String,
     /// Human-readable model name.
     pub display_name: String,
-    /// audio.cpp model family, e.g. `gigaam_asr`.
+    /// audio.cpp model family, e.g. `nemotron_3_diar`.
     pub family: String,
     /// Task the model performs, independent of any engine.
     pub task: ModelTask,
-    /// Weight quantization as published upstream, e.g. `F16` or `BF16`.
+    /// Weight quantization as published upstream, e.g. `BF16`.
     pub quantization: String,
     /// File name inside the audio.cpp models directory.
     pub filename: String,
@@ -132,43 +130,26 @@ impl ModelSpec {
     }
 }
 
-/// Models supported by the audio.cpp provider, in display order.
-pub const MODEL_CATALOG: &[ModelSpec] = &[
-    ModelSpec {
-        name: "gigaam-v3-e2e-ctc-f16",
-        display_name: "GigaAM v3 e2e CTC",
-        family: "gigaam_asr",
-        task: ModelTask::Asr,
-        quantization: "F16",
-        filename: "gigaam-v3-e2e-ctc-f16.gguf",
-        // 442_520_704 bytes = 422 MiB.
-        size_mb: 422,
-        exact_bytes: 442_520_704,
-        description:
-            "Russian speech recognition (GigaAM v3 end-to-end CTC, F16). Best accuracy per size for Russian meetings.",
-        source_url: concat!(
-            "https://huggingface.co/audio-cpp/audio.cpp-gguf/resolve/73ce4162f6cce370dd533c6782b772135c1b2a8e",
-            "/GigaAM-ASR-GGUF/gigaam-v3-e2e-ctc-f16.gguf"
-        ),
-    },
-    ModelSpec {
-        name: "nemotron-3-diarization-bf16",
-        display_name: "Nemotron-3 Diarization",
-        family: "nemotron_3_diar",
-        task: ModelTask::Diar,
-        quantization: "BF16",
-        filename: "nemotron-3-diarization-bf16.gguf",
-        // 198_720_928 bytes = 190 MiB.
-        size_mb: 190,
-        exact_bytes: 198_720_928,
-        description:
-            "Speaker diarization (Nemotron-3, BF16, up to 8 speakers by arrival order). Attributes transcript segments to speakers.",
-        source_url: concat!(
-            "https://huggingface.co/audio-cpp/Nemotron-3-Diarization-GGUF/resolve/647d39feaa0e91dca5ce355a95403837b76dff56",
-            "/nemotron-3-diarization-bf16.gguf"
-        ),
-    },
-];
+/// Models supported by the audio.cpp engine, in display order. Diarization
+/// only: the GigaAM ASR entry was removed with the transcribe.cpp
+/// consolidation.
+pub const MODEL_CATALOG: &[ModelSpec] = &[ModelSpec {
+    name: "nemotron-3-diarization-bf16",
+    display_name: "Nemotron-3 Diarization",
+    family: "nemotron_3_diar",
+    task: ModelTask::Diar,
+    quantization: "BF16",
+    filename: "nemotron-3-diarization-bf16.gguf",
+    // 198_720_928 bytes = 190 MiB.
+    size_mb: 190,
+    exact_bytes: 198_720_928,
+    description:
+        "Speaker diarization (Nemotron-3, BF16, up to 8 speakers by arrival order). Attributes transcript segments to speakers.",
+    source_url: concat!(
+        "https://huggingface.co/audio-cpp/Nemotron-3-Diarization-GGUF/resolve/647d39feaa0e91dca5ce355a95403837b76dff56",
+        "/nemotron-3-diarization-bf16.gguf"
+    ),
+}];
 
 /// The full catalog.
 pub fn catalog() -> &'static [ModelSpec] {
@@ -189,13 +170,13 @@ mod tests {
     }
 
     #[test]
-    fn catalog_lists_gigaam_for_transcription() {
-        let gigaam = spec("gigaam-v3-e2e-ctc-f16");
-
-        assert_eq!(gigaam.family, "gigaam_asr");
-        assert_eq!(gigaam.task, ModelTask::Asr);
-        assert_eq!(gigaam.task.audio_cpp_name(), "asr");
-        assert_eq!(gigaam.quantization, "F16");
+    fn catalog_holds_only_the_nemotron_diarization_model() {
+        // audio.cpp is diarization-only: no ASR task and no GigaAM entry may
+        // come back into the static catalog (spec seam: the transcribe.cpp
+        // engine owns transcription).
+        assert_eq!(catalog().len(), 1);
+        assert!(find_model("gigaam-v3-e2e-ctc-f16").is_none());
+        assert!(catalog().iter().all(|spec| spec.task == ModelTask::Diar));
     }
 
     #[test]
@@ -205,24 +186,8 @@ mod tests {
         assert_eq!(nemotron.family, "nemotron_3_diar");
         assert_eq!(nemotron.task, ModelTask::Diar);
         assert_eq!(nemotron.task.audio_cpp_name(), "diar");
+        assert_eq!(nemotron.task.label(), "Diarization");
         assert_eq!(nemotron.quantization, "BF16");
-    }
-
-    #[test]
-    fn gigaam_weights_come_from_audio_cpp_not_transcribe_cpp_packages() {
-        let gigaam = spec("gigaam-v3-e2e-ctc-f16");
-
-        assert!(
-            gigaam
-                .source_url
-                .starts_with("https://huggingface.co/audio-cpp/audio.cpp-gguf/"),
-            "unexpected source: {}",
-            gigaam.source_url
-        );
-        assert!(gigaam.source_url.contains("GigaAM-ASR-GGUF/"));
-        assert!(gigaam.source_url.ends_with("/gigaam-v3-e2e-ctc-f16.gguf"));
-        assert!(!gigaam.source_url.contains("handy-computer"));
-        assert!(!gigaam.source_url.contains("transcribe.cpp"));
     }
 
     #[test]
@@ -285,13 +250,13 @@ mod tests {
 
     #[test]
     fn task_and_status_serialize_in_the_shape_the_ui_expects() {
-        let info = spec("gigaam-v3-e2e-ctc-f16").model_info(
+        let info = spec("nemotron-3-diarization-bf16").model_info(
             Path::new("/models"),
             ModelStatus::Downloading { progress: 7 },
         );
         let json = serde_json::to_value(&info).unwrap();
 
-        assert_eq!(json["task"], "asr");
+        assert_eq!(json["task"], "diar");
         assert_eq!(json["status"]["Downloading"]["progress"], 7);
 
         let corrupted = serde_json::to_value(ModelStatus::Corrupted {

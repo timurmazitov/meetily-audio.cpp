@@ -69,9 +69,9 @@ export function AudioCppModelManager({
   /**
    * Whether this manager owns the model a native event is about.
    *
-   * Until the native catalog drops the ASR entries entirely, a GigaAM download
-   * may still report progress; this manager renders diarization only, so a
-   * foreign model's events must not be announced here.
+   * The catalog is diarization-only now, but the event payload is a bare
+   * model name from the native side; a foreign model's events (an older
+   * catalog state, a concurrent manager) must not be announced here.
    */
   const ownsModel = useCallback(
     (modelName: string) =>

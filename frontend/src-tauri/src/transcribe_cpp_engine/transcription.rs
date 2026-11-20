@@ -5,7 +5,8 @@
 //! The model *selection* rules are pure functions over catalog state, so they
 //! are tested without a native library or a Tauri app handle. Only the
 //! [`load_native_provider`] path touches the native FFI layer, and the global
-//! handle mirrors `audio_cpp_engine::transcription`.
+//! handle mirrors the audio.cpp diarizer's engine loading
+//! (`audio_cpp_engine::engine::load_native_engine`).
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};

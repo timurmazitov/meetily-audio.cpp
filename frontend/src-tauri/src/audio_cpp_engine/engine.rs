@@ -1,51 +1,36 @@
-//! The engine seam between the transcription provider and the native FFI
-//! wrapper.
+//! The engine seam between the diarizer and the native FFI wrapper.
 //!
-//! Everything the provider needs from audio.cpp goes through the traits in
+//! Everything audio.cpp needs from the library goes through the traits in
 //! this module: load a model file (family auto-detected, `family_hint =
 //! NULL`), ask the model which tasks/modes it supports, and run one offline
-//! transcription. Production uses [`NativeAudioCppEngine`] over
-//! [`super::wrapper::AudioCpp`]; tests inject a fake so the provider contract
+//! diarization. Production uses [`NativeAudioCppEngine`] over
+//! [`super::wrapper::AudioCpp`]; tests inject a fake so the diarizer contract
 //! is exercised without a native library.
 //!
-//! Threading: the provider calls [`AudioCppModel::transcribe_asr`] from
+//! Threading: the diarizer calls [`AudioCppModel::diarize`] from
 //! `tokio::task::spawn_blocking` and guards the model handle with a mutex, so
 //! a handle is never touched by two threads at once. The native implementation
-//! keeps one asr/offline session and reuses it for sequential requests — one
+//! keeps one diar/offline session and reuses it for sequential requests — one
 //! session serviced by one thread at a time, never concurrent.
 
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
-use super::backend::{session_config, AudioCppBackend};
+use super::backend::{autodetect_backend, session_config, AudioCppBackend};
 use super::error::AudioCppError;
-use super::wrapper::{AudioCpp, AudioCppResult, Model, Request, Segment, Session, SpeakerTurn};
+use super::wrapper::{AudioCpp, AudioCppResult, Model, Request, Session, SpeakerTurn};
 
-/// audio.cpp task token for speech recognition.
-pub const ASR_TASK: &str = "asr";
 /// audio.cpp task token for speaker diarization.
 pub const DIAR_TASK: &str = "diar";
 /// audio.cpp mode token for offline (whole-buffer) requests.
 pub const OFFLINE_MODE: &str = "offline";
 
 /// The audio pipeline delivers 16 kHz mono f32; the engine takes that same
-/// contract for both transcription and diarization.
+/// contract for diarization.
 pub const SAMPLE_RATE: i32 = 16_000;
 
 /// Shortest input worth sending to the engine (10 ms at 16 kHz).
 pub const MIN_SAMPLES: usize = 160;
-
-/// Output of one offline transcription request.
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct TranscriptionOutput {
-    /// Family the model auto-detected from its GGUF metadata, e.g.
-    /// `gigaam_asr`.
-    pub family: String,
-    /// Full transcript text; empty when the task produced no speech.
-    pub text: String,
-    /// Engine segments with sample-based timestamps.
-    pub segments: Vec<Segment>,
-}
 
 /// Output of one offline diarization request.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -54,7 +39,7 @@ pub struct DiarizationOutput {
     pub turns: Vec<SpeakerTurn>,
 }
 
-/// Loads model files. The provider only needs this one operation from the
+/// Loads model files. The diarizer only needs this one operation from the
 /// library, so a fake can stand in for the whole FFI layer in tests.
 pub trait AudioCppEngine: Send + Sync {
     fn load_model(&self, path: &Path) -> Result<Box<dyn AudioCppModel>, AudioCppError>;
@@ -68,13 +53,6 @@ pub trait AudioCppModel: Send {
     /// Capability query (`audiocpp_model_supports`): whether this model can
     /// run `task` in `mode`.
     fn supports(&self, task: &str, mode: &str) -> Result<bool, AudioCppError>;
-
-    /// Runs one offline speech-recognition request on the calling thread.
-    fn transcribe_asr(
-        &mut self,
-        audio: &[f32],
-        sample_rate: i32,
-    ) -> Result<TranscriptionOutput, AudioCppError>;
 
     /// Runs one offline diarization request on the calling thread.
     fn diarize(
@@ -102,7 +80,7 @@ impl NativeAudioCppEngine {
 impl AudioCppEngine for NativeAudioCppEngine {
     fn load_model(&self, path: &Path) -> Result<Box<dyn AudioCppModel>, AudioCppError> {
         // Family-agnostic by design: the GGUF carries its own spec, so the
-        // provider never guesses a family (docs/research/audio-cpp-c-api.md).
+        // caller never guesses a family (docs/research/audio-cpp-c-api.md).
         let registry = self.library.create_registry()?;
         let model = registry.load_model(path, None)?;
         let backend = self.backend;
@@ -110,10 +88,29 @@ impl AudioCppEngine for NativeAudioCppEngine {
             library: self.library.clone(),
             model,
             backend,
-            asr_session: Mutex::new(None),
             diar_session: Mutex::new(None),
         }))
     }
+}
+
+/// Loads the native audio.cpp library into an [`AudioCppEngine`].
+///
+/// This is the single place that chooses the compute backend and constructs
+/// the engine; the diarization service loads its model through it. The
+/// backend decision itself is `backend::autodetect_backend`, which is already
+/// limited to the library variants the pinned archives ship.
+///
+/// Blocking: the dynamic library load and ABI gate are slow. From async code
+/// call this inside `tokio::task::spawn_blocking`.
+pub fn load_native_engine() -> Result<Arc<dyn AudioCppEngine>, AudioCppError> {
+    let backend = autodetect_backend();
+    log::info!(
+        "audioCpp compute backend: {} ({})",
+        backend.label(),
+        backend.session_token()
+    );
+    let library = AudioCpp::load_backend(backend)?;
+    Ok(Arc::new(NativeAudioCppEngine::new(library, backend)))
 }
 
 /// [`AudioCppModel`] backed by the native library.
@@ -121,9 +118,6 @@ struct NativeAudioCppModel {
     library: AudioCpp,
     model: Model,
     backend: AudioCppBackend,
-    /// Reused asr/offline session. Guarded so a handle is never used by two
-    /// threads at once; created lazily on the first request.
-    asr_session: Mutex<Option<Session>>,
     /// Reused diar/offline session; created lazily on the first request.
     diar_session: Mutex<Option<Session>>,
 }
@@ -167,21 +161,6 @@ impl AudioCppModel for NativeAudioCppModel {
         self.model.supports(task, mode)
     }
 
-    fn transcribe_asr(
-        &mut self,
-        audio: &[f32],
-        sample_rate: i32,
-    ) -> Result<TranscriptionOutput, AudioCppError> {
-        let family = self.model.family();
-        let result = self.run_offline(&self.asr_session, ASR_TASK, audio, sample_rate)?;
-
-        Ok(TranscriptionOutput {
-            family,
-            text: result.text()?.unwrap_or_default(),
-            segments: result.segments()?,
-        })
-    }
-
     fn diarize(
         &mut self,
         audio: &[f32],
@@ -201,9 +180,8 @@ mod tests {
 
     #[test]
     fn task_and_mode_tokens_match_the_audio_cpp_vocabulary() {
-        // Independent source of truth: docs/models/gigaam_asr.md and
-        // audiocpp_model_supports(model, "asr"|"diar", "offline"|"streaming").
-        assert_eq!(ASR_TASK, "asr");
+        // Independent source of truth: audiocpp_model_supports(model,
+        // "diar", "offline"|"streaming").
         assert_eq!(DIAR_TASK, "diar");
         assert_eq!(OFFLINE_MODE, "offline");
     }
@@ -212,12 +190,5 @@ mod tests {
     fn empty_diarization_output_has_no_turns() {
         let output = DiarizationOutput::default();
         assert!(output.turns.is_empty());
-    }
-
-    #[test]
-    fn empty_transcription_output_is_empty_not_panicking() {
-        let output = TranscriptionOutput::default();
-        assert!(output.text.is_empty());
-        assert!(output.segments.is_empty());
     }
 }
