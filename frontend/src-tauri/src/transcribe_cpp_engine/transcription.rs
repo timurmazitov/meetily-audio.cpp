@@ -67,12 +67,32 @@ pub fn set_provider(provider: TranscribeCppProvider, mode: ComputeMode) -> Arc<T
 }
 
 /// Drop the global provider, releasing the model and its session thread.
-pub fn unload_provider() {
-    let mut guard = TRANSCRIBECPP_PROVIDER
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if let Some(cached) = guard.take() {
-        cached.provider.unload();
+///
+/// Async: releasing the model joins the session thread, which waits out any
+/// in-flight native inference (segment-sized, seconds). The join therefore
+/// runs on a blocking thread instead of the async worker (AGENTS.md: do not
+/// block async tasks with expensive work). Deterministic-release semantics
+/// are preserved: the session thread is joined before this returns, so the
+/// caller can observe the release (a re-load sees no previous model). The
+/// synchronous join lives in [`TranscribeCppProvider::unload`]; call that
+/// directly from synchronous code (tests, ignored smoke harnesses).
+pub async fn unload_provider() {
+    let cached = {
+        let mut guard = TRANSCRIBECPP_PROVIDER
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        guard.take()
+    };
+    if let Some(cached) = cached {
+        // The provider holds no live SessionHandle clones in the unload
+        // paths (workers drop theirs when the batch or recording ends), so
+        // the join ends with the thread instead of waiting on a sender.
+        if tokio::task::spawn_blocking(move || cached.provider.unload())
+            .await
+            .is_err()
+        {
+            log::warn!("transcribe.cpp unload task failed (panicked session thread?)");
+        }
     }
 }
 

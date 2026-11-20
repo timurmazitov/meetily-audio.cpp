@@ -162,7 +162,7 @@ async fn staged_library_and_model_transcribe_speech_end_to_end() {
         let handle = provider().expect("provider is set");
         handle.transcribe(samples, Some("en".to_string())).await
     };
-    unload_provider();
+    unload_provider().await;
 
     let result = result.expect("transcription succeeds");
     eprintln!("transcript: {:?}", result.text);
