@@ -1,35 +1,32 @@
 # GPU Acceleration Guide
 
-Samobranka supports GPU acceleration for transcription, which can significantly improve performance. This guide provides detailed information on how to set up and configure GPU acceleration for your system.
+Samobranka has no compile-time GPU build variants. The application always compiles CPU-only; hardware acceleration is chosen at runtime by the native runtimes it loads:
 
-## Supported Backends
+*   **Transcription** runs on the prebuilt transcribe.cpp runtime (staged with `pnpm run stage:transcribe`) and follows the compute-mode setting in **Settings → Transcript Model**: **Auto**, **Vulkan (GPU)**, or **CPU**.
+*   **Diarization** runs on the audio.cpp library (Nemotron-3 Diarization model) and picks its backend automatically from the available hardware.
+*   **Summaries** via the local `llama-helper` sidecar can use its optional GPU features (`metal`, `cuda`, `vulkan`); the shipped release lanes build it CPU-only on Windows/Linux and with Metal on macOS. See the [build instructions](BUILDING.md#first-run-sidecar-setup).
 
-Samobranka uses the `whisper-rs` library, which supports several GPU acceleration backends:
+## transcribe.cpp (transcription)
 
-*   **CUDA:** For NVIDIA GPUs.
-*   **Metal:** For Apple Silicon and modern Intel-based Macs.
-*   **Core ML:** An additional acceleration layer for Apple Silicon.
-*   **Vulkan:** A cross-platform solution for modern AMD and Intel GPUs.
-*   **OpenBLAS:** A CPU-based optimization that can provide a significant speed-up over standard CPU processing.
+The staged release lanes ship prebuilt Vulkan backend modules next to the CPU ones. No SDK or toolkit is needed at build time: running on GPU only requires a working Vulkan driver/loader provided by the system (`libvulkan.so.1` on Linux, `vulkan-1.dll` on Windows — both installed with GPU drivers).
 
-## The audioCpp provider
+Behavior:
 
-The audioCpp provider (GigaAM / Nemotron via the audio.cpp engine) uses GPU
-acceleration differently from Whisper: instead of a compile-time feature flag,
-the audio.cpp library is loaded at runtime and its compute backend is chosen
-automatically from the same hardware detection that the rest of the app uses:
+*   **Vulkan requested but no usable driver** — the engine falls back to CPU automatically with a user-facing warning (`transcription-warning`) and a log entry; transcripts are unaffected, just slower.
+*   **The backend mask is fixed per process.** The transcribe.cpp library fixes the set of allowed backends at the first registration, so changing Auto/Vulkan/CPU takes effect only after restarting the app.
+*   On macOS the staged lane carries Metal backend modules instead of Vulkan.
 
-*   **NVIDIA GPU detected** — the engine runs on GPU through the Vulkan
-    variant of the audio.cpp library (Vulkan is served by the NVIDIA driver
-    ICD). No manual configuration is needed.
+Verify a Vulkan driver without the app: `vulkaninfo` (Linux/Windows SDK tools) or the `transcribecpp_diagnostics` Tauri command, which reports the loaded library, version, ABI hash, and the lane's backend list.
+
+## Diarization (audio.cpp)
+
+The audio.cpp diarization library is loaded at runtime and its compute backend is chosen automatically from hardware detection:
+
+*   **NVIDIA GPU detected** — the engine runs on GPU through the Vulkan variant of the audio.cpp library (Vulkan is served by the NVIDIA driver ICD). No manual configuration is needed.
 *   **AMD/Intel GPU detected** — the Vulkan variant is used.
-*   **No supported GPU** — the CPU variant is used and the app keeps working;
-    transcription is just slower.
+*   **No supported GPU** — the CPU variant is used and the app keeps working; diarization is just slower.
 
-There is **no CUDA codepath** for audioCpp. The C ABI accepts a `"cuda"`
-backend token, but the pinned audio.cpp release archives ship only `cpu` and
-`vulkan` library flavours, so this app never selects or loads a CUDA library.
-NVIDIA hardware is accelerated through Vulkan; that is the supported path.
+There is **no CUDA codepath** for audio.cpp. The C ABI accepts a `"cuda"` backend token, but the pinned audio.cpp release archives ship only `cpu` and `vulkan` library flavours, so this app never selects or loads a CUDA library. NVIDIA hardware is accelerated through Vulkan; that is the supported path.
 
 Packaging places each shipped flavour next to the executable as
 `audiocpp-libs/cpu/` and `audiocpp-libs/vulkan/`; the loader picks the
@@ -40,48 +37,18 @@ environment variable still overrides everything).
 Downloaded models are backend-agnostic GGUF files: every library variant
 loads the same catalog, so switching the compute backend (or moving a model
 directory between machines) never invalidates an already-downloaded model or
-any provider setting.
+any setting.
 
-## Automatic GPU Detection
-
-The build scripts (`dev-gpu.sh`, `build-gpu.sh`) are designed to automatically detect your GPU and enable the appropriate feature flag during the build process. The detection is handled by the `scripts/auto-detect-gpu.js` script.
-
-Here's the detection priority:
-
-1.  **CUDA (NVIDIA)**
-2.  **Metal (Apple)**
-3.  **Vulkan (AMD/Intel)**
-4.  **OpenBLAS (CPU)**
-
-If no GPU is detected, the application will fall back to CPU-only processing.
-
-## Manual Configuration
-
-If you want to manually configure the GPU acceleration backend, you can do so by enabling the corresponding feature flag in the `frontend/src-tauri/Cargo.toml` file.
-
-For example, to enable CUDA, you would modify the `[features]` section as follows:
-
-```toml
-[features]
-default = ["cuda"]
-
-# ... other features
-
-cuda = ["whisper-rs/cuda"]
-```
-
-Then, you would build the application using the standard `pnpm tauri:build` command.
-
-## Platform-Specific Instructions
+## Platform Notes
 
 ### Linux
 
-For detailed instructions on setting up GPU acceleration on Linux, please refer to the [Linux build instructions](BUILDING.md#--building-on-linux).
+Nothing to install for GPU acceleration: the Vulkan loader comes from the system with the GPU drivers. The transcribe.cpp runtime is staged with `pnpm run stage:transcribe` (see [RUNNING_LINUX.md](RUNNING_LINUX.md)). The optional `vulkan` feature of the `llama-helper` sidecar is the only build that needs a Vulkan SDK, and only if you choose to build it that way.
 
 ### macOS
 
-On macOS, Metal GPU acceleration is enabled by default. No additional configuration is required.
+The transcribe.cpp `macos-arm64-metal` lane provides Metal acceleration at runtime; no configuration is required.
 
 ### Windows
 
-To enable GPU acceleration on Windows, you will need to install the appropriate toolkit for your GPU (e.g., the CUDA Toolkit for NVIDIA GPUs) and then build the application with the corresponding feature flag enabled.
+GPU drivers must provide `vulkan-1.dll` (the system Vulkan loader). It is never vendored into the installer; the transcribe.cpp runtime resolves it at execution. See [RUNNING_WINDOWS.md](RUNNING_WINDOWS.md) for staging and the VC++ Redistributable requirement.

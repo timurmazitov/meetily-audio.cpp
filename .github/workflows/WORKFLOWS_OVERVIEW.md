@@ -38,7 +38,7 @@ This document provides a quick overview of all available CI/CD workflows in this
 
 **Use When:**
 - Windows-specific development
-- Testing Vulkan GPU acceleration
+- Testing the staged transcribe.cpp runtime (Vulkan/CPU lanes)
 - Verifying Windows-specific features
 
 **Outputs:**
@@ -62,7 +62,7 @@ This document provides a quick overview of all available CI/CD workflows in this
 
 **Use When:**
 - Linux-specific development
-- Testing Vulkan GPU acceleration
+- Testing the staged transcribe.cpp runtime (cpu-vulkan lane)
 - Verifying package formats
 
 **Outputs:**

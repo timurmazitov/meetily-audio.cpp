@@ -17,9 +17,10 @@ pnpm run tauri:dev          # запуск
 pnpm run tauri:build        # сборка пакетов
 ```
 
-Но сначала: системные пакеты (шаг 1), frontend-зависимости (шаг 2) и sidecar
-`llama-helper` (шаг 3). Нативные библиотеки audio.cpp (шаг 5) и transcribe.cpp
-(шаг 6) нужны только соответствующим провайдерам.
+Но сначала: системные пакеты (шаг 1), frontend-зависимости (шаг 2), sidecar
+`llama-helper` (шаг 3) и стейджинг нативных библиотек: audio.cpp — для
+диаризации (шаг 5), transcribe.cpp — для единственного движка транскрибации
+(шаг 6).
 
 ---
 
@@ -42,12 +43,12 @@ sudo apt install -y \
 
 | Пакет | Зачем |
 | --- | --- |
-| `cmake`, `build-essential` | сборка нативных C/C++ зависимостей (Whisper, llama.cpp, audio.cpp) |
+| `cmake`, `build-essential` | сборка нативных C/C++ зависимостей (llama.cpp для sidecar, обвязки `build.rs`) |
 | `pkg-config` | поиск системных библиотек |
 | `libasound2-dev`, `libpipewire-0.3-dev` | захват звука (микрофон, системный звук) |
 | `libgtk-3-dev`, `libwebkit2gtk-4.1-dev`, `libsoup-3.0-dev` | окно и webview Tauri |
 | `libssl-dev` | HTTPS |
-| `libclang` (LLVM) | `bindgen` при сборке `llama-helper` / `whisper-rs-sys` — скачать LLVM в `.tools/`, см. [BUILDING.md](BUILDING.md#local-llvm-toolchain-tools) |
+| `libclang` (LLVM) | `bindgen` при сборке `llama-helper` — скачать LLVM в `.tools/`, см. [BUILDING.md](BUILDING.md#local-llvm-toolchain-tools) |
 
 Инструменты JS/Rust:
 
@@ -114,23 +115,11 @@ cd <repo>/frontend
 pnpm run tauri:dev
 ```
 
-Скрипт `scripts/tauri-auto.js` определяет GPU и сам выбирает фичу
-(`cuda` / `hipblas` / `vulkan` / `openblas` / CPU). На машине без GPU будет CPU-режим —
-это нормально и работоспособно.
+Приложение собирается без GPU-фич: у единственного движка транскрибации
+(transcribe.cpp) режим вычисления выбирается в настройках (Авто / Vulkan / CPU)
+и применяется в рантайме — см. шаг 6. На машине без GPU всё работает в CPU-режиме.
 
-Форсировать конкретный режим:
-
-```bash
-TAURI_GPU_FEATURE=none pnpm run tauri:dev      # явный CPU
-TAURI_GPU_FEATURE=vulkan pnpm run tauri:dev    # Vulkan
-TAURI_GPU_FEATURE=cuda pnpm run tauri:dev      # CUDA (нужен CUDA toolkit)
-```
-
-> `TAURI_GPU_FEATURE=""` **не** выключает авто-детект: `tauri-auto.js` проверяет
-> значение на truthy, поэтому пустая строка уходит в авто-определение. Для
-> принудительного CPU используйте `none`.
-
-Либо напрямую через CLI, без авто-детекта:
+Либо напрямую через CLI:
 
 ```bash
 cd <repo>/frontend
@@ -142,11 +131,12 @@ cd <repo>/frontend
 
 ---
 
-## 5. Провайдер audioCpp и нативная библиотека
+## 5. Диаризация (audio.cpp) и нативная библиотека
 
-Whisper и Parakeet работают без дополнительных действий. Провайдер **audioCpp**
-требует нативную библиотеку `libaudiocpp.so` (релиз v0.9.5, ABI 0.3.0;
-совместимость: major 0, minor ≥ 2).
+Единственный движок транскрибации — transcribe.cpp (шаг 6). Библиотека
+audio.cpp нужна только **диаризации** (модель Nemotron-3 Diarization) и
+требуется `libaudiocpp.so` (релиз v0.9.5, ABI 0.3.0; совместимость: major 0,
+minor ≥ 2).
 
 Обнаружение библиотеки (`audio_cpp_engine/wrapper.rs`), по порядку:
 
@@ -170,19 +160,21 @@ cp /путь/до/libaudiocpp.so* <repo>/target/debug/audiocpp-libs/cpu/
 cd <repo>/frontend && pnpm run tauri:dev
 ```
 
-Если библиотеки нет, приложение запустится, модели audioCpp скачаются, но
-транскрибация вернёт понятную ошибку «library not found». Это не краш.
+Если библиотеки нет, приложение запустится и транскрибация будет работать;
+диаризация корректно деградирует до статуса `no_runtime` (встреча сохраняется
+без меток спикеров). Это не краш.
 
-Веса моделей скачиваются в самом приложении:
-**Settings → Transcript Model → провайдер `audioCpp`**:
-- `GigaAM v3 e2e CTC` — транскрибация (русский);
+Веса модели скачиваются в самом приложении:
+**Settings → Transcript Model → секция «Speaker diarization»**:
 - `Nemotron-3-Diarization BF16` — метки спикеров (опционально).
 
 ---
 
-## 6. Провайдер transcribeCpp и нативная библиотека
+## 6. Движок transcribeCpp и нативная библиотека
 
-Провайдер **transcribeCpp** (четвёртый движок, [ADR 0006](adr/0006-transcribe-cpp-as-fourth-engine.md))
+Провайдер **transcribeCpp** (единственный движок транскрибации,
+[ADR 0006](adr/0006-transcribe-cpp-as-fourth-engine.md), консолидация —
+[ADR 0007](adr/0007-consolidation-on-transcribe-cpp.md))
 требует нативную библиотеку transcribe.cpp v0.4.2 с ABI-пином `version=0.4.2`,
 `header_hash=f99ad4169374b8f3` (сверяется по `contract.json` рядом с библиотекой
 до первого вызова; несовпадение — понятная ошибка несовместимого ABI, не краш).
@@ -276,10 +268,11 @@ cd <repo>/frontend
 ./node_modules/.bin/tauri build --bundles deb,appimage
 ```
 
-> **Важно:** `pnpm run tauri:build -- <args>` **не работает** для передачи флагов.
-> `scripts/tauri-auto.js` читает только `process.argv[2]` (`dev`/`build`) и
-> игнорирует остальные аргументы. Либо задавайте режим через `TAURI_GPU_FEATURE`,
-> либо вызывайте `tauri` напрямую.
+> **Замечание:** авто-детект GPU при сборке (`scripts/tauri-auto.js`) удалён
+> вместе с компилируемыми GPU-фичами — `pnpm run tauri:dev` / `tauri:build`
+> теперь простые обёртки над `tauri dev` / `tauri build`. Флаги можно передавать
+> напрямую (`pnpm run tauri:build --bundles deb,appimage` на pnpm 9) или вызывать
+> `tauri` из `node_modules/.bin`, как выше.
 
 **Подпись кода на Linux не требуется** и не настраивается: `sign-windows.ps1`
 вызывается только из Windows-конфигурации.
@@ -295,12 +288,11 @@ cd <repo>/frontend
 | `failed to find a pre-opened...` / пустое окно | не хватает `libwebkit2gtk-4.1-dev`; проверить `pkg-config --exists webkit2gtk-4.1` |
 | `Missing external binary ... llama-helper` | не выполнен шаг 3 (sidecar не застейджен) |
 | Сборка падает на `alsa-sys` | нет `libasound2-dev` |
-| Ошибка линковки Vulkan | задайте `VULKAN_SDK=/usr` и `BLAS_INCLUDE_DIRS=/usr/include/x86_64-linux-gnu`, либо соберите CPU-режимом `TAURI_GPU_FEATURE=none` |
-| audioCpp: «library not found» | не задан `AUDIOCPP_LIBRARY_PATH` и библиотеки нет рядом с exe — шаг 5 |
+| Диаризация: `no_runtime` | не задан `AUDIOCPP_LIBRARY_PATH` и библиотеки нет рядом с exe — шаг 5 |
 | transcribeCpp: «library not found» | не выполнен `pnpm run stage:transcribe` (шаг 6) и библиотека не найдена по порядку поиска |
 | transcribeCpp: ошибка несовместимого ABI | `contract.json` рядом с библиотекой не совпадает с пином v0.4.2 / `f99ad4169374b8f3` — застейджерите рантайм заново (`pnpm run stage:transcribe`) или укажите корректную библиотеку через `TRANSCRIBECPP_LIBRARY_PATH` |
 | transcribeCpp: предупреждение «…continues on the CPU backend» | Vulkan-драйвер недоступен — это штатный фолбэк на CPU; для Vulkan проверьте `vulkaninfo` и перезапустите приложение после смены режима |
-| Долгая первая сборка | нормально: компилируются Whisper, llama.cpp и весь Rust-граф |
+| Долгая первая сборка | нормально: компилируются llama.cpp (sidecar) и весь Rust-граф |
 
 ---
 
@@ -317,6 +309,7 @@ cd <repo>/frontend
 bun test
 ```
 
-Известные предсуществующие падения frontend-тестов (не связаны с изменениями):
-`empty summary state > renders a persistent retryable error` и межфайловые ошибки
-изоляции моков `@tauri-apps/api`. Отдельные затронутые файлы тестов проходят.
+Известные предсуществующие падения frontend-тестов (не связаны с изменениями,
+проверено на ветке консолидации: 9 падений): suites в
+`tests/hooks/meeting-rename-export.test.tsx` и тесты языка/заголовка окна.
+Отдельные затронутые файлы тестов проходят.

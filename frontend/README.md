@@ -5,7 +5,7 @@ A modern desktop application for recording, transcribing, and analyzing meetings
 ## Features
 
 - Real-time audio recording from both microphone and system audio
-- Live transcription using Whisper ASR (locally running)
+- Live transcription using the transcribe.cpp engine (locally running)
 - Native desktop integration using Tauri
 - Rich text editor for note-taking
 - Privacy-focused: All processing happens locally

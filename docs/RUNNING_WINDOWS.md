@@ -19,8 +19,8 @@ pnpm run tauri:build
 ```
 
 Перед этим — шаги 1–5 (VS Build Tools, Rust, Node/pnpm, sidecars, стейджинг
-нативных библиотек провайдеров; transcribe.cpp — шаг 5a, нужен только
-провайдеру `transcribeCpp`).
+нативных библиотек: transcribe.cpp — шаг 5a (единственный движок
+транскрибации), audio.cpp — шаг 5 (диаризация)).
 
 **Подпись не нужна для локальной сборки.** Скрипт `sign-windows.ps1` при
 отсутствии `DIGICERT_KEYPAIR_ALIAS` просто пишет `Skipping signing` и завершается
@@ -103,10 +103,11 @@ Copy-Item target\release\llama-helper.exe `
 
 ---
 
-## 5. Нативные библиотеки для audioCpp (обязательно для провайдера)
+## 5. Нативная библиотека для диаризации (audio.cpp)
 
-Провайдер `audioCpp` требует `audiocpp.dll` + MSVC-рантайм в корне установки.
-Скрипт стейджинга сам скачивает и хеш-проверяет архив:
+Библиотека audio.cpp нужна **диаризации** (модель Nemotron-3 Diarization):
+`audiocpp.dll` + MSVC-рантайм в корне установки. Скрипт стейджинга сам
+скачивает и хеш-проверяет архив:
 
 ```powershell
 cd <repo>
@@ -130,15 +131,13 @@ Get-ChildItem frontend\src-tauri\audiocpp-runtime
 приложение находит `audiocpp.dll` рядом с `.exe`, а MSVC-рантайм подхватывается
 Windows-загрузчиком — отдельный VC++ Redistributable не нужен.
 
-**ONNX Runtime** (для Parakeet) стейджится автоматически в
-`frontend\src-tauri\binaries\onnxruntime` из `build/onnxruntime.rs`.
-
 ---
 
-## 5a. Нативная библиотека для transcribeCpp (обязательно для провайдера)
+## 5a. Нативная библиотека для transcribeCpp (обязательно для движка транскрибации)
 
-Провайдер `transcribeCpp` (четвёртый движок,
-[ADR 0006](adr/0006-transcribe-cpp-as-fourth-engine.md)) требует нативную
+Провайдер `transcribeCpp` (единственный движок транскрибации,
+[ADR 0006](adr/0006-transcribe-cpp-as-fourth-engine.md), консолидация —
+[ADR 0007](adr/0007-consolidation-on-transcribe-cpp.md)) требует нативную
 библиотеку transcribe.cpp v0.4.2 с ABI-пином `version=0.4.2`,
 `header_hash=f99ad4169374b8f3` (сверяется по `contract.json` рядом с
 библиотекой до первого вызова; несовпадение — понятная ошибка несовместимого
@@ -209,13 +208,8 @@ cd <repo>\frontend
 pnpm run tauri:dev
 ```
 
-`scripts/tauri-auto.js` сам определит GPU и выберет фичу. Форсировать режим:
-
-```powershell
-$env:TAURI_GPU_FEATURE="vulkan"; pnpm run tauri:dev
-$env:TAURI_GPU_FEATURE="none";   pnpm run tauri:dev   # CPU-only
-$env:TAURI_GPU_FEATURE="cuda";   pnpm run tauri:dev   # нужен CUDA toolkit
-```
+Приложение компилируется без GPU-фич; режим вычисления transcribe.cpp
+(Авто / Vulkan / CPU) выбирается в настройках и применяется в рантайме — шаг 5a.
 
 Логи разработки: терминал + `%APPDATA%\ai.samobranka.app\logs-dev\`.
 
@@ -235,12 +229,11 @@ pnpm run tauri:build
 <repo>\target\release\bundle\nsis\*.exe
 ```
 
-Сборка варианта, близкого к релизному (Vulkan + переносимый x86-64-v2, без AVX-512):
+Сборка варианта, близкого к релизному (переносимый x86-64-v2, без AVX-512):
 
 ```powershell
 $env:CMAKE_PROJECT_INCLUDE = "$PWD\.github\force-portable-ggml.cmake"
 $env:RUSTFLAGS = "-C target-cpu=x86-64-v2"
-$env:TAURI_GPU_FEATURE = "vulkan"
 
 cd frontend
 pnpm run tauri:build
@@ -254,24 +247,21 @@ cd frontend
 .\node_modules\.bin\tauri build --bundles msi
 ```
 
-> **Важно:** `pnpm run tauri:build -- <args>` **не работает** для передачи флагов.
-> `scripts/tauri-auto.js` читает только `process.argv[2]` (`dev`/`build`) и
-> игнорирует остальные аргументы. Режим GPU задавайте через `TAURI_GPU_FEATURE`,
-> а флаги CLI передавайте, вызывая `tauri` напрямую.
+> **Замечание:** авто-детект GPU при сборке (`scripts/tauri-auto.js`) удалён
+> вместе с компилируемыми GPU-фичами — `pnpm run tauri:dev` / `tauri:build`
+> теперь простые обёртки над `tauri dev` / `tauri build` (флаги pnpm 9
+> пропускает напрямую; при сомнениях вызывайте `tauri` из `node_modules\.bin`).
 
 ### Про подпись
 
 - **Код-подпись (Authenticode)** — не нужна: без `DIGICERT_KEYPAIR_ALIAS`
   `sign-windows.ps1` выходит с кодом 0.
-- **Подпись updater-артефактов** — не нужна: автообновление отключено
-  ([ADR 0002](adr/0002-rebrand-to-samobranka.md)), в `tauri.conf.json` стоит
-  `bundle.createUpdaterArtifacts: false` и секции `plugins.updater` нет. Поэтому Tauri не
-  генерирует `.sig`, `*.app.tar.gz` и `latest.json`, а `TAURI_SIGNING_PRIVATE_KEY` локальной
-  сборке не требуется.
-
-  В CI эти переменные всё ещё передаются в `tauri-action`, но при выключенных updater-артефактах
-  ключ нужен только шагу `tauri signer sign`, который подписывает Linux-пакеты; Windows-установщики
-  подписываются Authenticode через `signCommand`.
+- **Подпись updater-артефактов** — нужна только релизному конвейеру:
+  `bundle.createUpdaterArtifacts: true` и `plugins.updater` включены
+  (автообновление с собственного GitHub-контура, см. Update 2026-11-17 в
+  [ADR 0002](adr/0002-rebrand-to-samobranka.md)), поэтому Tauri генерирует `.sig`
+  и для локальной сборки нужен `TAURI_SIGNING_PRIVATE_KEY` (minisign-ключ), либо
+  отключение updater-артефактов локальной сборкой.
 
 ---
 
@@ -286,10 +276,11 @@ cd frontend
 
 1. установить приложение;
 2. запустить, записать короткую встречу;
-3. **Settings → Transcript Model → audioCpp**, скачать `GigaAM v3 e2e CTC`;
+3. **Settings → Transcript Model**, скачать модель Transcribe.CPP (дефолт —
+   `parakeet-ultra` Q8_0);
 4. транскрибировать — должен появиться текст;
-5. скачать `Nemotron-3-Diarization BF16` и перетранскрибировать — должны появиться
-   метки `Speaker 1`, `Speaker 2`.
+5. в секции «Speaker diarization» скачать `Nemotron-3-Diarization BF16` и
+   перетранскрибировать — должны появиться метки `Speaker 1`, `Speaker 2`.
 
 Установка должна лежать в `%LOCALAPPDATA%\<app>\` с `audiocpp.dll`,
 `msvcp140*.dll`, `vcruntime140*.dll`, `vcomp140.dll` рядом с `.exe`, а также с
@@ -311,15 +302,14 @@ cd frontend
 | `link.exe not found` / `cl.exe not found` | открыт обычный PowerShell — нужен **Developer PowerShell for VS 2022** |
 | `error: linker 'link.exe' not found` | не установлен workload «Desktop development with C++» |
 | `Missing external binary ... llama-helper` | не выполнен шаг 4 |
-| Сборка `whisper-rs-sys` падает на CMake | нет CMake/Windows SDK — переустановить Build Tools с C++ workload |
-| `audiocpp.dll` не найден при запуске | не выполнен шаг 5 или скрипт упал на проверке SHA256 |
+| `audiocpp.dll` не найден при запуске | не выполнен шаг 5 или скрипт упал на проверке SHA256 (диаризация деградирует в `no_runtime`, это не краш) |
 | `transcribe.dll` не найден при запуске | не выполнен шаг 5a (`pnpm run stage:transcribe`) или не застейджен `transcribecpp-runtime` |
 | transcribeCpp: ошибка несовместимого ABI | `contract.json` рядом с `transcribe.dll` не совпадает с пином v0.4.2 / `f99ad4169374b8f3` — перестейджерите рантайм (`pnpm run stage:transcribe`) или укажите библиотеку через `TRANSCRIBECPP_LIBRARY_PATH` |
 | transcribeCpp: предупреждение про CPU | нет рабочего Vulkan-драйвера (нужен системный `vulkan-1.dll`) или не установлен VC++ Redistributable; фолбэк на CPU штатный, смена режима вычислений требует перезапуска |
-| Требуется `TAURI_SIGNING_PRIVATE_KEY` | он нужен только шагу `tauri signer sign` для Linux-пакетов; при `createUpdaterArtifacts: false` локальная сборка установщика его не требует |
+| Требуется `TAURI_SIGNING_PRIVATE_KEY` | updater-артефакты включены (`createUpdaterArtifacts: true`): для локальной сборки передайте minisign-ключ в эту переменную или собирайте с `--config`, отключающим `createUpdaterArtifacts` |
 | Приложение падает на чистой машине | не забандлен MSVC-рантайм — проверить содержимое `audiocpp-runtime` в установке |
-| Долгая первая сборка | нормально: компилируются Whisper, llama.cpp, ONNX-обвязка и весь Rust-граф |
-| GPU не используется | нет `vulkaninfo` / `VULKAN_SDK` — приложение работает на CPU |
+| Долгая первая сборка | нормально: компилируются llama.cpp (sidecar) и весь Rust-граф |
+| Транскрибация на CPU вместо GPU | нет рабочего Vulkan-драйвера (нужен системный `vulkan-1.dll` с драйверами GPU) — штатный фолбэк; проверьте режим «Режим вычислений» и перезапустите приложение после его смены |
 
 ---
 
@@ -328,13 +318,16 @@ cd frontend
 `.github/workflows/build-windows.yml` дополнительно делает то, чего нет в локальной
 сборке:
 
-- ставит Vulkan SDK 1.4.309.0 и копирует `vulkan-1.dll` в `vulkan-runtime`;
 - выставляет `RUSTFLAGS=-C target-cpu=x86-64-v2` и
   `CMAKE_PROJECT_INCLUDE=.github/force-portable-ggml.cmake` (отключает `GGML_NATIVE`,
-  запрещает AVX-512);
+  запрещает AVX-512 — переносимость sidecar llama-helper);
 - проверяет переносимость через `.github/verify-portable-ggml.cjs`;
-- подписывает код через DigiCert KeyLocker (Authenticode); updater-подписи не генерируются,
-  так как автообновление отключено ([ADR 0002](adr/0002-rebrand-to-samobranka.md)).
+- стейджерит рантаймы audio.cpp (шаг 5) и transcribe.cpp (шаг 5a) с проверкой SHA256;
+- подписывает код через DigiCert KeyLocker (Authenticode).
+
+Vulkan SDK в этом workflow не ставится: единственный движок транскрибации
+(transcribe.cpp) грузит prebuilt-рантайм в рантайме и использует системный
+Vulkan-загрузчик с драйверами GPU.
 
 Для локальной сборки всё это опционально; раздел 7 показывает, как повторить
 переносимую конфигурацию, если нужен установщик «как в релизе».
