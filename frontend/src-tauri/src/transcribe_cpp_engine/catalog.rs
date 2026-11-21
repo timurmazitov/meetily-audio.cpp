@@ -7,17 +7,28 @@
 //! native library, so a model can be listed, downloaded, validated and
 //! deleted before transcription support exists.
 //!
+//! The catalog *is* the settings model list, and it follows a curation
+//! policy: only models that (a) support Russian and (b) are published in the
+//! Q8_0 quantization are listed. Russian support is decided by the upstream
+//! transcribe.cpp README
+//! (<https://github.com/handy-computer/transcribe.cpp/blob/main/README.md>)
+//! and its `catalog/` metadata: a family may be catalogued only when its
+//! `catalog/<variant>.json` lists `ru` in `languages` (the tests mirror that
+//! allow-list). Q8_0 is the app's accuracy/size trade-off, so the other
+//! quantizations upstream publishes (F16, Q6_K, Q5_K_M, Q4_K_M, F32, BF16)
+//! are intentionally omitted — do not "restore" them. Adding a model means
+//! checking the upstream README/catalog first and updating the allow-list
+//! test alongside the entry.
+//!
 //! Every value below was verified against the Hugging Face API
 //! (`api/models/<repo>` for the pinned commit, `tree/main` for the LFS
 //! `oid`/`size` of each file) on 2026-11-20, except the Qwen3-ASR 1.7B
 //! entry, verified the same way on 2026-11-21. Sources are pinned to a commit
 //! so that the artifact a user downloads is the artifact the catalog
 //! describes: `https://huggingface.co/handy-computer/<repo>/resolve/<commit>/<filename>`.
-//!
-//! Only the quantizations the app offers are listed: F16, Q8_0, Q6_K, Q5_K_M
-//! and Q4_K_M. F32 is skipped (it is never a reasonable download for the app)
-//! and so is the Qwen BF16 duplicate (F16 exists for that variant). The
-//! Whisper families do not publish F32 at all.
+//! If upstream later re-quantizes or re-publishes a pinned artifact,
+//! re-verify the exact byte size and lowercase-hex SHA-256 the same way
+//! before updating the entry.
 //!
 //! Model ids are the artifact filename without its `.gguf` suffix, e.g.
 //! `parakeet-ultra-Q8_0`. Note that the Qwen package keeps its upstream
@@ -160,10 +171,10 @@ macro_rules! model_catalog {
 
 /// Models supported by the transcribe.cpp provider, in display order:
 /// Russian-first (GigaAM), then the multilingual variants, then Whisper.
-/// 9 variants × 5 offered quantizations + Qwen3-ASR 1.7B at Q8_0 only
-/// = 46 entries. Every entry carries the exact artifact size and the
-/// SHA-256 digest pinned from the Hugging Face LFS metadata of the listed
-/// commit (see the module docs).
+/// Exactly ten entries — the Russian-capable variants at the Q8_0
+/// quantization (see the module docs for the curation policy). Every entry
+/// carries the exact artifact size and the SHA-256 digest pinned from the
+/// Hugging Face LFS metadata of the listed commit (see the module docs).
 pub const MODEL_CATALOG: &[ModelSpec] = model_catalog!(
     slug: "gigaam-v3-ctc",
     display: "GigaAM v3 CTC",
@@ -172,11 +183,7 @@ pub const MODEL_CATALOG: &[ModelSpec] = model_catalog!(
     commit: "53ac479633748119e11b049cf28bc801f0440f10",
     description: "Russian speech recognition (GigaAM v3 CTC). Strong accuracy for Russian meetings.",
     [
-        F16 => { bytes: 448_750_528, size_mb: 428, sha256: "1d958ddf73abf722e320ee36212190e9bdfc6bfdc89778d2e4deeaaeb5bce443" },
         Q8_0 => { bytes: 271_803_328, size_mb: 259, sha256: "71e5c82890e9e243a6bd7575f129f5d1bd2c3ca3ae79aab75cfb1a6934c6a62b" },
-        Q6_K => { bytes: 226_091_968, size_mb: 216, sha256: "7556f1c8b9ed0f93b3e224d14a954b51cc331c5a3d2be0f5988bd0523b962c7f" },
-        Q5_K_M => { bytes: 204_563_392, size_mb: 195, sha256: "2002cd7603b99c318b52a88047d6676e69218083014f19b11c84da0223fb2023" },
-        Q4_K_M => { bytes: 182_150_080, size_mb: 174, sha256: "16b329fed3eaa197f2191506ac3cad72f46502297ed6a0f915c79d2ac08c404e" },
     ],
     slug: "gigaam-v3-e2e-ctc",
     display: "GigaAM v3 e2e CTC",
@@ -185,11 +192,7 @@ pub const MODEL_CATALOG: &[ModelSpec] = model_catalog!(
     commit: "59717de63d50dd9dd93b3249da6ad3f2f1c4ad6b",
     description: "Russian speech recognition (GigaAM v3 end-to-end CTC). Best accuracy per size for Russian meetings.",
     [
-        F16 => { bytes: 449_098_336, size_mb: 428, sha256: "25a2fd66a50912645307bca1489b8c07e9060ef079b61a7cce0041248cc89b4a" },
         Q8_0 => { bytes: 272_151_136, size_mb: 260, sha256: "9ccce4750dc813a493d96ca15ee251712bedec15ac9a02fa3d2bd732f08ae5eb" },
-        Q6_K => { bytes: 226_439_776, size_mb: 216, sha256: "cb517247ae37589c5b281d6d9331ffb32124c77b789affe46a272be1428a5260" },
-        Q5_K_M => { bytes: 204_911_200, size_mb: 195, sha256: "d7c6a729f9bae8714d05cb7e66149e662c5098fe10b66206b70f4917f4f84004" },
-        Q4_K_M => { bytes: 182_497_888, size_mb: 174, sha256: "35581e11e048eef785657cff07e5fced794bba6d9c75143257f6452c8aeea655" },
     ],
     slug: "gigaam-v3-rnnt",
     display: "GigaAM v3 RNN-T",
@@ -198,11 +201,7 @@ pub const MODEL_CATALOG: &[ModelSpec] = model_catalog!(
     commit: "93cba3cdf21d66ca7a746718c849419c2946d6bb",
     description: "Russian speech recognition (GigaAM v3 RNN-T). Better punctuation than the CTC variant.",
     [
-        F16 => { bytes: 451_084_832, size_mb: 430, sha256: "b1fe43be121c64934e464c2320c576d74de1466cb7e91f2d8c2aa1149ebe8572" },
         Q8_0 => { bytes: 273_022_880, size_mb: 260, sha256: "130d54450be2922144b265d90d453b781fc2b5adaee52a16954b00f3686201f7" },
-        Q6_K => { bytes: 227_252_000, size_mb: 217, sha256: "ee329ee6ef93b5da62e1915927278a9930b04ac95b2735e7c80e64b725f3f82d" },
-        Q5_K_M => { bytes: 205_690_784, size_mb: 196, sha256: "3541b4e6b2c3909e99254bcb7c61565137038f24db5651a779885d0c08257348" },
-        Q4_K_M => { bytes: 183_246_752, size_mb: 175, sha256: "33b09558330ccfdc5c156e6d6b57c89759a0ac3b653bcdfcd5f1e13f20fc1e76" },
     ],
     slug: "gigaam-v3-e2e-rnnt",
     display: "GigaAM v3 e2e RNN-T",
@@ -211,11 +210,7 @@ pub const MODEL_CATALOG: &[ModelSpec] = model_catalog!(
     commit: "3efd5b39882ceadca5570a8fb9fa1a2c801d6d6d",
     description: "Russian speech recognition (GigaAM v3 end-to-end RNN-T). Punctuation-forward variant at full size.",
     [
-        F16 => { bytes: 452_381_408, size_mb: 431, sha256: "87b12fa3523939d3c47c4b427f587e415dda41dcafa9e4ba17f2a1cab2f0d5ad" },
         Q8_0 => { bytes: 273_724_832, size_mb: 261, sha256: "78d63b47723b7f8d78c6113a6ef983b5a86e2a86f6c273e1f5cb6967b1c4467a" },
-        Q6_K => { bytes: 227_953_952, size_mb: 217, sha256: "1ef0f771d9ab0b0675c45ce67a3e5b79ac7497fe35ebb08a51704c4ee423edce" },
-        Q5_K_M => { bytes: 206_392_736, size_mb: 197, sha256: "0f5969b05f7e196e8922e243c64963132025a5ae7ec2f83d028ae120d201594f" },
-        Q4_K_M => { bytes: 183_948_704, size_mb: 175, sha256: "7d69952fb431a8d7800ed9910dc61fea37d8406bfe96d10bf24c8bd4b7c68623" },
     ],
     slug: "parakeet-tdt-0.6b-v3",
     display: "Parakeet TDT 0.6B v3",
@@ -224,11 +219,7 @@ pub const MODEL_CATALOG: &[ModelSpec] = model_catalog!(
     commit: "d8d8c32cb2017c57e5307767343e97870f8a7f53",
     description: "Multilingual speech recognition (NVIDIA Parakeet TDT 0.6B v3) with strong Russian and English accuracy.",
     [
-        F16 => { bytes: 1_255_869_856, size_mb: 1198, sha256: "d9ec7e2c39da7b4fec3e01e71e82c7f7bbe97741e08c0c054091bf3d520a41d3" },
         Q8_0 => { bytes: 739_508_576, size_mb: 705, sha256: "5859f77944efcd8eafa23a6350731960b2b55b2203df51f319665c807d802cc7" },
-        Q6_K => { bytes: 610_342_240, size_mb: 582, sha256: "ab1bbcbe3e1c4c2ec12ca1df1aeafd22e9043ce7262e4b5f5c5d7d76418a9ae8" },
-        Q5_K_M => { bytes: 548_946_272, size_mb: 524, sha256: "cc722e76adc1a629fc0b2535de879d99b8160d07ad4c0215e2ca7d7ea0ae4b8f" },
-        Q4_K_M => { bytes: 485_425_504, size_mb: 463, sha256: "b68557be1e3c40207fd7c4bd9d63f1d3316b963f15325bfb0cc16a8bb0ffd181" },
     ],
     slug: "parakeet-ultra",
     display: "Parakeet Ultra",
@@ -237,11 +228,7 @@ pub const MODEL_CATALOG: &[ModelSpec] = model_catalog!(
     commit: "a1539be1b849ea7463b88343e5277b373d0c4ea9",
     description: "Multilingual speech recognition (Parakeet Ultra). Provider default: balanced Russian and English quality at a moderate size.",
     [
-        F16 => { bytes: 1_256_724_448, size_mb: 1199, sha256: "cd97f94fa50a034a9019a47e2ed7a2de3963eed8316d1df4de9efdccca6fe78d" },
         Q8_0 => { bytes: 740_363_168, size_mb: 706, sha256: "007a59761e9258779f189df396b50d12b83bb5b79e66df4b955c230d2f2a0a59" },
-        Q6_K => { bytes: 611_196_832, size_mb: 583, sha256: "ba146253d9b5eb7c729dfa897174cb5bad0a7d05129863805e0caf7d571c7493" },
-        Q5_K_M => { bytes: 549_800_864, size_mb: 524, sha256: "f6e3d8172547a3bb468e92ff395696e6d2e0371a9e52690a27741b4e8561c997" },
-        Q4_K_M => { bytes: 486_280_096, size_mb: 464, sha256: "c69b7a5f9071a7afd8a1818ef7ae542c386c4b01ed0cac380c19a99947646bf9" },
     ],
     slug: "Qwen3-ASR-0.6B",
     display: "Qwen3-ASR 0.6B",
@@ -250,11 +237,7 @@ pub const MODEL_CATALOG: &[ModelSpec] = model_catalog!(
     commit: "7e7c69a577fa2725dfedbe34b5e999336e30a19b",
     description: "Multilingual speech recognition (Qwen3-ASR 0.6B), the strongest Russian accuracy in the catalog.",
     [
-        F16 => { bytes: 1_579_793_056, size_mb: 1507, sha256: "5c90e4b1a72a4c59cd12afa5ebb0cc8628848148f2b337d025cc5121ae4d2eea" },
         Q8_0 => { bytes: 850_423_456, size_mb: 811, sha256: "f081b2d5e23bd669d92cc331d722a8a0681943b8e6f34b48996fd5c319b5acd8" },
-        Q6_K => { bytes: 690_417_824, size_mb: 658, sha256: "3b051f108f03c0c91bbe1a3b2c1ee15e3ed51e4caec2a48751b01f2a21441cc3" },
-        Q5_K_M => { bytes: 645_356_192, size_mb: 615, sha256: "062a7bcb18675c2fe5ffd0e8b354eac6a1ceada9b2af9ef7168746ae16b54358" },
-        Q4_K_M => { bytes: 589_560_480, size_mb: 562, sha256: "5b58f32a58ffa2c8783e0b0963485623e286e6272d953dfc9e28bc3447dee0c0" },
     ],
     slug: "Qwen3-ASR-1.7B",
     display: "Qwen3-ASR 1.7B",
@@ -272,11 +255,7 @@ pub const MODEL_CATALOG: &[ModelSpec] = model_catalog!(
     commit: "18ada752005f5fddef499256f9a458d0b37a203a",
     description: "Multilingual speech recognition (OpenAI Whisper large-v3 Turbo), the fast Whisper fallback for long-tail languages.",
     [
-        F16 => { bytes: 1_625_935_488, size_mb: 1551, sha256: "c8506ddfa3d4eb9279170d722a75422db00dbdbd7618531bbb81926e0598eb8f" },
         Q8_0 => { bytes: 886_381_728, size_mb: 845, sha256: "257aa7ec9121c22c167d5e2c49e3e76b4ba0e6e27ebc13074eba0a80f8190220" },
-        Q6_K => { bytes: 692_536_896, size_mb: 660, sha256: "b8b4d57e1a6fc49bcd7843faadf224c27cb27707e13db7e6dbfbfffe39878103" },
-        Q5_K_M => { bytes: 619_628_096, size_mb: 591, sha256: "06fc9923c09fb3ae878ea12c34d1be3ed18fad039ab14b4b045c7b6c40af56b2" },
-        Q4_K_M => { bytes: 536_069_696, size_mb: 511, sha256: "c6e172d0074f0fa9440b88247854b50643cd4bb58b8515c797bbed16d858c7df" },
     ],
     slug: "whisper-large-v3",
     display: "Whisper large-v3",
@@ -285,11 +264,7 @@ pub const MODEL_CATALOG: &[ModelSpec] = model_catalog!(
     commit: "274ad1d1cf680b7ee53cc70f78461394cd3a344b",
     description: "Multilingual speech recognition (OpenAI Whisper large-v3), the most accurate Whisper release.",
     [
-        F16 => { bytes: 3_107_236_640, size_mb: 2963, sha256: "e633ab1d74b0e98f4f57daedaee34291297dbbf01389bda3d890766600c1c584" },
         Q8_0 => { bytes: 1_668_741_440, size_mb: 1591, sha256: "2fa1a5f179f8a511a53e2108db270aa4af3ce08cd976af4180e2854666bb4ba3" },
-        Q6_K => { bytes: 1_297_130_208, size_mb: 1237, sha256: "88e6dc60bd0538da145a50c19f4778e4a106fe28713adeeca43163215ee02805" },
-        Q5_K_M => { bytes: 1_161_143_008, size_mb: 1107, sha256: "6053d0fd69a0fd48b8fea5ea7a52b9e0cde389343566fa30e453a1b2b258dc38" },
-        Q4_K_M => { bytes: 997_303_008, size_mb: 951, sha256: "6fe933811cec4cd3159debc46520ecd3aac6c7e322ece2ac61fcfdab184e1fe0" },
     ],
 );
 
@@ -311,10 +286,30 @@ mod tests {
         find_model(name).unwrap_or_else(|| panic!("{name} must be catalogued"))
     }
 
-    /// The ten catalog variants, in display order. All but the 1.7B Qwen
-    /// offer the five quantizations; Qwen3-ASR 1.7B is newly added at Q8_0
-    /// only, so the catalog is temporarily 9 x 5 + 1 = 46 entries wide.
-    const VARIANTS: [&str; 10] = [
+    /// The exact ten catalogued models, in display order: Russian-first
+    /// (GigaAM), then the multilingual variants, then Whisper, with the
+    /// 1.7B Qwen next to the 0.6B one. The catalog is the settings list, so
+    /// this is the whole user-facing contract: an accidental re-addition of
+    /// a non-Russian or non-Q8_0 model must fail here.
+    const EXPECTED_CATALOG: [&str; 10] = [
+        "gigaam-v3-ctc-Q8_0",
+        "gigaam-v3-e2e-ctc-Q8_0",
+        "gigaam-v3-rnnt-Q8_0",
+        "gigaam-v3-e2e-rnnt-Q8_0",
+        "parakeet-tdt-0.6b-v3-Q8_0",
+        "parakeet-ultra-Q8_0",
+        "Qwen3-ASR-0.6B-Q8_0",
+        "Qwen3-ASR-1.7B-Q8_0",
+        "whisper-large-v3-turbo-Q8_0",
+        "whisper-large-v3-Q8_0",
+    ];
+
+    /// Families whose upstream `catalog/<variant>.json` lists `ru` in
+    /// `languages` (upstream README
+    /// <https://github.com/handy-computer/transcribe.cpp/blob/main/README.md>
+    /// and its catalog metadata are the source of truth; verified 2026-11-21).
+    /// Only these families may be catalogued.
+    const RUSSIAN_CAPABLE_FAMILIES: [&str; 10] = [
         "gigaam-v3-ctc",
         "gigaam-v3-e2e-ctc",
         "gigaam-v3-rnnt",
@@ -327,35 +322,37 @@ mod tests {
         "whisper-large-v3",
     ];
 
-    const QUANTS: [&str; 5] = ["F16", "Q8_0", "Q6_K", "Q5_K_M", "Q4_K_M"];
+    #[test]
+    fn catalog_contains_exactly_the_ten_russian_capable_q8_0_models() {
+        let names: Vec<&str> = catalog().iter().map(|spec| spec.name).collect();
+        assert_eq!(
+            names, EXPECTED_CATALOG,
+            "the catalog is the settings list: exactly the ten curated models, in display order"
+        );
+        assert!(
+            catalog().iter().all(|spec| spec.quantization == "Q8_0"),
+            "only the Q8_0 quantization is offered"
+        );
+    }
 
     #[test]
-    fn catalog_lists_the_ten_variants_with_the_offered_quants() {
-        assert_eq!(
-            catalog().len(),
-            VARIANTS.len() * QUANTS.len() - 4,
-            "9 variants x 5 quants + Qwen3-ASR 1.7B Q8_0 = 46 entries"
-        );
-
-        for variant in VARIANTS {
-            let entries: Vec<&ModelSpec> = catalog()
-                .iter()
-                .filter(|spec| spec.family == variant)
-                .collect();
-            let expected: &[&str] =
-                if variant == "qwen3-asr-1.7b" { &["Q8_0"] } else { &QUANTS };
-            assert_eq!(
-                entries.len(),
-                expected.len(),
-                "variant {variant} must offer exactly {:?}",
-                expected
+    fn every_catalogued_family_supports_russian_per_the_upstream_allow_list() {
+        for spec in catalog() {
+            assert!(
+                RUSSIAN_CAPABLE_FAMILIES.contains(&spec.family),
+                "model {} has family {}, which the upstream transcribe.cpp catalog \
+                 does not list Russian for",
+                spec.name,
+                spec.family
             );
-            for quant in expected {
-                assert!(
-                    entries.iter().any(|spec| spec.quantization == *quant),
-                    "variant {variant} is missing {quant}"
-                );
-            }
+        }
+        // Family coverage: four GigaAM, two Parakeet, two Qwen, two Whisper.
+        for family in RUSSIAN_CAPABLE_FAMILIES {
+            assert_eq!(
+                catalog().iter().filter(|spec| spec.family == family).count(),
+                1,
+                "family {family} must be catalogued exactly once"
+            );
         }
     }
 
@@ -413,7 +410,7 @@ mod tests {
             catalog()
                 .iter()
                 .all(|spec| spec.quantization != "BF16" && spec.quantization != "F32"),
-            "only the five offered quants are catalogued"
+            "only the Q8_0 quantization is catalogued"
         );
     }
 
@@ -520,22 +517,22 @@ mod tests {
 
     #[test]
     fn model_info_carries_family_quantization_and_digest_metadata() {
-        let spec = spec("whisper-large-v3-Q4_K_M");
+        let spec = spec("whisper-large-v3-Q8_0");
         let info = spec.model_info(Path::new("/models/transcribecpp"), ModelStatus::Missing);
 
-        assert_eq!(info.name, "whisper-large-v3-Q4_K_M");
+        assert_eq!(info.name, "whisper-large-v3-Q8_0");
         assert_eq!(info.family, "whisper-large-v3");
-        assert_eq!(info.quantization, "Q4_K_M");
-        assert_eq!(info.filename, "whisper-large-v3-Q4_K_M.gguf");
+        assert_eq!(info.quantization, "Q8_0");
+        assert_eq!(info.filename, "whisper-large-v3-Q8_0.gguf");
         assert_eq!(
             info.path,
-            PathBuf::from("/models/transcribecpp/whisper-large-v3-Q4_K_M.gguf")
+            PathBuf::from("/models/transcribecpp/whisper-large-v3-Q8_0.gguf")
         );
         assert_eq!(
             info.sha256,
-            "6fe933811cec4cd3159debc46520ecd3aac6c7e322ece2ac61fcfdab184e1fe0"
+            "2fa1a5f179f8a511a53e2108db270aa4af3ce08cd976af4180e2854666bb4ba3"
         );
-        assert_eq!(info.size_bytes, 997_303_008);
+        assert_eq!(info.size_bytes, 1_668_741_440);
         assert!(matches!(info.status, ModelStatus::Missing));
     }
 
