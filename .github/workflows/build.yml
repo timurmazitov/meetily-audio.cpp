@@ -223,6 +223,20 @@ jobs:
         working-directory: frontend
         run: node scripts/stage-transcribe-native.mjs --verify
 
+      - name: Stage transcribe.cpp runtime for bundling (Windows)
+        # tauri.windows.conf.json maps transcribecpp-runtime into the install
+        # root, so the directory must exist before packaging (the script
+        # resolves the windows-x86_64-cpu-vulkan lane; vulkan-1.dll is never
+        # vendored and comes from the system driver).
+        if: contains(inputs.platform, 'windows')
+        working-directory: frontend
+        run: node scripts/stage-transcribe-native.mjs
+
+      - name: Verify transcribe.cpp runtime staging (Windows)
+        if: contains(inputs.platform, 'windows')
+        working-directory: frontend
+        run: node scripts/stage-transcribe-native.mjs --verify
+
       - name: Stage transcribe.cpp runtime for bundling (macOS)
         # macos-latest runners are Apple Silicon, so the script resolves the
         # pinned macos-arm64-metal lane (no Intel macOS lane exists upstream;
