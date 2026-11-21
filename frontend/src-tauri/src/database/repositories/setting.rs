@@ -214,7 +214,7 @@ impl SettingsRepository {
         } else if VALID_TRANSCRIPT_PROVIDERS.contains(&provider) {
             (provider.to_string(), model.to_string())
         } else {
-            return Err(sqlx::Error::Protocol(
+            return Err(sqlx::Error::Configuration(
                 format!("Invalid provider: {}", provider).into(),
             ));
         };

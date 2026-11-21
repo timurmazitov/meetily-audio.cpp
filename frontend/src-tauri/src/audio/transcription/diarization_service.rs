@@ -204,7 +204,7 @@ pub fn select_diarization_model(models: &[ModelInfo]) -> Option<&ModelInfo> {
 /// Resolves the installed diarization model from the shared catalog state.
 ///
 /// The model manager is initialized at startup for every transcription
-/// provider, so a Whisper or Parakeet session finds the model too. Returns
+/// provider, so transcripts from older app versions find the model too. Returns
 /// `None` when the manager is not initialized at all (unit tests, a failed
 /// init) or when no diarization artifact is installed.
 pub async fn installed_diarization_model() -> Option<ModelInfo> {
@@ -495,8 +495,9 @@ mod tests {
 
     #[test]
     fn an_empty_catalog_decides_no_model_and_leaves_every_segment_unlabelled() {
-        // A Whisper/Parakeet session with no diarization model installed has an
-        // empty catalog. The decision must answer `no_model`, and the outcome it
+        // A session with no diarization model installed (for example, a
+        // transcript from an older app version) has an empty catalog.
+        // The decision must answer `no_model`, and the outcome it
         // maps to must leave the transcript untouched rather than fail it.
         let decision = decide_diarization(&[], true, false);
         assert_eq!(decision.status(), DiarizationStatus::NoModel);

@@ -1108,7 +1108,7 @@ async fn stop_recording_for_session<R: Runtime>(
         info!("ℹ️ No transcription task found to wait for");
     }
 
-    // Step 3: Now safely unload Whisper model after ALL chunks are processed
+    // Step 3: Now safely unload the transcribe.cpp model after ALL chunks are processed
     let _ = app.emit(
         "recording-shutdown-progress",
         serde_json::json!({

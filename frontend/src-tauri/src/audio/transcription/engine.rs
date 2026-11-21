@@ -115,12 +115,13 @@ pub async fn validate_transcription_model_ready<R: Runtime>(
             }
         }
         other => {
-            // Soft migration: anything unrecognized (a leftover from a
-            // removed engine, or a provider this build no longer supports
-            // for local transcription) validates as the transcribe.cpp
-            // default, exactly like the transcript-config read in the
-            // settings repository, so recording never dead-ends on a stale
-            // saved value.
+            // Spec: the default for an unknown provider is TranscribeCpp.
+            // Anything unrecognized here (a leftover from a removed engine,
+            // or any other value) validates as the transcribe.cpp default,
+            // so recording never dead-ends on a stale saved value. The
+            // transcript-config read in the settings repository only maps
+            // the removed provider ids, so this engine-level fallback is
+            // deliberately broader.
             warn!(
                 "🔍 Unrecognized transcription provider '{}' in the transcript config; validating transcribeCpp instead",
                 other
@@ -193,10 +194,13 @@ pub async fn get_or_init_transcription_engine<R: Runtime>(
             Ok(TranscriptionEngine::Provider(provider))
         }
         _ => {
-            // Soft migration: any provider this build does not run locally
-            // (a leftover from a removed engine or an unrecognized value)
-            // initializes transcribe.cpp, matching the transcript-config
-            // normalization in the settings repository.
+            // Spec: the default for an unknown provider is TranscribeCpp, so
+            // any provider this build does not run locally (a leftover from a
+            // removed engine or an unrecognized value) initializes
+            // transcribe.cpp. This engine-level fallback is deliberately
+            // broader than normalize_transcript_provider in the settings
+            // repository, which only maps the removed provider ids and
+            // leaves other unknown values untouched.
             info!(
                 "🧠 Initializing transcribeCpp transcription engine (provider '{}' is not a local engine of this build)",
                 config.provider

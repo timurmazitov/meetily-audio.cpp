@@ -150,21 +150,6 @@ export function PreferenceSettings() {
             </button>
           </div> */}
 
-          {/* Models Location */}
-          {/* <div className="p-4 border rounded-lg bg-gray-50">
-            <div className="font-medium mb-2">Whisper Models</div>
-            <div className="text-sm text-gray-600 mb-3 break-all font-mono text-xs">
-              {storageLocations?.models || 'Loading...'}
-            </div>
-            <button
-              onClick={() => handleOpenFolder('models')}
-              className="flex items-center gap-2 px-3 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-100 transition-colors"
-            >
-              <FolderOpen className="w-4 h-4" />
-              Open Folder
-            </button>
-          </div> */}
-
           {/* Recordings Location */}
           <div className="p-4 border rounded-lg bg-gray-50">
             <div className="font-medium mb-2">{t('settings.general.storage.recordings')}</div>
