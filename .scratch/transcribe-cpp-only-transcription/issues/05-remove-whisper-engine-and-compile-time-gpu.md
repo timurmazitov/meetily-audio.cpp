@@ -4,11 +4,19 @@
 
 **Blocked by:** 02 (Экран настроек — только Transcribe.CPP)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Модуль Whisper (с параллельным процессором), команды `whisper_*`, события и управляемое состояние удалены
-- [ ] Провайдер Whisper, его переводческий путь и ветки перечислений (движок рантайма, батч-движок), инициализация и выгрузка — удалены; дефолты конфигурации без Whisper
-- [ ] whisper-rs и все компилируемые GPU-фичи удалены из манифеста; сборочный скрипт без GPU-проверок фич
-- [ ] GPU-варианты dev/build-скриптов удалены; обычная сборка и `tauri:dev` работают; staging рантайма transcribe.cpp не затронут
-- [ ] CI-пайплайны собраны без whisper-специфичных GPU-шагов; шаги staging рантайма transcribe.cpp сохранены
-- [ ] `cargo check` и тесты Rust зелёные
+- [x] Модуль Whisper (с параллельным процессором), команды `whisper_*`, события и управляемое состояние удалены
+- [x] Провайдер Whisper, его переводческий путь и ветки перечислений (движок рантайма, батч-движок), инициализация и выгрузка — удалены; дефолты конфигурации без Whisper
+- [x] whisper-rs и все компилируемые GPU-фичи удалены из манифеста; сборочный скрипт без GPU-проверок фич
+- [x] GPU-варианты dev/build-скриптов удалены; обычная сборка и `tauri:dev` работают; staging рантайма transcribe.cpp не затронут
+- [x] CI-пайплайны собраны без whisper-специфичных GPU-шагов; шаги staging рантайма transcribe.cpp сохранены
+- [x] `cargo check` и тесты Rust зелёные
+
+## Comments
+
+- Ветка: `impl/tcp-only/05-remove-whisper`, влита merge-коммитом `624a58d` в `impl/transcribe-cpp-only-transcription` (слиты обе удалённые ветки 04+05).
+- Удалены: `whisper_engine/` (включая parallel_processor/parallel_commands/system_monitor/acceleration/_stderr_suppressor), `whisper_provider.rs`, ветки Whisper в engine/worker/import/retranscription/common/config/lib.rs; whisper-rs и компилируемые GPU-фичи (metal/coreml/cuda/vulkan/hipblas/openblas/openmp) из Cargo.toml; GPU-проверки в build.rs; GPU/dev-build скрипты (build-gpu.*, build.bat/ps1, dev-gpu.*, auto-detect-gpu.js, tauri-auto.js) и скрипты из package.json; whisper-GPU-шаги из CI (vulkan-sdk установка ради whisper-rs, компилируемые флаги) при сохранённых шагах `stage-transcribe-native.mjs` (build-windows.yml:210/215, комментарии про рантайм-Vulkan без вендоринга vulkan-1.dll).
+- `keep in sync`: рантайм-Vulkan transcribe.cpp не тронут (режимы auto/vulkan/cpu, lanes, `.tools/`-инфраструктура).
+- Проверено (2026-11-21, Linux, cargo 1.100): `cargo test --lib` — 729 passed / 0 failed / 7 ignored; live/batch smoke с staged-runtimes v0.4.2 — ok; `pnpm run tauri:dev` — запуск подтверждён (см. тикет 07).
+- Не проверено: сборка Windows/macOS CI-пайплайнов (нет доступа к раннерам), CUDA/Metal-пути.

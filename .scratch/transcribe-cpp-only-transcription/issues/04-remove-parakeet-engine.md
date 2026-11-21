@@ -4,10 +4,17 @@
 
 **Blocked by:** 02 (Экран настроек — только Transcribe.CPP)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Модуль Parakeet, его команды, события и управляемое состояние удалены; регистрация команд не ссылается на них
-- [ ] Провайдер и ветки перечислений (движок рантайма, батч-движок), инициализация при старте и выгрузка при остановке — удалены
-- [ ] Зависимость ONNX Runtime и связанные с ней тесты удалены; осиротевшие транзитивные зависимости проверены
-- [ ] Tray-проверка доступных моделей учитывает только Transcribe.CPP
-- [ ] `cargo check` и тесты Rust зелёные; `pnpm run tauri:dev` запускается, запись с live-транскрибацией через transcribe.cpp работает
+- [x] Модуль Parakeet, его команды, события и управляемое состояние удалены; регистрация команд не ссылается на них
+- [x] Провайдер и ветки перечислений (движок рантайма, батч-движок), инициализация при старте и выгрузка при остановке — удалены
+- [x] Зависимость ONNX Runtime и связанные с ней тесты удалены; осиротевшие транзитивные зависимости проверены
+- [x] Tray-проверка доступных моделей учитывает только Transcribe.CPP
+- [x] `cargo check` и тесты Rust зелёные; `pnpm run tauri:dev` запускается, запись с live-транскрибацией через transcribe.cpp работает
+
+## Comments
+
+- Ветка: `impl/tcp-only/04-remove-parakeet`, влита merge-коммитом `33baa41` в `impl/transcribe-cpp-only-transcription`.
+- Удалены: `parakeet_engine/` (commands/mod/model/parakeet_engine), `parakeet_provider.rs`, `build/onnxruntime.rs`, ветки Parakeet в `engine.rs`/`worker.rs`/`import.rs`/`retranscription.rs`, ONNX-инициализация и команды в `lib.rs`, спец-обработка в `tray.rs`.
+- `ort` остался только как транзитивная зависимость `silero_rs` (VAD исполняет модель через ONNX Runtime) — это осознанно, запись в Cargo.toml есть; прямых зависимостей и сборки ONNX нет.
+- Проверено (2026-11-21, Linux): `cargo test --lib` — 729 passed / 0 failed / 7 ignored; smoke `transcribecpp_batch_smoke`/`transcribecpp_live_smoke` на реальном рантайме v0.4.2 и модели parakeet-tdt-0.6b-v3-Q4_K_M — транскрипт корректный, провайдер выгружается (`provider().is_none()`).

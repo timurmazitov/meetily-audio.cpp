@@ -267,7 +267,7 @@ async fn get_current_recording_state() -> RecordingState {
 
 /// Check if recording is allowed based on onboarding status and transcription model availability
 /// Returns true if:
-/// - Onboarding is complete (user may prefer Whisper later), OR
+/// - Onboarding is complete (the user has their own transcription setup), OR
 /// - Transcribe.CPP transcription model is ready (downloaded)
 async fn check_can_record<R: Runtime>(app: &AppHandle<R>) -> bool {
     // First check if onboarding is complete
@@ -280,7 +280,7 @@ async fn check_can_record<R: Runtime>(app: &AppHandle<R>) -> bool {
     };
 
     // If onboarding is complete, always allow recording
-    // (user may prefer Whisper or have their own transcription setup)
+    // (the user went through model setup or chose to skip it)
     if onboarding_complete {
         return true;
     }
