@@ -838,7 +838,7 @@ mod tests {
 
         // A partial download (right magic, wrong size) must surface as a
         // user-facing corrupted error; the dispatcher never loads it.
-        let spec = crate::transcribe_cpp_engine::catalog::find_model("gigaam-v3-ctc-Q4_K_M")
+        let spec = crate::transcribe_cpp_engine::catalog::find_model("gigaam-v3-ctc-Q8_0")
             .expect("catalogued");
         std::fs::write(
             manager.models_directory().join(spec.filename),
