@@ -1,6 +1,6 @@
 # Spec: Russian-only Q8_0 transcribe.cpp model list in settings
 
-Status: ready-for-agent
+Status: implemented (2026-11-21). Branch `feature/transcribecpp-russian-q8-only`.
 
 ## Problem Statement
 

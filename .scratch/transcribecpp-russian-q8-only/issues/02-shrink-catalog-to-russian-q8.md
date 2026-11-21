@@ -14,24 +14,28 @@ migration.
 the final ten-entry list includes that model, and the ten-entry test
 assertions must land against a complete catalog.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] The catalog contains exactly the ten Q8_0 entries listed above and
+- [x] The catalog contains exactly the ten Q8_0 entries listed above and
       nothing else; the catalog tests assert this exact membership, the
       all-Q8_0 invariant, and a hardcoded per-family Russian-support
       allow-list sourced from the upstream README.
-- [ ] The catalog module docs (header and any comments describing the old
+- [x] The catalog module docs (header and any comments describing the old
       five-quantization policy) are rewritten to state the Russian + Q8_0
       policy and name the upstream README as its source, so future edits
       respect the filter.
-- [ ] The default-model and onboarding tests keep passing
+- [x] The default-model and onboarding tests keep passing
       (`parakeet-ultra-Q8_0` remains catalogued and default).
-- [ ] Tests that referenced removed entries (e.g. digest/corruption cases
+- [x] Tests that referenced removed entries (e.g. digest/corruption cases
       built from a removed quantization) are re-pointed at surviving entries.
-- [ ] Dispatcher-side tests that resolve catalogued models keep passing;
+- [x] Dispatcher-side tests that resolve catalogued models keep passing;
       no frontend changes are made (the manager renders whatever the command
       returns; the client-side quantization union may stay wide).
-- [ ] Verified in the Tauri app: the settings transcription section lists
+- [ ] Verified in the Tauri app (needs manual check): the settings transcription section lists
       exactly the ten models with their sizes; an installed-but-removed model
       (if any) no longer appears and its file remains on disk.
-- [ ] Rust catalog/models tests for the transcribe.cpp engine pass on Linux.
+- [x] Rust catalog/models tests for the transcribe.cpp engine pass on Linux.
+
+## Comments
+
+- 2026-11-21: Implemented on branch `ticket/02-shrink-catalog` (commit `ee77dad`), merged into `feature/transcribecpp-russian-q8-only` (`17efdb5`). `cargo test transcribe_cpp_engine` 102 passed; `cargo test --lib` 732 passed / 7 ignored on Linux. Tauri-app UI verification remains a manual check.
