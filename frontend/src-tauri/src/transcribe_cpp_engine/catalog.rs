@@ -9,7 +9,8 @@
 //!
 //! Every value below was verified against the Hugging Face API
 //! (`api/models/<repo>` for the pinned commit, `tree/main` for the LFS
-//! `oid`/`size` of each file) on 2026-11-20. Sources are pinned to a commit
+//! `oid`/`size` of each file) on 2026-11-20, except the Qwen3-ASR 1.7B
+//! entry, verified the same way on 2026-11-21. Sources are pinned to a commit
 //! so that the artifact a user downloads is the artifact the catalog
 //! describes: `https://huggingface.co/handy-computer/<repo>/resolve/<commit>/<filename>`.
 //!
@@ -159,9 +160,10 @@ macro_rules! model_catalog {
 
 /// Models supported by the transcribe.cpp provider, in display order:
 /// Russian-first (GigaAM), then the multilingual variants, then Whisper.
-/// 9 variants × 5 offered quantizations = 45 entries. Every entry carries
-/// the exact artifact size and the SHA-256 digest pinned from the Hugging
-/// Face LFS metadata of the listed commit (see the module docs).
+/// 9 variants × 5 offered quantizations + Qwen3-ASR 1.7B at Q8_0 only
+/// = 46 entries. Every entry carries the exact artifact size and the
+/// SHA-256 digest pinned from the Hugging Face LFS metadata of the listed
+/// commit (see the module docs).
 pub const MODEL_CATALOG: &[ModelSpec] = model_catalog!(
     slug: "gigaam-v3-ctc",
     display: "GigaAM v3 CTC",
@@ -254,6 +256,15 @@ pub const MODEL_CATALOG: &[ModelSpec] = model_catalog!(
         Q5_K_M => { bytes: 645_356_192, size_mb: 615, sha256: "062a7bcb18675c2fe5ffd0e8b354eac6a1ceada9b2af9ef7168746ae16b54358" },
         Q4_K_M => { bytes: 589_560_480, size_mb: 562, sha256: "5b58f32a58ffa2c8783e0b0963485623e286e6272d953dfc9e28bc3447dee0c0" },
     ],
+    slug: "Qwen3-ASR-1.7B",
+    display: "Qwen3-ASR 1.7B",
+    family: "qwen3-asr-1.7b",
+    repo: "Qwen3-ASR-1.7B-gguf",
+    commit: "0e0a596e3959c3f3f2ab7d443a5b6f0f4a4bba6f",
+    description: "Multilingual speech recognition (Qwen3-ASR 1.7B), the strongest Russian accuracy family in the catalog.",
+    [
+        Q8_0 => { bytes: 2_185_030_624, size_mb: 2084, sha256: "9a0d81792dfea2d5f278b8a63deb3ea6e02139ce42c2301f32ea19c4f77526b7" },
+    ],
     slug: "whisper-large-v3-turbo",
     display: "Whisper large-v3 Turbo",
     family: "whisper-large-v3-turbo",
@@ -300,8 +311,10 @@ mod tests {
         find_model(name).unwrap_or_else(|| panic!("{name} must be catalogued"))
     }
 
-    /// The nine catalog variants, in display order.
-    const VARIANTS: [&str; 9] = [
+    /// The ten catalog variants, in display order. All but the 1.7B Qwen
+    /// offer the five quantizations; Qwen3-ASR 1.7B is newly added at Q8_0
+    /// only, so the catalog is temporarily 9 x 5 + 1 = 46 entries wide.
+    const VARIANTS: [&str; 10] = [
         "gigaam-v3-ctc",
         "gigaam-v3-e2e-ctc",
         "gigaam-v3-rnnt",
@@ -309,6 +322,7 @@ mod tests {
         "parakeet-tdt-0.6b-v3",
         "parakeet-ultra",
         "qwen3-asr-0.6b",
+        "qwen3-asr-1.7b",
         "whisper-large-v3-turbo",
         "whisper-large-v3",
     ];
@@ -316,11 +330,11 @@ mod tests {
     const QUANTS: [&str; 5] = ["F16", "Q8_0", "Q6_K", "Q5_K_M", "Q4_K_M"];
 
     #[test]
-    fn catalog_lists_the_nine_variants_with_the_five_offered_quants() {
+    fn catalog_lists_the_ten_variants_with_the_offered_quants() {
         assert_eq!(
             catalog().len(),
-            VARIANTS.len() * QUANTS.len(),
-            "9 variants x 5 quants = 45 entries"
+            VARIANTS.len() * QUANTS.len() - 4,
+            "9 variants x 5 quants + Qwen3-ASR 1.7B Q8_0 = 46 entries"
         );
 
         for variant in VARIANTS {
@@ -328,19 +342,63 @@ mod tests {
                 .iter()
                 .filter(|spec| spec.family == variant)
                 .collect();
+            let expected: &[&str] =
+                if variant == "qwen3-asr-1.7b" { &["Q8_0"] } else { &QUANTS };
             assert_eq!(
                 entries.len(),
-                QUANTS.len(),
+                expected.len(),
                 "variant {variant} must offer exactly {:?}",
-                QUANTS
+                expected
             );
-            for quant in QUANTS {
+            for quant in expected {
                 assert!(
-                    entries.iter().any(|spec| spec.quantization == quant),
+                    entries.iter().any(|spec| spec.quantization == *quant),
                     "variant {variant} is missing {quant}"
                 );
             }
         }
+    }
+
+    #[test]
+    fn qwen3_asr_1_7b_is_listed_under_its_capitalised_package_but_lowercase_family() {
+        let entry = spec("Qwen3-ASR-1.7B-Q8_0");
+
+        assert_eq!(entry.display_name, "Qwen3-ASR 1.7B");
+        assert_eq!(entry.family, "qwen3-asr-1.7b");
+        assert_eq!(entry.quantization, "Q8_0");
+        assert_eq!(entry.filename, "Qwen3-ASR-1.7B-Q8_0.gguf");
+        // Pinned from the Hugging Face LFS metadata of the commit below.
+        assert_eq!(entry.exact_bytes, 2_185_030_624);
+        assert_eq!(entry.size_mb, 2084);
+        assert_eq!(
+            entry.sha256,
+            "9a0d81792dfea2d5f278b8a63deb3ea6e02139ce42c2301f32ea19c4f77526b7"
+        );
+        assert_eq!(
+            entry.source_url,
+            "https://huggingface.co/handy-computer/Qwen3-ASR-1.7B-gguf/resolve/0e0a596e3959c3f3f2ab7d443a5b6f0f4a4bba6f/Qwen3-ASR-1.7B-Q8_0.gguf"
+        );
+        assert!(
+            entry
+                .description
+                .contains("Multilingual speech recognition (Qwen3-ASR 1.7B)"),
+            "description must follow the 0.6B wording: {}",
+            entry.description
+        );
+    }
+
+    #[test]
+    fn qwen3_asr_1_7b_is_listed_right_after_the_0_6b_variant() {
+        let families: Vec<&str> = catalog().iter().map(|spec| spec.family).collect();
+        let last_0_6b = families
+            .iter()
+            .rposition(|family| *family == "qwen3-asr-0.6b")
+            .expect("qwen3-asr-0.6b must be catalogued");
+        assert_eq!(
+            families.get(last_0_6b + 1).copied(),
+            Some("qwen3-asr-1.7b"),
+            "the 1.7B variant must sit next to the 0.6B one in display order"
+        );
     }
 
     #[test]
