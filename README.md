@@ -93,7 +93,7 @@ Whether you're a defense consultant, enterprise executive, legal professional, o
 |----------|---------------|-------------|
 | **Windows (x64)** | [.exe installer](https://github.com/timurmazitov/samobranka/releases/latest) | Download and run the installer |
 
-> **Windows compatibility:** The packaged installer uses a Vulkan-enabled Whisper build. It requires an AVX2-capable x64 CPU; AVX-512 is not required. CUDA acceleration requires a source build configured with a compatible NVIDIA CUDA toolchain.
+> **Windows compatibility:** The packaged installer targets a portable x64 baseline: an AVX2-capable CPU is required; AVX-512 is not required. Transcription runs on the prebuilt transcribe.cpp runtime and uses Vulkan through the Vulkan loader (`vulkan-1.dll`) installed with your GPU drivers; without a working driver it falls back to CPU automatically.
 
 ### Linux
 
@@ -110,11 +110,11 @@ To build from source, see [Building on Linux](docs/building_in_linux.md) or [Gen
 
 ### 🎯 Local Transcription
 
-Transcribe meetings entirely on your device using **Whisper** or **Parakeet** models. No cloud required.
+Transcribe meetings entirely on your device with the **transcribe.cpp** engine and its GGUF model catalog (GigaAM, Parakeet, Qwen3-ASR, Whisper large-v3 conversions). No cloud required.
 
 ### 📥 Import & Enhance `Beta`
 
-Import existing audio files to generate transcripts, or enhance to re-transcribe any recorded meeting with a different model or language, all processed locally.
+Import existing audio files to generate transcripts, or enhance to re-transcribe any recorded meeting with a different model, all processed locally. The language is detected automatically.
 
 > Contributed by [Jeremi Joslin](https://github.com/jeremi), improved by [Vishnu P S](https://github.com/p-s-vishnu) and [Mohammed Safvan](https://github.com/mohammedsafvan)
 
@@ -136,12 +136,7 @@ Capture microphone and system audio simultaneously with intelligent ducking and 
 
 ### ⚡ GPU Acceleration
 
-Acceleration depends on the platform and build you use:
-
-- **Windows packages:** Whisper is built with Vulkan support.
-- **Linux:** Build from source with the acceleration configuration appropriate for your system.
-
-CUDA is available through an appropriately configured NVIDIA source build; the standard Windows installer does not select it automatically.
+Transcription runs on the prebuilt transcribe.cpp runtime and picks its compute mode from your settings — **Auto**, **Vulkan (GPU)**, or **CPU** — with an automatic CPU fallback when no usable Vulkan driver is present. No GPU toolchain is needed at build time: the Vulkan loader (`libvulkan.so.1` / `vulkan-1.dll`) comes from the system with your GPU drivers. See the [GPU acceleration guide](docs/GPU_ACCELERATION.md).
 
 ## System Architecture
 
@@ -165,8 +160,7 @@ MIT License - Feel free to use this project for your own purposes.
 
 ## Acknowledgments
 
-- We borrowed some code from [Whisper.cpp](https://github.com/ggerganov/whisper.cpp).
 - We borrowed some code from [Screenpipe](https://github.com/mediar-ai/screenpipe).
 - We borrowed some code from [transcribe-rs](https://crates.io/crates/transcribe-rs).
-- Thanks to **NVIDIA** for developing the **Parakeet** model.
-- Thanks to [istupakov](https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx) for providing the **ONNX conversion** of the Parakeet model.
+- Transcription runs on [transcribe.cpp](https://github.com/handy-computer/transcribe.cpp) (MIT); its GGUF model catalog downloads models from Hugging Face `handy-computer/*-gguf`.
+- Diarization runs on [audio.cpp](https://github.com/0xShug0/audio.cpp) (Apache-2.0) with the NVIDIA Nemotron-3 Diarization model.

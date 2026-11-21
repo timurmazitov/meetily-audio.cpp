@@ -1,5 +1,7 @@
 # audio.cpp как третий движок транскрибации через in-process FFI
 
+> **Статус: устарел в части ASR (2026-11-21).** ASR-путь audio.cpp (GigaAM, значение конфига `audioCpp` как провайдер транскрибации) удалён — транскрибация консолидирована на transcribe.cpp ([ADR 0007](0007-consolidation-on-transcribe-cpp.md)). Диаризационная часть записи остаётся в силе: audio.cpp по-прежнему единственный исполнитель диаризации (модель Nemotron), интеграция — тот же in-process FFI, а независимость диаризации от провайдера закреплена [ADR 0004](0004-diarization-independent-of-transcription-provider.md). Текст ниже сохранён как история решений; упоминания Whisper/Parakeet и GigaAM-ASR больше не описывают текущий продукт.
+
 Добавляем audio.cpp (0xShug0/audio.cpp, Apache-2.0) третьим провайдером транскрибации рядом с Whisper (whisper-rs) и Parakeet (ONNX), за существующим трейтом `TranscriptionProvider` со значением конфига `audioCpp`. Интеграция — in-process FFI через C ABI (`libaudiocpp.so` / `audiocpp.dll` из релизных lib-архивов, v0.9.4, ABI 0.2.0), с рукописным `extern "C"` биндингом (официальных Rust-биндингов нет). Первые модели: GigaAM v3 e2e CTC (русская ASR, семейство `gigaam_asr`) и Nemotron-3-Diarization BF16 (семейство `nemotron_3_diar`, до 8 спикеров); движок пишется family-agnostic с авто-детектом семейства из embedded spec в GGUF. Модели скачиваются из HuggingFace через существующий UI управления моделями. Платформы первой итерации: Linux и Windows; macOS — отдельным шагом.
 
 ## Considered Options

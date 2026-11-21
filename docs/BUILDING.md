@@ -14,9 +14,9 @@ pnpm install --frozen-lockfile
 
 Frozen installation keeps the lockfile and installed dependency set aligned. When intentionally changing dependencies, update and commit `pnpm-lock.yaml`.
 
-- **Linux:** Samobranka is built from source; choose acceleration for the environment where you build.
-- **Windows packages:** Distribution builds use Vulkan-enabled Whisper and require an AVX2-capable x64 CPU. AVX-512 is not required.
-- **CUDA:** NVIDIA CUDA support requires a compatible source build and CUDA toolchain; the standard Windows installer does not select it automatically.
+- **Linux:** Samobranka is built from source; the standard `pnpm run tauri:build` produces the distribution packages (the transcribe.cpp runtime is staged separately, see below).
+- **Windows packages:** Distribution builds target a portable x64 baseline and require an AVX2-capable x64 CPU. AVX-512 is not required.
+- **GPU acceleration:** there are no compile-time GPU build variants. Transcription runs on the prebuilt transcribe.cpp runtime, which uses Vulkan through the system loader at runtime and falls back to CPU; see the [GPU acceleration guide](GPU_ACCELERATION.md).
 
 ## Release Artifacts and Updates
 
@@ -52,7 +52,7 @@ Create `frontend/src-tauri/binaries/`, then copy the built executable using the 
 
 For a production build, run `cargo build -p llama-helper --release` and copy the executable from `target/release/` to the same target-suffixed destination, only after the build succeeds.
 
-These commands build the helper without an explicit GPU backend. Its optional acceleration features are `metal`, `cuda`, and `vulkan`, each requiring a compatible platform and toolchain. Do not forward Whisper's `coreml`, `hipblas`, or `openblas` flags to the helper.
+These commands build the helper without an explicit GPU backend. Its optional acceleration features are `metal`, `cuda`, and `vulkan`, each requiring a compatible platform and toolchain.
 
 These paths assume an ordinary native-host workspace build. With a custom Cargo output directory or cross-compilation, copy from the actual configured output and use the actual build target as the suffix instead of the `rustc` host.
 
@@ -81,13 +81,11 @@ CI parity: the same script runs as build steps in `build.yml` (Linux) and `build
 
 The pinned `contract.json` ABI is checked both at staging (early sanity check in the script) and at library load time (the authoritative gate in `transcribe_cpp_engine/wrapper.rs`). Upgrading transcribe.cpp means changing the version pin, every lane SHA-256 and the contract/FFI subset in one coordinated edit — see [ADR 0006](adr/0006-transcribe-cpp-as-fourth-engine.md).
 
-**Vulkan note:** staging itself needs no SDK — the release lanes ship prebuilt Vulkan backend modules. Unlike Whisper's Vulkan *build* (which requires the repository-local Vulkan SDK in `.tools/`, above), running transcribe.cpp on Vulkan only needs a working Vulkan driver/loader at runtime (`libvulkan.so.1` on Linux, `vulkan-1.dll` on Windows, installed with GPU drivers). Without a usable driver the engine falls back to CPU with a user-facing warning; see [RUNNING_LINUX.md](RUNNING_LINUX.md) / [RUNNING_WINDOWS.md](RUNNING_WINDOWS.md).
+**Vulkan note:** staging itself needs no SDK — the release lanes ship prebuilt Vulkan backend modules. Running transcribe.cpp on Vulkan only needs a working Vulkan driver/loader at runtime (`libvulkan.so.1` on Linux, `vulkan-1.dll` on Windows, installed with GPU drivers). Without a usable driver the engine falls back to CPU with a user-facing warning; see [RUNNING_LINUX.md](RUNNING_LINUX.md) / [RUNNING_WINDOWS.md](RUNNING_WINDOWS.md). The only compile-time Vulkan build left in the workspace is the optional `vulkan` feature of the `llama-helper` sidecar (summary inference); it is CPU-only in the shipped Windows and Linux release lanes and requires a Vulkan SDK only if you build it with that feature.
 
 ### Local LLVM toolchain (`.tools/`)
 
-The build requires **libclang** at compile time: `bindgen` (pulled in by `llama-cpp-sys-2` for `llama-helper` and by `whisper-rs-sys`) generates FFI bindings through it. Do not rely on a system-wide LLVM install — download a current LLVM release from [github.com/llvm/llvm-project/releases](https://github.com/llvm/llvm-project/releases) (e.g. `llvmorg-17.0.6` for Windows) and extract it into the repository-local `.tools/` folder.
-
-`whisper-rs-sys` currently builds with bindgen 0.69, which mis-generates opaque structs with libclang from LLVM 18 and newer (see the whisper.cpp `whisper_full_params` bindings). Use LLVM 17.x for the repository-local toolchain until `whisper-rs-sys` moves to bindgen 0.70+; `clang-sys` (the `bindgen` → libclang bridge) does not enforce an upper Clang version, and the libclang C API is backward compatible.
+The build requires **libclang** at compile time: `bindgen` (pulled in by `llama-cpp-sys-2` for the `llama-helper` sidecar) generates FFI bindings through it. Do not rely on a system-wide LLVM install — download a current LLVM release from [github.com/llvm/llvm-project/releases](https://github.com/llvm/llvm-project/releases) and extract it into the repository-local `.tools/` folder.
 
 Point the build at the extracted toolchain:
 
@@ -97,21 +95,18 @@ export LLVM_CONFIG_PATH="$PWD/.tools/llvm/bin/llvm-config"
 export LIBCLANG_PATH="$PWD/.tools/llvm/lib"
 ```
 
-On Windows (PowerShell, e.g. in `build.bat`): `set "LIBCLANG_PATH=<repo>\.tools\llvm\bin"`.
+On Windows (PowerShell): `$env:LIBCLANG_PATH = "<repo>\.tools\llvm\bin"`.
 
-After staging the helper, run application commands from `frontend/` with dependencies installed:
+After staging the helper and the transcribe.cpp runtime, run application commands from `frontend/` with dependencies installed:
 
 | Command | Purpose |
 | --- | --- |
 | `pnpm run dev` | Next.js UI development server at `http://localhost:3118`; native Tauri behavior requires the desktop app |
-| `pnpm run tauri:dev` | Full Tauri development app with build-time acceleration detection |
+| `pnpm run tauri:dev` | Full Tauri development app |
 | `pnpm run tauri:build` | Desktop production build |
-| `pnpm run tauri:dev:cpu` | Development app without an explicit GPU feature flag |
-| `pnpm run tauri:dev:metal` | Development app with Metal |
-| `pnpm run tauri:dev:cuda` | Development app with CUDA |
-| `pnpm run tauri:dev:vulkan` | Development app with Vulkan |
+| `pnpm run stage:transcribe` | Stage the transcribe.cpp native runtime (see above) |
 
-The feature-specific commands require a compatible platform and toolchain. The maintained command definitions are in [package.json](../frontend/package.json); see the [GPU acceleration guide](GPU_ACCELERATION.md) for setup.
+There are no GPU build variants to select: the maintained command definitions are in [package.json](../frontend/package.json), and runtime acceleration is covered by the [GPU acceleration guide](GPU_ACCELERATION.md).
 
 Development builds already log `app_lib` at Debug level, normally to both the terminal and `logs-dev/` below the app data directory. No environment variable is needed for `pnpm run tauri:dev`.
 
@@ -137,15 +132,9 @@ The `clean_run.sh` and Windows wrapper scripts are alternative launch paths, but
 
 ## 🐧 Building on Linux
 
-This guide helps you build Samobranka on Linux with **automatic GPU acceleration**. The build system detects your hardware and configures the best performance automatically.
+Samobranka builds from source on x86_64 Linux with the standard commands. There are no compile-time GPU build variants to choose: the app itself compiles CPU-only, transcription acceleration is a runtime decision of the transcribe.cpp engine (Auto / Vulkan / CPU), and the optional GPU features of the `llama-helper` sidecar (`metal`, `cuda`, `vulkan`) only apply if you intentionally build it that way.
 
----
-
-### 🚀 Quick Start (Recommended for Beginners)
-
-If you're new to building on Linux, start here. These simple commands work for most users:
-
-#### 1. Install Basic Dependencies
+### 1. Install Basic Dependencies
 
 ```bash
 # Ubuntu/Debian
@@ -159,243 +148,38 @@ sudo dnf install gcc-c++ cmake git
 sudo pacman -S base-devel cmake git
 ```
 
-#### 2. Build and Run
+For the full dependency list (audio capture, Tauri webview, libclang for the sidecar) see [RUNNING_LINUX.md](RUNNING_LINUX.md).
+
+### 2. Prepare the Native Pieces
+
+From the repository root, after the [first-run sidecar setup](#first-run-sidecar-setup), stage the transcribe.cpp runtime from `frontend/`:
+
+```bash
+cd frontend
+pnpm install --frozen-lockfile
+pnpm run stage:transcribe
+```
+
+### 3. Build and Run
 
 ```bash
 # Development mode (with hot reload)
-./dev-gpu.sh
+pnpm run tauri:dev
 
-# Production build
-./build-gpu.sh
+# Production build (deb + AppImage)
+pnpm run tauri:build
 ```
 
-**That's it!** The scripts automatically detect your GPU and configure acceleration.
-
-### What Happens Automatically?
-
-- ✅ **NVIDIA GPU** → CUDA acceleration (if toolkit installed)
-- ✅ **AMD GPU** → ROCm acceleration (if ROCm installed)
-- ✅ **No GPU** → Optimized CPU mode (still works great!)
-
-> 💡 **Tip:** If you have an NVIDIA or AMD GPU but want better performance, jump to the [GPU Setup](#-gpu-setup-guides-intermediate) section below.
-
----
-
-### 🧠 Understanding Auto-Detection
-
-The build scripts (`dev-gpu.sh` and `build-gpu.sh`) orchestrate the entire build process. Here's how they work:
-
-1.  **Detect location:** Find `package.json` (works from project root or `frontend/`)
-2.  **Auto-detect GPU:** Run `scripts/auto-detect-gpu.js` (or use `TAURI_GPU_FEATURE` if set)
-3.  **Build Sidecar:** Build `llama-helper` with the detected feature (debug or release)
-4.  **Copy Binary:** Copy the built sidecar to `src-tauri/binaries` with the target triple
-5.  **Run Tauri:** Call `npm run tauri:dev` or `tauri:build` with the feature flag passed via env var
-
-#### Detection Priority
-
-| Priority | Hardware        | What It Checks                                               | Result                  |
-| -------- | --------------- | ------------------------------------------------------------ | ----------------------- |
-| 1️⃣       | **NVIDIA CUDA** | `nvidia-smi` exists + (`CUDA_PATH` or `nvcc` found)          | `--features cuda`       |
-| 2️⃣       | **AMD ROCm**    | `rocm-smi` exists + (`ROCM_PATH` or `hipcc` found)           | `--features hipblas`    |
-| 3️⃣       | **Vulkan**      | `vulkaninfo` exists + `VULKAN_SDK` + `BLAS_INCLUDE_DIRS` set | `--features vulkan`     |
-| 4️⃣       | **OpenBLAS**    | `BLAS_INCLUDE_DIRS` set                                      | `--features openblas`   |
-| 5️⃣       | **CPU-only**    | None of the above                                            | (no features, pure CPU) |
-
-#### Common Scenarios
-
-| Your System               | Auto-Detection Result       | Why                          |
-| ------------------------- | --------------------------- | ---------------------------- |
-| Clean Linux install       | CPU-only                    | No GPU SDK detected          |
-| NVIDIA GPU + drivers only | CPU-only                    | CUDA toolkit not installed   |
-| NVIDIA GPU + CUDA toolkit | **CUDA acceleration** ✅    | Full detection successful    |
-| AMD GPU + ROCm            | **HIPBlas acceleration** ✅ | Full detection successful    |
-| Vulkan drivers only       | CPU-only                    | Vulkan SDK + env vars needed |
-| Vulkan SDK configured     | **Vulkan acceleration** ✅  | All requirements met         |
-
-> 💡 **Key Insight:** Having GPU drivers alone isn't enough. You need the **development SDK** (CUDA toolkit, ROCm, or Vulkan SDK) for acceleration.
-
----
-
-### 🔧 GPU Setup Guides (Intermediate)
-
-Want better performance? Follow these guides to enable GPU acceleration.
-
-#### 🟢 NVIDIA CUDA Setup
-
-**Prerequisites:** NVIDIA GPU with compute capability 5.0+ (check: `nvidia-smi --query-gpu=compute_cap --format=csv`)
-
-##### Step 1: Install CUDA Toolkit
-
-```bash
-# Ubuntu/Debian (CUDA 12.x)
-sudo apt install nvidia-driver-550 nvidia-cuda-toolkit
-
-# Verify installation
-nvidia-smi          # Shows GPU info
-nvcc --version      # Shows CUDA version
-```
-
-##### Step 2: Build with CUDA
-
-```bash
-# Set your GPU's compute capability
-# Example: RTX 3080 = 8.6 → use "86"
-# Example: GTX 1080 = 6.1 → use "61"
-
-CMAKE_CUDA_ARCHITECTURES=75 \
-CMAKE_CUDA_STANDARD=17 \
-CMAKE_POSITION_INDEPENDENT_CODE=ON \
-./build-gpu.sh
-```
-
-> 💡 **Finding Your Compute Capability:**
->
-> ```bash
-> nvidia-smi --query-gpu=compute_cap --format=csv
-> ```
->
-> Convert `7.5` → `75`, `8.6` → `86`, etc.
-
-**Why these flags?**
-
-- `CMAKE_CUDA_ARCHITECTURES`: Optimizes for your specific GPU
-- `CMAKE_CUDA_STANDARD=17`: Ensures C++17 compatibility
-- `CMAKE_POSITION_INDEPENDENT_CODE=ON`: Fixes linking issues on modern systems
-
----
-
-#### 🔵 Vulkan Setup (Cross-Platform Fallback)
-
-Vulkan works on NVIDIA, AMD, and Intel GPUs. Good choice if CUDA/ROCm don't work.
-
-> **Requirement:** the latest Vulkan SDK must be downloaded into the repository-local `.tools/` folder (do not rely on a system-wide SDK install). Get it from https://vulkan.lunarg.com/sdk/home and extract the archive so that the SDK root (containing `include/`, `lib/`, `bin/`) lives under `.tools/`, for example `.tools/vulkan-sdk/...`. The folder is git-ignored.
-
-##### Step 1: Download the Vulkan SDK
-
-Download the latest SDK for your platform from [vulkan.lunarg.com/sdk/home](https://vulkan.lunarg.com/sdk/home) and extract it into `.tools/` inside the repository root.
-
-OpenBLAS still comes from the distro:
-
-```bash
-# Ubuntu/Debian
-sudo apt install libopenblas-dev
-
-# Fedora
-sudo dnf install openblas-devel
-
-# Arch Linux
-sudo pacman -S openblas
-```
-
-##### Step 2: Configure Environment
-
-Point `VULKAN_SDK` at the SDK extracted into `.tools/`:
-
-```bash
-# Add to ~/.bashrc or ~/.zshrc
-export VULKAN_SDK="$PWD/.tools/vulkan-sdk"   # adjust to the actual extracted path
-export BLAS_INCLUDE_DIRS=/usr/include/x86_64-linux-gnu
-
-# Apply changes
-source ~/.bashrc
-```
-
-##### Step 3: Build
-
-```bash
-./build-gpu.sh
-```
-
-The script will automatically detect Vulkan and build with `--features vulkan`.
-
----
-
-#### 🔴 AMD ROCm Setup (AMD GPUs Only)
-
-**Prerequisites:** AMD GPU with ROCm support (RX 5000+, Radeon VII, etc.)
-
-```bash
-# Ubuntu/Debian
-# Add ROCm repository (see https://rocm.docs.amd.com for latest)
-sudo apt install rocm-smi hipcc
-
-# Set environment
-export ROCM_PATH=/opt/rocm
-
-# Verify
-rocm-smi            # Shows GPU info
-hipcc --version     # Shows ROCm version
-
-# Build
-./build-gpu.sh
-```
-
----
-
-### 🎯 Advanced Usage
-
-#### Manual Feature Override
-
-Want to force a specific acceleration method? Use the `TAURI_GPU_FEATURE` environment variable with the shell scripts:
-
-```bash
-# Force CUDA (ignore auto-detection)
-TAURI_GPU_FEATURE=cuda ./dev-gpu.sh
-TAURI_GPU_FEATURE=cuda ./build-gpu.sh
-
-# Force Vulkan
-TAURI_GPU_FEATURE=vulkan ./dev-gpu.sh
-TAURI_GPU_FEATURE=vulkan ./build-gpu.sh
-
-# Force ROCm (HIPBlas)
-TAURI_GPU_FEATURE=hipblas ./dev-gpu.sh
-TAURI_GPU_FEATURE=hipblas ./build-gpu.sh
-
-# Force CPU-only (for testing)
-TAURI_GPU_FEATURE="" ./dev-gpu.sh
-TAURI_GPU_FEATURE="" ./build-gpu.sh
-
-# Force OpenBLAS (CPU-optimized)
-TAURI_GPU_FEATURE=openblas ./dev-gpu.sh
-TAURI_GPU_FEATURE=openblas ./build-gpu.sh
-```
-
-#### Build Output Location
-
-After successful build:
+Build output:
 
 ```
-src-tauri/target/release/bundle/appimage/Samobranka_<version>_amd64.AppImage
+target/release/bundle/appimage/Samobranka_<version>_amd64.AppImage
+target/release/bundle/deb/Samobranka_<version>_amd64.deb
 ```
 
----
+### Runtime Vulkan
 
-### 🧭 Troubleshooting
-
-#### "CUDA toolkit not found"
-
-- **Fix:** Install `nvidia-cuda-toolkit` or set `CUDA_PATH` environment variable
-- **Check:** `nvcc --version` should work
-
-#### "Vulkan detected but missing dependencies"
-
-- **Fix:** Set both `VULKAN_SDK` and `BLAS_INCLUDE_DIRS` environment variables
-- **Example:**
-  ```bash
-  export VULKAN_SDK=/usr
-  export BLAS_INCLUDE_DIRS=/usr/include/x86_64-linux-gnu
-  ```
-
-#### "AppImage build stripping symbols"
-
-- **Fix:** Already handled! `build-gpu.sh` sets `NO_STRIP=true` automatically
-- **Why:** Prevents runtime errors from missing symbols
-
-#### Build works but no GPU acceleration
-
-- **Check detection:** Look at the build output for GPU detection messages
-- **Verify:** `nvidia-smi` (NVIDIA) or `rocm-smi` (AMD) should work
-- **Missing SDK:** Install the development toolkit, not just drivers
+The staged transcribe.cpp lanes ship prebuilt Vulkan backend modules; running on GPU needs only a working Vulkan driver/loader (`libvulkan.so.1`, installed with GPU drivers — check with `vulkaninfo`). No SDK, `VULKAN_SDK`, or BLAS environment variables are required to build or run the app. Without a usable driver the engine falls back to CPU with a user-facing warning. See [RUNNING_LINUX.md](RUNNING_LINUX.md) for diagnostics and the transcribe.cpp staging details.
 
 </details>
 
@@ -404,7 +188,7 @@ src-tauri/target/release/bundle/appimage/Samobranka_<version>_amd64.AppImage
 
 ## 🍎 Building on macOS
 
-On macOS, the build process is simplified as GPU acceleration (Metal) is enabled by default.
+On macOS, the build is the standard `pnpm` flow; the app compiles CPU-only and GPU acceleration happens at runtime (transcribe.cpp `macos-arm64-metal` lane).
 
 ### 1. Install Dependencies
 
@@ -426,7 +210,7 @@ pnpm tauri:dev
 pnpm tauri:build
 ```
 
-The application will be built with Metal GPU acceleration automatically.
+The app itself compiles CPU-only. Transcription acceleration comes from the staged transcribe.cpp runtime (`macos-arm64-metal` lane, Metal backend at runtime), and the CI builds the `llama-helper` sidecar with its optional `metal` feature.
 
 </details>
 
@@ -457,16 +241,16 @@ pnpm tauri:dev
 pnpm tauri:build
 ```
 
-By default, the application will be built with CPU-only processing. To enable GPU acceleration, see the [GPU Acceleration Guide](GPU_ACCELERATION.md).
+The application builds CPU-only; there is no compile-time GPU flag to enable. Transcription GPU acceleration is runtime Vulkan through the system loader — see the [GPU Acceleration Guide](GPU_ACCELERATION.md).
 
 ### Windows Distribution Builds
 
-The commands above create a local source build. Use the production Windows build workflow for an installer intended for other computers: it enables Vulkan. Rust targets `x86-64-v2`; native Whisper retains AVX2 with host-native specialization and AVX-512 disabled.
+The commands above create a local source build. Use the production Windows build workflow for an installer intended for other computers: Rust targets `x86-64-v2`, so the installer retains an AVX2-capable baseline with host-native specialization and AVX-512 disabled.
 
-The distribution workflows (`build.yml`, `build-windows.yml`, and `build-devtest.yml`) set `CMAKE_PROJECT_INCLUDE` to `.github/force-portable-ggml.cmake`, which forces `GGML_NATIVE=OFF`, and use `RUSTFLAGS=-C target-cpu=x86-64-v2`. The hook configures Whisper's native C/C++ build; Rust flags do not. `WHISPER_NATIVE=OFF` and plain `GGML_*` variables are not replacements.
+The distribution workflows (`build.yml`, `build-windows.yml`, and `build-devtest.yml`) set `CMAKE_PROJECT_INCLUDE` to `.github/force-portable-ggml.cmake`, which forces `GGML_NATIVE=OFF`, and use `RUSTFLAGS=-C target-cpu=x86-64-v2`. The hook configures the native C/C++ build of the `llama-helper` sidecar (llama.cpp via `llama-cpp-sys-2`) — the only natively-compiled dependency shipped in the app; Rust flags do not configure it. Plain `GGML_*` environment variables are not a replacement. The same workflows run `verify-portable-ggml.cjs` before bundling to fail the build if the sidecar's CMake cache shows host-native specialization or AVX-512.
 
-The Windows distribution workflows also stage the audioCpp provider runtime before bundling: `frontend/src-tauri/scripts/stage-audiocpp-runtime.ps1` downloads the pinned audio.cpp v0.9.5 lib archive (SHA256-verified) and copies `audiocpp.dll`, the MSVC runtime bundle (`msvcp140*.dll`, `vcruntime140*.dll`, `vcomp140.dll`), and the Apache-2.0 license into `frontend/src-tauri/audiocpp-runtime/`. `tauri.windows.conf.json` maps that directory into the install root, next to the executable, so the installed app runs without the Visual C++ Redistributable. For a local development build, point `AUDIOCPP_LIBRARY_PATH` at `audiocpp.dll` instead (see `audio_cpp_engine/wrapper.rs`).
+The Windows distribution workflows also stage the audio.cpp diarization runtime before bundling: `frontend/src-tauri/scripts/stage-audiocpp-runtime.ps1` downloads the pinned audio.cpp v0.9.5 lib archive (SHA256-verified) and copies `audiocpp.dll`, the MSVC runtime bundle (`msvcp140*.dll`, `vcruntime140*.dll`, `vcomp140.dll`), and the Apache-2.0 license into `frontend/src-tauri/audiocpp-runtime/`. `tauri.windows.conf.json` maps that directory into the install root, next to the executable, so the installed app runs without the Visual C++ Redistributable. For a local development build, point `AUDIOCPP_LIBRARY_PATH` at `audiocpp.dll` instead (see `audio_cpp_engine/wrapper.rs`).
 
-The transcribeCpp provider runtime is staged with the cross-platform script `frontend/scripts/stage-transcribe-native.mjs` (`pnpm run stage:transcribe` in `frontend/`, and a CI step in `build.yml`/`build-windows.yml` before bundling). It downloads the transcribe.cpp v0.4.2 release archive for the current lane (`linux-x86_64` / `linux-aarch64` / `windows-x86_64` — cpu-vulkan, `macos-arm64` — metal), verifies its pinned SHA-256, and extracts `libtranscribe.*` + ggml backend modules + `contract.json` + `licenses/` flat into `frontend/src-tauri/transcribecpp-runtime/` (gitignored; re-runs are skipped via a stamp file). `tauri.windows.conf.json` maps that directory into the Windows install root. Unlike the audio.cpp bundle, no MSVC redist DLLs are staged: the upstream v0.4.2 Windows wheel is repaired with `delvewheel repair --exclude vulkan-1.dll` and delvewheel never vendors `vcruntime140*`/`msvcp*`/`vcomp*`, so the Visual C++ 2015-2022 Redistributable and the Vulkan loader (`vulkan-1.dll`, installed with GPU drivers) are expected from the system.
+The transcribeCpp engine's runtime is staged with the cross-platform script `frontend/scripts/stage-transcribe-native.mjs` (`pnpm run stage:transcribe` in `frontend/`, and CI staging/verify steps in `build.yml` for Linux/macOS and `build-windows.yml` for Windows before bundling). It downloads the transcribe.cpp v0.4.2 release archive for the current lane (`linux-x86_64` / `linux-aarch64` / `windows-x86_64` — cpu-vulkan, `macos-arm64` — metal), verifies its pinned SHA-256, and extracts `libtranscribe.*` + ggml backend modules + `contract.json` + `licenses/` flat into `frontend/src-tauri/transcribecpp-runtime/` (gitignored; re-runs are skipped via a stamp file). `tauri.windows.conf.json` maps that directory into the Windows install root. Unlike the audio.cpp bundle, no MSVC redist DLLs are staged: the upstream v0.4.2 Windows wheel is repaired with `delvewheel repair --exclude vulkan-1.dll` and delvewheel never vendors `vcruntime140*`/`msvcp*`/`vcomp*`, so the Visual C++ 2015-2022 Redistributable and the Vulkan loader (`vulkan-1.dll`, installed with GPU drivers) are expected from the system.
 
 </details>

@@ -6,7 +6,7 @@ These instructions apply to AI coding agents working in this repository.
 
 - Samobranka is a desktop application for recording meetings, transcribing audio, and generating summaries.
 - The supported app lives in `frontend/`: Next.js/React provides the UI, and the Rust/Tauri core handles native behavior, audio, persistence, transcription, and summary orchestration.
-- Local transcription uses one of three engines: Whisper, Parakeet, or audioCpp (audio.cpp / GigaAM). Summaries use the configured local or cloud provider; do not assume every provider runs locally.
+- Local transcription uses a single engine: transcribe.cpp (provider `transcribeCpp`, runtime compute modes auto/vulkan/cpu; GGUF model catalog). Diarization is a separate, provider-independent stage performed by the audio.cpp library (Nemotron model). Summaries use the configured local or cloud provider; do not assume every provider runs locally.
 - Frontend code invokes Tauri commands; Rust emits events that update frontend state. Preserve existing command contracts, event payloads, and state ownership.
 
 See [architecture and audio pipeline](docs/architecture.md), including [frontend/native communication](docs/architecture.md#frontend-and-native-communication) and [model management](docs/architecture.md#transcription-and-model-management).
@@ -31,7 +31,7 @@ Use pnpm 9.15.9. Run these commands from `frontend/`:
 
 Before running desktop dev/build commands, complete the [first-run sidecar setup](docs/BUILDING.md#first-run-sidecar-setup). Installing frontend dependencies alone does not stage `llama-helper`.
 
-Vulkan builds additionally require the latest Vulkan SDK downloaded into the repository-local `.tools/` folder (not a system-wide install). See [Vulkan setup](docs/BUILDING.md#-vulkan-setup-cross-platform-fallback).
+There are no compile-time GPU build variants for the app: transcription acceleration is a runtime decision of the transcribe.cpp engine (Vulkan through the system loader). The optional GPU features of the `llama-helper` sidecar (`metal`, `cuda`, `vulkan`) are the only compile-time GPU builds in the workspace; building it with `vulkan` requires a Vulkan SDK. See [GPU acceleration](docs/GPU_ACCELERATION.md).
 
 All builds require libclang for `bindgen`; download a current LLVM release into `.tools/` and set `LLVM_CONFIG_PATH`/`LIBCLANG_PATH`. See [local LLVM toolchain](docs/BUILDING.md#local-llvm-toolchain-tools).
 
@@ -74,10 +74,10 @@ See [build and platform setup](docs/BUILDING.md), [development commands and debu
 | Mixing, resampling, and VAD | [pipeline.rs](frontend/src-tauri/src/audio/pipeline.rs), [vad.rs](frontend/src-tauri/src/audio/vad.rs) |
 | Recording output | [recording_saver.rs](frontend/src-tauri/src/audio/recording_saver.rs) |
 | Transcription providers and workers | [transcription/](frontend/src-tauri/src/audio/transcription/) |
-| Whisper model loading and acceleration | [whisper_engine/](frontend/src-tauri/src/whisper_engine/) |
-| Parakeet model loading and inference | [parakeet_engine/](frontend/src-tauri/src/parakeet_engine/) |
-| audio.cpp engine FFI layer (native library loading, ABI gate) | [audio_cpp_engine/](frontend/src-tauri/src/audio_cpp_engine/) |
-| audio.cpp model catalog and downloads | [catalog.rs](frontend/src-tauri/src/audio_cpp_engine/catalog.rs), [models.rs](frontend/src-tauri/src/audio_cpp_engine/models.rs), [AudioCppModelManager.tsx](frontend/src/components/AudioCppModelManager.tsx) |
+| transcribe.cpp engine FFI layer (native library loading, ABI gate, compute modes) | [transcribe_cpp_engine/](frontend/src-tauri/src/transcribe_cpp_engine/) |
+| transcribe.cpp model catalog and downloads | [catalog.rs](frontend/src-tauri/src/transcribe_cpp_engine/catalog.rs), [models.rs](frontend/src-tauri/src/transcribe_cpp_engine/models.rs), [TranscribeCppModelManager.tsx](frontend/src/components/TranscribeCppModelManager.tsx) |
+| audio.cpp engine FFI layer (diarization only; native library loading, ABI gate) | [audio_cpp_engine/](frontend/src-tauri/src/audio_cpp_engine/) |
+| audio.cpp diarization model catalog and downloads | [catalog.rs](frontend/src-tauri/src/audio_cpp_engine/catalog.rs), [models.rs](frontend/src-tauri/src/audio_cpp_engine/models.rs), [AudioCppModelManager.tsx](frontend/src/components/AudioCppModelManager.tsx) |
 | Summary providers and orchestration | [summary/](frontend/src-tauri/src/summary/) |
 | Recording UI and shared frontend state | [page.tsx](frontend/src/app/page.tsx), [SidebarProvider.tsx](frontend/src/components/Sidebar/SidebarProvider.tsx), [RecordingStateContext.tsx](frontend/src/contexts/RecordingStateContext.tsx) |
 
