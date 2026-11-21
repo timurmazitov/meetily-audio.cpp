@@ -2,7 +2,6 @@
   "bundle": {
     "resources": {
       "templates": "templates",
-      "binaries/onnxruntime": ".",
       "audiocpp-runtime": ".",
       "transcribecpp-runtime": "."
     }

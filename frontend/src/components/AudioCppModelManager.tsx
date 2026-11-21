@@ -1,17 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import {
-  AUDIO_CPP_PROVIDER,
-} from '../lib/transcription-provider';
-import {
-  defaultSelectedTranscriptionModel,
   downloadProgress,
   formatModelSize,
   isAvailableStatus,
   isDownloadingStatus,
-  isTranscriptionModel,
   taskLabel,
   type AudioCppDownloadCompleteEvent,
   type AudioCppDownloadErrorEvent,
@@ -19,22 +13,20 @@ import {
   type AudioCppModelClient,
   type AudioCppModelInfo,
   type AudioCppModelStatus,
-  type AudioCppModelTask,
 } from '../lib/audiocpp';
 
 /**
- * Model manager for the audio.cpp provider.
+ * Model manager for the audio.cpp diarization model (Nemotron).
  *
- * Lists the catalogued GigaAM (transcription) and Nemotron (diarization)
- * models with their purpose and size, and lets the user download, cancel and
- * delete them. Downloads report progress and can be cancelled; the list is
- * re-read from the native manager so persisted state (installed / missing)
- * survives restarts.
+ * Lists the catalogued diarization model with its purpose and size, and lets
+ * the user download, cancel and delete it. Downloads report progress and can
+ * be cancelled; the list is re-read from the native manager so persisted
+ * state (installed / missing) survives restarts.
  *
- * When `onModelSelect` is supplied the installed transcription models become
- * selectable, and the selected model is persisted by the caller (the transcript
- * settings save it as the `audioCpp` provider + model pair). The diarization
- * model is never selectable: it cannot transcribe.
+ * Diarization is never selectable: a diarization model cannot transcribe, so
+ * it is installed as an add-on over whichever engine produced the transcript.
+ * The transcription (asr) mode was removed with the transcribe.cpp
+ * consolidation; only diar entries of the catalog render.
  */
 export interface AudioCppModelManagerProps {
   className?: string;
@@ -43,27 +35,11 @@ export interface AudioCppModelManagerProps {
    * this module (and its tests) do not pull in the Tauri bridge.
    */
   client?: AudioCppModelClient;
-  /**
-   * Restrict the list to models of this task. Omitted, the manager lists the
-   * whole catalog (the transcription settings section keeps that behaviour;
-   * the diarization section asks for `diar` only).
-   */
-  task?: AudioCppModelTask;
-  /** Currently configured model id (the catalog name). */
-  selectedModel?: string;
-  /** Called when the user picks a transcription model. */
-  onModelSelect?: (modelName: string) => void;
-  /** Persist the selection immediately, matching the other model managers. */
-  autoSave?: boolean;
 }
 
 export function AudioCppModelManager({
   className = '',
   client: injectedClient,
-  task,
-  selectedModel,
-  onModelSelect,
-  autoSave = false,
 }: AudioCppModelManagerProps) {
   const { t } = useTranslation();
   const [client, setClient] = useState<AudioCppModelClient | undefined>(injectedClient);
@@ -93,18 +69,14 @@ export function AudioCppModelManager({
   /**
    * Whether this manager owns the model a native event is about.
    *
-   * Two managers can be mounted at once (the `audioCpp` transcription list and
-   * the always-visible diarization section). Both receive every native download
-   * event, so without this check a Nemotron download would be announced twice
-   * and would appear in a list that does not contain it. The catalog itself is
-   * not filtered, so the task of an unknown name is simply not this manager's.
+   * The catalog is diarization-only now, but the event payload is a bare
+   * model name from the native side; a foreign model's events (an older
+   * catalog state, a concurrent manager) must not be announced here.
    */
   const ownsModel = useCallback(
-    (modelName: string) => {
-      if (!task) return true;
-      return modelsRef.current.find(model => model.name === modelName)?.task === task;
-    },
-    [task],
+    (modelName: string) =>
+      modelsRef.current.find(model => model.name === modelName)?.task === 'diar',
+    [],
   );
 
   const clearCancellingModel = useCallback((modelName: string) => {
@@ -278,7 +250,7 @@ export function AudioCppModelManager({
   // model card stays downloadable: the warning explains why a pass would not
   // run now, and the model can be prepared ahead of the library.
   useEffect(() => {
-    if (!client || task !== 'diar') return;
+    if (!client) return;
     let disposed = false;
     void client.getDiagnostics()
       .then(report => {
@@ -293,7 +265,7 @@ export function AudioCppModelManager({
     return () => {
       disposed = true;
     };
-  }, [client, task]);
+  }, [client]);
 
   const downloadModel = async (modelName: string) => {
     if (!client || cancellingModels.has(modelName)) return;
@@ -315,7 +287,7 @@ export function AudioCppModelManager({
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       // Keep the failure visible in the card so the user can retry, matching
-      // the Whisper and Parakeet managers.
+      // the transcribe.cpp manager.
       latestStatusByModelRef.current.set(modelName, { Error: message });
       setModels(prev => prev.map(model =>
         model.name === modelName ? { ...model, status: { Error: message } } : model
@@ -363,34 +335,9 @@ export function AudioCppModelManager({
     }
   };
 
-  const selectModel = async (modelName: string) => {
-    onModelSelect?.(modelName);
-    const name = nameOf(modelName);
-    toast.success(t('models.common.switchedTo', { name }), { duration: 3000 });
-
-    if (autoSave) {
-      try {
-        await invoke('api_save_transcript_config', {
-          provider: AUDIO_CPP_PROVIDER,
-          model: modelName,
-          apiKey: null,
-        });
-      } catch (err) {
-        console.error('Failed to save audio.cpp model selection:', err);
-        toast.error(t('models.common.failedToSaveSelection'), {
-          description: err instanceof Error ? err.message : String(err),
-          duration: 4000,
-        });
-      }
-    }
-  };
-
-  // Which model is highlighted: the configured one, else the first installed
-  // transcription model. The diarization model is never selectable.
-  const selectedTranscriptionModel = defaultSelectedTranscriptionModel(models, selectedModel);
-  const selectionEnabled = typeof onModelSelect === 'function';
-  // Only the requested task is rendered; the caller decides which task it owns.
-  const visibleModels = task ? models.filter(model => model.task === task) : models;
+  // Only diarization entries render: the transcribe.cpp engine owns
+  // transcription, and a diarization model can never be selected as one.
+  const visibleModels = models.filter(model => model.task === 'diar');
 
   if (loading) {
     return (
@@ -434,13 +381,6 @@ export function AudioCppModelManager({
           key={model.name}
           model={model}
           isCancelling={cancellingModels.has(model.name)}
-          selectable={selectionEnabled && isTranscriptionModel(model)}
-          isSelected={
-            selectionEnabled &&
-            isTranscriptionModel(model) &&
-            selectedTranscriptionModel?.name === model.name
-          }
-          onSelect={() => { void selectModel(model.name); }}
           onDownload={() => downloadModel(model.name)}
           onCancel={() => cancelDownload(model.name)}
           onDelete={() => deleteModel(model.name)}
@@ -465,10 +405,6 @@ function displayName(modelName: string, models: AudioCppModelInfo[]): string {
 interface AudioCppModelCardProps {
   model: AudioCppModelInfo;
   isCancelling: boolean;
-  /** Transcription models can be selected; diarization models cannot. */
-  selectable: boolean;
-  isSelected: boolean;
-  onSelect: () => void;
   onDownload: () => void;
   onCancel: () => void;
   onDelete: () => void;
@@ -477,9 +413,6 @@ interface AudioCppModelCardProps {
 function AudioCppModelCard({
   model,
   isCancelling,
-  selectable,
-  isSelected,
-  onSelect,
   onDownload,
   onCancel,
   onDelete,
@@ -496,34 +429,26 @@ function AudioCppModelCard({
   const isError = typeof model.status === 'object' && model.status !== null && 'Error' in model.status;
 
   const taskBadge = taskLabel(model.task);
-  const taskColor = model.task === 'asr'
-    ? 'bg-blue-100 text-blue-800'
-    : 'bg-purple-100 text-purple-800';
-  const canSelect = selectable && available && !isCancelling;
 
   return (
     <div
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
-      onClick={() => { if (canSelect && !isSelected) onSelect(); }}
       className={`relative rounded-lg border-2 bg-white transition-all ${
-        isSelected
-          ? 'border-blue-500 ring-1 ring-blue-200'
-          : available
-            ? 'border-green-200'
-            : 'border-gray-200'
-      } ${canSelect && !isSelected ? 'cursor-pointer hover:border-blue-300' : ''}`}
+        available
+          ? 'border-green-200'
+          : 'border-gray-200'
+      }`}
       data-testid={`audiocpp-model-${model.name}`}
       data-model-family={model.family}
       data-model-task={model.task}
-      data-model-selected={isSelected ? 'true' : 'false'}
     >
       <div className="p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2 mb-1">
               <h3 className="font-semibold text-gray-900">{model.display_name}</h3>
-              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${taskColor}`}>
+              <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-purple-100 text-purple-800">
                 {taskBadge}
               </span>
               <span className="text-xs bg-gray-100 text-gray-700 px-2 py-0.5 rounded-full font-medium">
@@ -538,17 +463,10 @@ function AudioCppModelCard({
           <div className="flex shrink-0 items-center gap-2">
             {available && !isCancelling && (
               <>
-                {isSelected ? (
-                  <div className="flex items-center gap-1.5 text-blue-600">
-                    <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                    <span className="text-xs font-medium">{t('models.common.selected')}</span>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-1.5 text-green-600">
-                    <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                    <span className="text-xs font-medium">{t('models.common.ready')}</span>
-                  </div>
-                )}
+                <div className="flex items-center gap-1.5 text-green-600">
+                  <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                  <span className="text-xs font-medium">{t('models.common.ready')}</span>
+                </div>
                 {isHovered && (
                     <button
                       type="button"

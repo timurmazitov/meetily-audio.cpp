@@ -2,10 +2,9 @@ import React from 'react';
 import { afterAll, afterEach, expect, mock, test } from 'bun:test';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 
-// Download notifications are part of the visible behaviour (two managers can be
-// mounted at once: transcription and diarization), so the toast channel is
-// captured. Bun shares module mocks between files: restore it afterwards,
-// matching the other component suites.
+// Download notifications are part of the visible behaviour, so the toast
+// channel is captured. Bun shares module mocks between files: restore it
+// afterwards, matching the other component suites.
 const notify = mock((_message: string, _options?: unknown) => {});
 mock.module('sonner', () => ({
   toast: { info: notify, error: notify, success: notify, warning: notify },
@@ -25,12 +24,32 @@ import type {
   AudioCppModelInfo,
 } from '../../src/lib/audiocpp';
 
-const baseModel = (overrides: Partial<AudioCppModelInfo> = {}): AudioCppModelInfo => ({
+const diarizationModel = (overrides: Partial<AudioCppModelInfo> = {}): AudioCppModelInfo => ({
+  name: 'nemotron-3-diarization-bf16',
+  display_name: 'Nemotron-3 Diarization',
+  family: 'nemotron_3_diar',
+  task: 'diar',
+  quantization: 'BF16',
+  filename: 'nemotron-3-diarization-bf16.gguf',
+  path: '/models/audiocpp/nemotron-3-diarization-bf16.gguf',
+  size_mb: 190,
+  size_bytes: 198720928,
+  description: 'Speaker diarization',
+  status: 'Missing',
+  ...overrides,
+});
+
+/** A foreign (non-diarization) entry a stale catalog state could still
+ *  report: the manager must never render it — the Rust catalog is
+ *  diarization-only now, and transcribe.cpp owns transcription. The cast
+ *  only satisfies the diar-only client type; at runtime the task stays 'asr',
+ *  which is what the manager's filter sees. */
+const asrModel = (overrides: Partial<AudioCppModelInfo> = {}): AudioCppModelInfo => ({
   name: 'gigaam-v3-e2e-ctc-f16',
   display_name: 'GigaAM v3 e2e CTC',
   family: 'gigaam_asr',
-  task: 'asr',
-  quantization: 'F16',
+  task: 'asr' as unknown as 'diar',
+  quantization: 'BF16',
   filename: 'gigaam-v3-e2e-ctc-f16.gguf',
   path: '/models/audiocpp/gigaam-v3-e2e-ctc-f16.gguf',
   size_mb: 422,
@@ -40,28 +59,13 @@ const baseModel = (overrides: Partial<AudioCppModelInfo> = {}): AudioCppModelInf
   ...overrides,
 });
 
-const diarizationModel = (overrides: Partial<AudioCppModelInfo> = {}): AudioCppModelInfo =>
-  baseModel({
-    name: 'nemotron-3-diarization-bf16',
-    display_name: 'Nemotron-3 Diarization',
-    family: 'nemotron_3_diar',
-    task: 'diar',
-    quantization: 'BF16',
-    filename: 'nemotron-3-diarization-bf16.gguf',
-    path: '/models/audiocpp/nemotron-3-diarization-bf16.gguf',
-    size_mb: 190,
-    size_bytes: 198720928,
-    description: 'Speaker diarization',
-    ...overrides,
-  });
-
 const availableRuntime = (): AudioCppDiagnostics => ({
   available: true,
   library_path: '/usr/lib/libaudiocpp.so',
   abi_version: '1',
   build_version: '0.1.0',
-  families: ['gigaam_asr', 'nemotron_3_diar'],
-  tasks: ['asr', 'diar'],
+  families: ['nemotron_3_diar'],
+  tasks: ['diar'],
   error: null,
 });
 
@@ -81,9 +85,6 @@ class FakeClient implements AudioCppModelClient {
   async init() { this.calls.push('init'); }
   async getAvailableModels() { this.calls.push('getAvailableModels'); return this.models.map(m => ({ ...m })); }
   async hasAvailableModels() { return this.models.some(m => m.status === 'Available'); }
-  async hasTranscriptionModel() {
-    return this.models.some(m => m.task === 'asr' && m.status === 'Available');
-  }
   async getModelsDirectory() { return '/models/audiocpp'; }
   async openModelsFolder() { this.calls.push('openModelsFolder'); }
 
@@ -172,55 +173,67 @@ function click(node: { props: { onClick?: (event: unknown) => void } }) {
   node.props.onClick?.({ stopPropagation() {} });
 }
 
+/** Cards currently rendered, in catalog order. */
+function modelCards(view: ReactTestRenderer) {
+  return view.root.findAll(node =>
+    typeof node.props?.['data-testid'] === 'string'
+    && typeof node.props?.['data-model-task'] === 'string');
+}
+
 afterEach(async () => {
   if (renderer) await act(async () => renderer!.unmount());
   renderer = undefined;
 });
 
-test('lists every catalogued model with its purpose and size', async () => {
+test('lists the diarization model with its purpose and size', async () => {
   const client = new FakeClient();
-  client.models = [
-    baseModel(),
-    baseModel({
-      name: 'nemotron-3-diarization-bf16',
-      display_name: 'Nemotron-3 Diarization',
-      family: 'nemotron_3_diar',
-      task: 'diar',
-      quantization: 'BF16',
-      filename: 'nemotron-3-diarization-bf16.gguf',
-      size_mb: 190,
-      size_bytes: 198720928,
-      description: 'Speaker diarization',
-    }),
-  ];
+  client.models = [diarizationModel()];
 
   const text = textOf(await render(client));
 
   expect(client.calls).toContain('init');
-  expect(text).toContain('GigaAM v3 e2e CTC');
   expect(text).toContain('Nemotron-3 Diarization');
-  expect(text).toContain('Transcription');
   expect(text).toContain('Diarization');
-  expect(text).toContain('422 MB');
   expect(text).toContain('190 MB');
-  expect(text).toContain('F16');
   expect(text).toContain('BF16');
 });
 
-test('downloading a model invokes the download command and shows progress', async () => {
+test('a foreign ASR entry never renders: transcription belongs to transcribe.cpp', async () => {
   const client = new FakeClient();
-  client.models = [baseModel()];
+  client.models = [asrModel(), diarizationModel()];
+
+  const view = await render(client);
+
+  expect(modelCards(view).map(card => card.props['data-testid']))
+    .toEqual(['audiocpp-model-nemotron-3-diarization-bf16']);
+  expect(textOf(view)).not.toContain('GigaAM v3 e2e CTC');
+});
+
+test('the manager offers no selection: a diarization model cannot transcribe', async () => {
+  const client = new FakeClient();
+  client.models = [diarizationModel({ status: 'Available' })];
+
+  const view = await render(client);
+
+  const card = view.root.findByProps({ 'data-testid': 'audiocpp-model-nemotron-3-diarization-bf16' });
+  expect(card.props.onClick).toBeUndefined();
+  expect(card.props['data-model-selected']).toBeUndefined();
+});
+
+test('downloading the model invokes the download command and shows progress', async () => {
+  const client = new FakeClient();
+  client.models = [diarizationModel()];
   const view = await render(client);
 
   const download = buttonWithText(view, 'Download');
   expect(download).toBeDefined();
   await act(async () => { click(download!); });
 
-  expect(client.calls).toContain('download:gigaam-v3-e2e-ctc-f16');
+  expect(client.calls).toContain('download:nemotron-3-diarization-bf16');
 
   await act(async () => {
     client.emitProgress({
-      modelName: 'gigaam-v3-e2e-ctc-f16',
+      modelName: 'nemotron-3-diarization-bf16',
       progress: 42,
       status: 'downloading',
     });
@@ -228,14 +241,14 @@ test('downloading a model invokes the download command and shows progress', asyn
   expect(textOf(view)).toContain('42%');
 
   await act(async () => {
-    client.emitComplete({ modelName: 'gigaam-v3-e2e-ctc-f16' });
+    client.emitComplete({ modelName: 'nemotron-3-diarization-bf16' });
   });
   expect(textOf(view)).toContain('Ready');
 });
 
 test('a failed download surfaces the error and offers a retry', async () => {
   const client = new FakeClient();
-  client.models = [baseModel()];
+  client.models = [diarizationModel()];
   client.downloadError = new Error('Download failed');
   const view = await render(client);
 
@@ -246,13 +259,13 @@ test('a failed download surfaces the error and offers a retry', async () => {
 
 test('cancelling an in-flight download calls the cancel command', async () => {
   const client = new FakeClient();
-  client.models = [baseModel()];
+  client.models = [diarizationModel()];
   const view = await render(client);
 
   await act(async () => { click(buttonWithText(view, 'Download')!); });
   await act(async () => {
     client.emitProgress({
-      modelName: 'gigaam-v3-e2e-ctc-f16',
+      modelName: 'nemotron-3-diarization-bf16',
       progress: 10,
       status: 'downloading',
     });
@@ -261,11 +274,11 @@ test('cancelling an in-flight download calls the cancel command', async () => {
   const cancel = buttonWithText(view, 'Cancel');
   expect(cancel).toBeDefined();
   await act(async () => { click(cancel!); });
-  expect(client.calls).toContain('cancel:gigaam-v3-e2e-ctc-f16');
+  expect(client.calls).toContain('cancel:nemotron-3-diarization-bf16');
 
   await act(async () => {
     client.emitProgress({
-      modelName: 'gigaam-v3-e2e-ctc-f16',
+      modelName: 'nemotron-3-diarization-bf16',
       progress: 0,
       status: 'cancelled',
     });
@@ -275,12 +288,12 @@ test('cancelling an in-flight download calls the cancel command', async () => {
 
 test('an installed model can be deleted', async () => {
   const client = new FakeClient();
-  client.models = [baseModel({ status: 'Available' })];
+  client.models = [diarizationModel({ status: 'Available' })];
   const view = await render(client);
 
   expect(textOf(view)).toContain('Ready');
 
-  const card = view.root.findByProps({ 'data-testid': 'audiocpp-model-gigaam-v3-e2e-ctc-f16' });
+  const card = view.root.findByProps({ 'data-testid': 'audiocpp-model-nemotron-3-diarization-bf16' });
   await act(async () => { card.props.onMouseEnter(); });
 
   const del = view.root.findAllByType('button')
@@ -289,13 +302,13 @@ test('an installed model can be deleted', async () => {
   expect(del).toBeDefined();
   await act(async () => { click(del!); });
 
-  expect(client.calls).toContain('delete:gigaam-v3-e2e-ctc-f16');
+  expect(client.calls).toContain('delete:nemotron-3-diarization-bf16');
   expect(textOf(view)).toContain('Download');
 });
 
 test('an installed model survives a restart: state comes from the native catalog', async () => {
   const client = new FakeClient();
-  client.models = [baseModel({ status: 'Available' })];
+  client.models = [diarizationModel({ status: 'Available' })];
 
   const first = textOf(await render(client));
   expect(first).toContain('Ready');
@@ -310,103 +323,13 @@ test('an installed model survives a restart: state comes from the native catalog
 test('a corrupted artifact can be deleted or re-downloaded', async () => {
   const client = new FakeClient();
   client.models = [
-    baseModel({ status: { Corrupted: { file_size: 3, expected_min_size: 442520704 } } }),
+    diarizationModel({ status: { Corrupted: { file_size: 3, expected_min_size: 198720928 } } }),
   ];
   const view = await render(client);
 
   const text = textOf(view);
   expect(text).toContain('Delete');
   expect(text).toContain('Re-download');
-});
-
-test('an installed transcription model can be selected from the settings', async () => {
-  const client = new FakeClient();
-  client.models = [baseModel({ status: 'Available' })];
-  const selected: string[] = [];
-  let view: ReactTestRenderer;
-  await act(async () => {
-    view = create(
-      <AudioCppModelManager client={client} onModelSelect={name => selected.push(name)} />,
-    );
-  });
-  renderer = view!;
-
-  const card = view!.root.findByProps({ 'data-testid': 'audiocpp-model-gigaam-v3-e2e-ctc-f16' });
-  expect(card.props['data-model-selected']).toBe('true');
-
-  await act(async () => { click(card); });
-  // Already selected: a click must not re-trigger the save path.
-  expect(selected).toEqual([]);
-});
-
-test('selecting another transcription model reports it to the settings', async () => {
-  const client = new FakeClient();
-  client.models = [
-    baseModel({ status: 'Available' }),
-    baseModel({ name: 'gigaam-v3-e2e-ctc-f16-alt', display_name: 'GigaAM alt', status: 'Available' }),
-  ];
-  const selected: string[] = [];
-  await act(async () => {
-    renderer = create(
-      <AudioCppModelManager
-        client={client}
-        selectedModel="gigaam-v3-e2e-ctc-f16"
-        onModelSelect={name => selected.push(name)}
-      />,
-    );
-  });
-
-  const other = renderer!.root.findByProps({ 'data-testid': 'audiocpp-model-gigaam-v3-e2e-ctc-f16-alt' });
-  await act(async () => { click(other); });
-
-  expect(selected).toEqual(['gigaam-v3-e2e-ctc-f16-alt']);
-});
-
-test('the diarization model cannot be selected as a transcription model', async () => {  const client = new FakeClient();
-  client.models = [
-    baseModel({
-      name: 'nemotron-3-diarization-bf16',
-      display_name: 'Nemotron-3 Diarization',
-      family: 'nemotron_3_diar',
-      task: 'diar',
-      quantization: 'BF16',
-      status: 'Available',
-    }),
-  ];
-  const selected: string[] = [];
-  await act(async () => {
-    renderer = create(
-      <AudioCppModelManager client={client} onModelSelect={name => selected.push(name)} />,
-    );
-  });
-
-  const card = renderer!.root.findByProps({ 'data-testid': 'audiocpp-model-nemotron-3-diarization-bf16' });
-  expect(card.props['data-model-selected']).toBe('false');
-  await act(async () => { click(card); });
-
-  expect(selected).toEqual([]);
-});
-
-/** Cards currently rendered, in catalog order. */
-function modelCards(view: ReactTestRenderer) {
-  return view.root.findAll(node =>
-    typeof node.props?.['data-testid'] === 'string'
-    && typeof node.props?.['data-model-task'] === 'string');
-}
-
-test('a model task renders only the models of that task', async () => {
-  const client = new FakeClient();
-  client.models = [baseModel(), diarizationModel()];
-
-  const diarizationOnly = await render(client, { task: 'diar' });
-  expect(modelCards(diarizationOnly).map(card => card.props['data-testid']))
-    .toEqual(['audiocpp-model-nemotron-3-diarization-bf16']);
-  await act(async () => renderer!.unmount());
-  renderer = undefined;
-
-  const transcriptionOnly = await render(client, { task: 'asr' });
-  expect(modelCards(transcriptionOnly).map(card => card.props['data-testid']))
-    .toEqual(['audiocpp-model-gigaam-v3-e2e-ctc-f16']);
 });
 
 const unavailableRuntime = (error: string): AudioCppDiagnostics => ({
@@ -419,12 +342,12 @@ const unavailableRuntime = (error: string): AudioCppDiagnostics => ({
   error,
 });
 
-test('the diarization section warns when the native runtime is unavailable, and the model stays downloadable', async () => {
+test('the section warns when the native runtime is unavailable, and the model stays downloadable', async () => {
   const client = new FakeClient();
   client.models = [diarizationModel()];
   client.diagnostics = unavailableRuntime('libaudiocpp not found via AUDIOCPP_LIBRARY_PATH');
 
-  const view = await render(client, { task: 'diar' });
+  const view = await render(client);
   const text = textOf(view);
 
   expect(text).toContain('Diarization engine is unavailable on this system');
@@ -445,38 +368,36 @@ test('no runtime warning is shown when the native library is available', async (
   client.models = [diarizationModel()];
   client.diagnostics = availableRuntime();
 
-  const view = await render(client, { task: 'diar' });
+  const view = await render(client);
 
   expect(textOf(view)).not.toContain('unavailable on this system');
 });
 
-test('two managers on one screen announce a download once, and only for the model they list', async () => {
+test('events for a model this manager does not list are not announced', async () => {
+  // A foreign model's download events (e.g. a stale ASR entry reported by an
+  // old catalog state) must not surface in the diarization section.
   const client = new FakeClient();
-  client.models = [baseModel(), diarizationModel()];
+  client.models = [asrModel(), diarizationModel()];
+  await render(client);
+  notify.mockClear();
 
   await act(async () => {
-    renderer = create(
-      <div>
-        <AudioCppModelManager client={client} task="asr" />
-        <AudioCppModelManager client={client} task="diar" />
-      </div>,
-    );
+    client.emitComplete({ modelName: 'gigaam-v3-e2e-ctc-f16' });
   });
-  notify.mockClear();
+  expect(notify.mock.calls.filter(call => String(call[0]).includes('GigaAM'))).toHaveLength(0);
 
   await act(async () => {
     client.emitComplete({ modelName: 'nemotron-3-diarization-bf16' });
   });
-
-  const messages = notify.mock.calls.map(call => call[0]);
-  expect(messages.filter(message => message.includes('Nemotron-3 Diarization'))).toHaveLength(1);
+  expect(notify.mock.calls.filter(call => String(call[0]).includes('Nemotron-3 Diarization')))
+    .toHaveLength(1);
 });
 
-test('the diarization section downloads, cancels, deletes and re-downloads its model', async () => {
+test('the section downloads, cancels, deletes and re-downloads its model', async () => {
   const client = new FakeClient();
   client.models = [diarizationModel()];
 
-  const view = await render(client, { task: 'diar' });
+  const view = await render(client);
 
   await act(async () => { click(buttonWithText(view, 'Download')!); });
   expect(client.calls).toContain('download:nemotron-3-diarization-bf16');

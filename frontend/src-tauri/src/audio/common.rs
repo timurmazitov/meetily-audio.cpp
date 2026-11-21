@@ -19,9 +19,6 @@ pub(crate) async fn acquire_engine_lifecycle_lock() -> OwnedMutexGuard<()> {
 /// resolves it from the transcript configuration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BatchEngine {
-    Whisper,
-    Parakeet,
-    AudioCpp,
     /// Runs transcribe.cpp offline ASR over the batch segments (retranscription
     /// and import build the provider with the exact requested model).
     TranscribeCpp,
@@ -30,17 +27,14 @@ pub(crate) enum BatchEngine {
 impl BatchEngine {
     /// Map the provider name sent by the frontend to an engine.
     ///
-    /// Anything unrecognized (including `None`) keeps the historical default:
-    /// Whisper.
-    pub(crate) fn from_provider_name(provider: Option<&str>) -> Self {
-        match provider {
-            Some("parakeet") => Self::Parakeet,
-            Some(crate::audio::transcription::engine::AUDIO_CPP_PROVIDER) => Self::AudioCpp,
-            Some(crate::audio::transcription::engine::TRANSCRIBE_CPP_PROVIDER) => {
-                Self::TranscribeCpp
-            }
-            _ => Self::Whisper,
-        }
+    /// Anything unrecognized (including `None`) runs on transcribe.cpp, the
+    /// only local engine this build ships (the soft migration normalizes
+    /// saved providers the same way).
+    pub(crate) fn from_provider_name(_provider: Option<&str>) -> Self {
+        // transcribe.cpp is the only batch transcription engine this build
+        // ships; every saved or requested provider resolves to it (the
+        // settings soft migration normalizes saved providers the same way).
+        Self::TranscribeCpp
     }
 }
 
@@ -72,37 +66,12 @@ async fn unload_engine_after_batch_locked(
     }
 
     match engine {
-        BatchEngine::Parakeet => {
-            use crate::parakeet_engine::commands::PARAKEET_ENGINE;
-            let engine = {
-                let guard = PARAKEET_ENGINE.lock().unwrap_or_else(|e| e.into_inner());
-                guard.as_ref().cloned()
-            };
-            if let Some(e) = engine {
-                e.unload_model().await;
-            }
-        }
-        BatchEngine::AudioCpp => {
-            // Releases the model and its session thread, mirroring the
-            // Whisper/Parakeet unload above.
-            crate::audio_cpp_engine::transcription::unload_provider();
-        }
         BatchEngine::TranscribeCpp => {
-            // Releases the model and its session thread, mirroring audio.cpp.
-            // The session-thread join runs on a blocking thread inside
+            // Releases the model and its session thread. The session-thread
+            // join runs on a blocking thread inside
             // (async callers must not wait out in-flight native inference
             // on the runtime).
             crate::transcribe_cpp_engine::transcription::unload_provider().await;
-        }
-        BatchEngine::Whisper => {
-            use crate::whisper_engine::commands::WHISPER_ENGINE;
-            let engine = {
-                let guard = WHISPER_ENGINE.lock().unwrap_or_else(|e| e.into_inner());
-                guard.as_ref().cloned()
-            };
-            if let Some(e) = engine {
-                e.unload_model().await;
-            }
         }
     }
 }
@@ -320,14 +289,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn batch_engine_selection_recognizes_audio_cpp() {
-        assert_eq!(
-            BatchEngine::from_provider_name(Some("audioCpp")),
-            BatchEngine::AudioCpp
-        );
-    }
-
-    #[test]
     fn batch_engine_selection_recognizes_transcribe_cpp() {
         assert_eq!(
             BatchEngine::from_provider_name(Some("transcribeCpp")),
@@ -336,25 +297,23 @@ mod tests {
     }
 
     #[test]
-    fn batch_engine_selection_recognizes_parakeet() {
-        assert_eq!(
-            BatchEngine::from_provider_name(Some("parakeet")),
-            BatchEngine::Parakeet
-        );
-    }
-
-    #[test]
-    fn batch_engine_selection_defaults_to_whisper() {
+    fn batch_engine_selection_defaults_to_transcribe_cpp() {
+        // "whisper", "parakeet" and "audioCpp" are removed transcription
+        // providers: with those paths gone they are just unrecognized names
+        // and land on transcribe.cpp (the settings soft migration normalizes
+        // saved providers the same way).
         for provider in [
             None,
             Some("whisper"),
             Some("localWhisper"),
+            Some("parakeet"),
+            Some("audioCpp"),
             Some("deepgram"),
             Some(""),
         ] {
             assert_eq!(
                 BatchEngine::from_provider_name(provider),
-                BatchEngine::Whisper,
+                BatchEngine::TranscribeCpp,
                 "provider: {provider:?}"
             );
         }

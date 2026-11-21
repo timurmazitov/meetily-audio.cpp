@@ -103,13 +103,7 @@ No updater artifacts (`.sig`, `*.app.tar.gz`, `latest.json`) are produced: the i
 
 ## Hardware Acceleration
 
-Each platform uses optimal hardware acceleration:
-
-| Platform | Acceleration | Performance |
-|----------|-------------|-------------|
-| macOS | Metal GPU | 10-15x faster than CPU |
-| Windows | Vulkan GPU | 5-10x faster than CPU |
-| Linux | OpenBLAS CPU | 2-3x faster than vanilla CPU |
+The application compiles CPU-only; acceleration happens at runtime. Transcription (transcribe.cpp) uses Vulkan through the system driver-provided loader on every platform (Metal lane on macOS), with automatic CPU fallback; the `llama-helper` sidecar builds with Metal on macOS, Vulkan on Windows DevTest, Vulkan on the shared Linux release workflow, and CPU elsewhere. See [ACCELERATION_GUIDE.md](ACCELERATION_GUIDE.md).
 
 ## Troubleshooting
 

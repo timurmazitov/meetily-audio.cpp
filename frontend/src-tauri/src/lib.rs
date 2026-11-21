@@ -52,12 +52,10 @@ pub mod anthropic;
 pub mod groq;
 pub mod model_downloader;
 pub mod openrouter;
-pub mod parakeet_engine;
 pub mod state;
 pub mod summary;
 pub mod tray;
 pub mod utils;
-pub mod whisper_engine;
 
 use audio::{list_audio_devices, AudioDevice, trigger_audio_permission};
 use log::{error as log_error, info as log_info};
@@ -191,66 +189,9 @@ fn split_startup_logger<R: Runtime>(
 }
 static RECORDING_FLAG: AtomicBool = AtomicBool::new(false);
 
-#[cfg(target_os = "windows")]
-static ONNX_RUNTIME_INIT_ERROR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-
-pub(crate) fn ensure_onnx_runtime_available() -> anyhow::Result<()> {
-    #[cfg(target_os = "windows")]
-    if let Some(error) = ONNX_RUNTIME_INIT_ERROR.get() {
-        anyhow::bail!("{error}");
-    }
-
-    Ok(())
-}
-
-#[cfg(target_os = "windows")]
-fn catch_onnx_runtime_init<F, E>(init: F) -> Result<(), String>
-where
-    F: FnOnce() -> Result<(), E>,
-    E: std::fmt::Display,
-{
-    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(init)) {
-        Ok(result) => result.map_err(|error| error.to_string()),
-        Err(payload) => {
-            let message = payload
-                .downcast_ref::<&str>()
-                .copied()
-                .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
-                .unwrap_or("unknown panic");
-            Err(format!("ONNX Runtime initialization panicked: {message}"))
-        }
-    }
-}
-
-#[cfg(target_os = "windows")]
-fn record_onnx_runtime_failure(error: String) {
-    log::error!("{error}");
-    let _ = ONNX_RUNTIME_INIT_ERROR.set(error);
-}
-
-#[cfg(all(test, target_os = "windows"))]
-mod onnx_runtime_tests {
-    use super::catch_onnx_runtime_init;
-
-    #[test]
-    fn catch_onnx_runtime_init_converts_errors_and_panics() {
-        assert!(catch_onnx_runtime_init(|| Ok::<(), &str>(())).is_ok());
-        assert_eq!(
-            catch_onnx_runtime_init(|| Err::<(), _>("initializer error")),
-            Err("initializer error".to_string())
-        );
-
-        let error = catch_onnx_runtime_init(|| -> Result<(), &str> {
-            panic!("synthetic loader panic");
-        })
-        .unwrap_err();
-        assert!(error.contains("synthetic loader panic"));
-    }
-}
-
-// Global language preference storage (default to "auto-translate" for automatic translation to English)
+// Global language preference storage (default to "auto" for automatic language detection)
 static LANGUAGE_PREFERENCE: std::sync::LazyLock<StdMutex<String>> =
-    std::sync::LazyLock::new(|| StdMutex::new("auto-translate".to_string()));
+    std::sync::LazyLock::new(|| StdMutex::new("auto".to_string()));
 
 #[derive(Debug, Deserialize)]
 struct RecordingArgs {
@@ -455,7 +396,48 @@ async fn is_audio_level_monitoring() -> bool {
     audio::simple_level_monitor::is_monitoring()
 }
 
-// Whisper commands are now handled by whisper_engine::commands module
+/// Open the shared app-data models directory (all engine model files live
+/// under `<app_data_dir>/models`). The settings screen offers this for the
+/// user to inspect downloaded models without the app holding them open.
+#[tauri::command]
+async fn open_models_folder<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    let models_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {e}"))?
+        .join("models");
+    if !models_dir.exists() {
+        std::fs::create_dir_all(&models_dir)
+            .map_err(|e| format!("Failed to create directory: {e}"))?;
+    }
+    let folder_path = models_dir.to_string_lossy().to_string();
+
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg(&folder_path)
+            .spawn()
+            .map_err(|e| format!("Failed to open folder: {e}"))?;
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&folder_path)
+            .spawn()
+            .map_err(|e| format!("Failed to open folder: {e}"))?;
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(&folder_path)
+            .spawn()
+            .map_err(|e| format!("Failed to open folder: {e}"))?;
+    }
+
+    Ok(())
+}
 
 #[tauri::command]
 async fn get_audio_devices() -> Result<Vec<AudioDevice>, String> {
@@ -574,7 +556,6 @@ pub fn run() {
         // Updater re-enabled: own GitHub endpoint + new minisign key pair (see ADR 0002 follow-up).
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
-        .manage(whisper_engine::parallel_commands::ParallelProcessorState::new())
         .manage(Arc::new(RwLock::new(
             None::<notifications::manager::NotificationManager<tauri::Wry>>,
         )) as NotificationManagerState<tauri::Wry>)
@@ -596,35 +577,6 @@ pub fn run() {
             }
 
             log::info!("Starting application...");
-
-            #[cfg(target_os = "windows")]
-            match _app.path().resolve(
-                "onnxruntime.dll",
-                tauri::path::BaseDirectory::Resource,
-            ) {
-                Ok(runtime_path) => {
-                    match catch_onnx_runtime_init(|| {
-                        ort::init_from(runtime_path.to_string_lossy().into_owned())
-                            .with_telemetry(false)
-                            .commit()
-                            .map(|_| ())
-                    }) {
-                        Ok(()) => log::info!(
-                            "Initialized bundled ONNX Runtime from {}",
-                            runtime_path.display()
-                        ),
-                        Err(error) => record_onnx_runtime_failure(format!(
-                            "Failed to initialize bundled ONNX Runtime from {}: {}",
-                            runtime_path.display(),
-                            error
-                        )),
-                    }
-                }
-                Err(error) => record_onnx_runtime_failure(format!(
-                    "Failed to resolve bundled ONNX Runtime resource: {}",
-                    error
-                )),
-            };
             log::info!("Application setup complete");
 
             // Initialize system tray
@@ -655,26 +607,6 @@ pub fn run() {
                     Err(e) => {
                         log::error!("Failed to initialize notification manager: {}", e);
                     }
-                }
-            });
-
-            // Set models directory to use app_data_dir (unified storage location)
-            whisper_engine::commands::set_models_directory(&_app.handle());
-
-            // Initialize Whisper engine on startup
-            tauri::async_runtime::spawn(async {
-                if let Err(e) = whisper_engine::commands::whisper_init().await {
-                    log::error!("Failed to initialize Whisper engine on startup: {}", e);
-                }
-            });
-
-            // Set Parakeet models directory
-            parakeet_engine::commands::set_models_directory(&_app.handle());
-
-            // Initialize Parakeet engine on startup
-            tauri::async_runtime::spawn(async {
-                if let Err(e) = parakeet_engine::commands::parakeet_init().await {
-                    log::error!("Failed to initialize Parakeet engine on startup: {}", e);
                 }
             });
 
@@ -769,33 +701,6 @@ pub fn run() {
             read_audio_file,
             save_transcript,
             doodle::doodle_sync,
-            whisper_engine::commands::whisper_init,
-            whisper_engine::commands::whisper_get_available_models,
-            whisper_engine::commands::whisper_load_model,
-            whisper_engine::commands::whisper_get_current_model,
-            whisper_engine::commands::whisper_is_model_loaded,
-            whisper_engine::commands::whisper_has_available_models,
-            whisper_engine::commands::whisper_validate_model_ready,
-            whisper_engine::commands::whisper_transcribe_audio,
-            whisper_engine::commands::whisper_get_models_directory,
-            whisper_engine::commands::whisper_download_model,
-            whisper_engine::commands::whisper_cancel_download,
-            whisper_engine::commands::whisper_delete_corrupted_model,
-            // Parakeet engine commands
-            parakeet_engine::commands::parakeet_init,
-            parakeet_engine::commands::parakeet_get_available_models,
-            parakeet_engine::commands::parakeet_load_model,
-            parakeet_engine::commands::parakeet_get_current_model,
-            parakeet_engine::commands::parakeet_is_model_loaded,
-            parakeet_engine::commands::parakeet_has_available_models,
-            parakeet_engine::commands::parakeet_validate_model_ready,
-            parakeet_engine::commands::parakeet_transcribe_audio,
-            parakeet_engine::commands::parakeet_get_models_directory,
-            parakeet_engine::commands::parakeet_download_model,
-            parakeet_engine::commands::parakeet_retry_download,
-            parakeet_engine::commands::parakeet_cancel_download,
-            parakeet_engine::commands::parakeet_delete_corrupted_model,
-            parakeet_engine::commands::open_parakeet_models_folder,
             // audio.cpp engine commands (FFI layer)
             audio_cpp_engine::commands::audiocpp_diagnostics,
             // transcribe.cpp engine diagnostics (FFI layer)
@@ -804,7 +709,6 @@ pub fn run() {
             audio_cpp_engine::commands::audiocpp_model_init,
             audio_cpp_engine::commands::audiocpp_get_available_models,
             audio_cpp_engine::commands::audiocpp_has_available_models,
-            audio_cpp_engine::commands::audiocpp_has_transcription_model,
             audio_cpp_engine::commands::audiocpp_get_models_directory,
             audio_cpp_engine::commands::audiocpp_download_model,
             audio_cpp_engine::commands::audiocpp_cancel_download,
@@ -819,18 +723,6 @@ pub fn run() {
             transcribe_cpp_engine::commands::transcribecpp_cancel_download,
             transcribe_cpp_engine::commands::transcribecpp_delete_model,
             transcribe_cpp_engine::commands::open_transcribecpp_models_folder,
-            // Parallel processing commands
-            whisper_engine::parallel_commands::initialize_parallel_processor,
-            whisper_engine::parallel_commands::start_parallel_processing,
-            whisper_engine::parallel_commands::pause_parallel_processing,
-            whisper_engine::parallel_commands::resume_parallel_processing,
-            whisper_engine::parallel_commands::stop_parallel_processing,
-            whisper_engine::parallel_commands::get_parallel_processing_status,
-            whisper_engine::parallel_commands::get_system_resources,
-            whisper_engine::parallel_commands::check_resource_constraints,
-            whisper_engine::parallel_commands::calculate_optimal_workers,
-            whisper_engine::parallel_commands::prepare_audio_chunks,
-            whisper_engine::parallel_commands::test_parallel_processing_setup,
             get_audio_devices,
             trigger_microphone_permission,
             start_recording_with_devices,
@@ -969,7 +861,7 @@ pub fn run() {
             // Database and Models path commands
             database::commands::get_database_directory,
             database::commands::open_database_folder,
-            whisper_engine::commands::open_models_folder,
+            open_models_folder,
             // Onboarding commands
             onboarding::get_onboarding_status,
             onboarding::save_onboarding_status_cmd,

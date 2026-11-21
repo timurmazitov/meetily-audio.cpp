@@ -7,6 +7,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { useTranslation } from 'react-i18next';
 import { motion } from 'framer-motion';
 import { TranscriptSettings } from '@/components/TranscriptSettings';
+import { DEFAULT_TRANSCRIBE_CPP_MODEL } from '@/constants/modelDefaults';
 import { RecordingSettings } from '@/components/RecordingSettings';
 import { PreferenceSettings } from '@/components/PreferenceSettings';
 import { SummaryModelSettings } from '@/components/SummaryModelSettings';
@@ -38,10 +39,13 @@ export default function SettingsPage() {
         const config = await invoke('api_get_transcript_config') as any;
         if (config) {
           console.log('Loaded saved transcript config:', config);
+          // The repository soft-migrates removed providers on read; the
+          // fallback for an empty value is the transcribe.cpp default pair.
           setTranscriptModelConfig({
-            provider: config.provider || 'localWhisper',
-            model: config.model || 'large-v3',
-            apiKey: config.apiKey || null
+            provider: config.provider || 'transcribeCpp',
+            model: config.model || DEFAULT_TRANSCRIBE_CPP_MODEL,
+            apiKey: config.apiKey || null,
+            transcribeBackend: config.transcribeBackend ?? 'auto'
           });
         }
       } catch (error) {

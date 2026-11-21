@@ -143,7 +143,9 @@ function MeetingDetailsContent() {
         await invoke('api_save_model_config', {
           provider: 'ollama',
           model: 'gemma3:1b',
-          whisperModel: 'large-v3',
+          // The legacy settings.whisperModel column stays in the schema but
+          // is no longer seeded with a Whisper engine model.
+          whisperModel: '',
           apiKey: null,
           ollamaEndpoint: null,
         });

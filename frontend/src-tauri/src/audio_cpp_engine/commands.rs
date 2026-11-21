@@ -151,8 +151,8 @@ fn manager() -> Option<Arc<AudioCppModelManager>> {
     AUDIOCPP_MODEL_MANAGER.lock().unwrap().as_ref().cloned()
 }
 
-/// The initialized model manager, for other native modules (the transcription
-/// dispatcher resolves the configured model through the same catalog state the
+/// The initialized model manager, for other native modules (the diarization
+/// service resolves the installed model through the same catalog state the
 /// settings UI shows).
 pub fn model_manager() -> Option<Arc<AudioCppModelManager>> {
     manager()
@@ -202,24 +202,6 @@ pub async fn audiocpp_has_available_models() -> Result<bool, String> {
     Ok(models
         .iter()
         .any(|model| matches!(model.status, ModelStatus::Available)))
-}
-
-/// Whether at least one installed model can transcribe.
-///
-/// Readiness for recording is stricter than "a model is downloaded": a
-/// downloaded diarization model cannot produce a transcript, so the recording
-/// gate must not accept it.
-#[command]
-pub async fn audiocpp_has_transcription_model() -> Result<bool, String> {
-    let manager = manager().ok_or_else(|| "audio.cpp model manager not initialized".to_string())?;
-    let models = manager
-        .discover_models()
-        .await
-        .map_err(|error| format!("Failed to discover audio.cpp models: {error}"))?;
-    Ok(models.iter().any(|model| {
-        model.task == crate::audio_cpp_engine::ModelTask::Asr
-            && matches!(model.status, ModelStatus::Available)
-    }))
 }
 
 /// The directory holding the audio.cpp artifacts.
@@ -431,13 +413,13 @@ mod tests {
 
     #[test]
     fn progress_payload_carries_megabytes_and_speed() {
-        let payload = download_progress_payload("gigaam-v3-e2e-ctc-f16", 42, 422.0, 1.5);
+        let payload = download_progress_payload("nemotron-3-diarization-bf16", 42, 190.0, 1.5);
 
-        assert_eq!(payload["modelName"], "gigaam-v3-e2e-ctc-f16");
+        assert_eq!(payload["modelName"], "nemotron-3-diarization-bf16");
         assert_eq!(payload["progress"], 42);
         assert_eq!(payload["status"], "downloading");
-        assert_mb(payload["total_mb"].as_f64().unwrap(), 422.0);
-        assert_mb(payload["downloaded_mb"].as_f64().unwrap(), 177.24);
+        assert_mb(payload["total_mb"].as_f64().unwrap(), 190.0);
+        assert_mb(payload["downloaded_mb"].as_f64().unwrap(), 79.8);
         assert_mb(payload["speed_mbps"].as_f64().unwrap(), 1.5);
     }
 

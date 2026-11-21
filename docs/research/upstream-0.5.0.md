@@ -1,5 +1,7 @@
 # Upstream Meetily v0.5.0: что изменилось относительно v0.4.1
 
+> **Историческое исследование** (см. также [ADR 0007](../adr/0007-consolidation-on-transcribe-cpp.md)): фиксирует состояние форка до удаления движков Whisper/Parakeet и GPU-сборок; упоминаемые `whisper-rs`, `build-gpu.*`/`dev-gpu.*` удалены.
+
 Источники: клон `/tmp/opencode/meetily-upstream` (теги `v0.4.1`, `v0.5.0`), release notes
 <https://github.com/Zackriya-Solutions/meetily/releases/tag/v0.5.0>, PR-описания через GitHub API.
 Форк уже содержит merge-коммит `e991463` (PR #907).

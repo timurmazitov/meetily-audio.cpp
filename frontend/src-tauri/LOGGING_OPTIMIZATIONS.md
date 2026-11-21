@@ -1,5 +1,7 @@
 # Logging Optimizations for Transcription Performance
 
+> **Historical document.** The file paths and "Files Modified" entries below record what changed at the time of the optimization, including the now-removed `whisper_engine/` module (local transcription has since been consolidated on transcribe.cpp — see [ADR 0007](../../docs/adr/0007-consolidation-on-transcribe-cpp.md)). The `perf_debug!`/`perf_trace!` guidance remains current.
+
 ## Summary
 This document outlines the comprehensive logging optimizations implemented to eliminate transcription delays caused by excessive output/logging overhead.
 

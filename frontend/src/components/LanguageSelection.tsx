@@ -1,19 +1,20 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Globe } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { useConfig } from '@/contexts/ConfigContext';
-import { supportsTranslation } from '@/lib/transcription-provider';
 import { useContentLanguageName } from '@/lib/content-languages';
 export interface Language {
   code: string;
   name: string;
 }
 
-// ISO 639-1 language codes supported by Whisper
+// Language codes a hint may name. transcribe.cpp forwards the hint to the
+// model natively (models that do not consume a hint ignore it), and "auto" is
+// autodetect; there is no translation: every language transcribes in the
+// language it hears, so the old Whisper-only `auto-translate` option is gone.
 const LANGUAGES: Language[] = [
   { code: 'auto', name: 'Auto Detect (Original Language)' },
-  { code: 'auto-translate', name: 'Auto Detect (Translate to English)' },
   { code: 'en', name: 'English' },
   { code: 'zh', name: 'Chinese' },
   { code: 'de', name: 'German' },
@@ -119,24 +120,19 @@ interface LanguageSelectionProps {
   selectedLanguage: string;
   onLanguageChange: (language: string) => void;
   disabled?: boolean;
-  provider?: 'localWhisper' | 'parakeet' | 'audioCpp' | 'transcribeCpp' | 'deepgram' | 'elevenLabs' | 'groq' | 'openai';
+  /**
+   * The transcription provider. transcribe.cpp is the only local provider;
+   * the prop remains so callers keep passing the configured value and the
+   * component can explain the engine's language behavior.
+   */
+  provider?: 'transcribeCpp';
 }
-
-/**
- * Automatic translation is a Whisper-only capability: the local Whisper
- * decoder translates to English through its `translate` flag, while audioCpp
- * (GigaAM), transcribe.cpp and Parakeet only transcribe in the language they
- * hear.
- */
-
-/** The language option value that requests translation to English. */
-const AUTO_TRANSLATE_CODE = 'auto-translate';
 
 export function LanguageSelection({
   selectedLanguage,
   onLanguageChange,
   disabled = false,
-  provider = 'localWhisper'
+  provider = 'transcribeCpp'
 }: LanguageSelectionProps) {
   const { t } = useTranslation();
   const contentLanguageName = useContentLanguageName();
@@ -145,24 +141,6 @@ export function LanguageSelection({
 
   /** One language's name in the interface language, e.g. «Английский». */
   const nameOf = (language: Language) => contentLanguageName(language.code, language.name);
-  const translationWhisperOnly = t('languageSelection.translationWhisperOnly');
-
-  // Parakeet only supports auto-detection (doesn't support manual language
-  // selection), but it kept the auto-translate option before audioCpp landed,
-  // so that behaviour is preserved verbatim.
-  const isParakeet = provider === 'parakeet';
-  // audioCpp transcribes in the model's trained language (Russian for GigaAM)
-  // and is the only provider that loses the translation option.
-  const isAudioCpp = provider === 'audioCpp';
-  // transcribe.cpp behaves like audioCpp here: it transcribes (and detects)
-  // but cannot translate, so it loses the auto-translate option too.
-  const isTranscribeCpp = provider === 'transcribeCpp';
-  const translationAvailable = supportsTranslation(provider);
-  const availableLanguages = isParakeet
-    ? LANGUAGES.filter(lang => lang.code === 'auto' || lang.code === AUTO_TRANSLATE_CODE)
-    : isAudioCpp || isTranscribeCpp
-      ? LANGUAGES.filter(lang => lang.code !== AUTO_TRANSLATE_CODE)
-      : LANGUAGES;
 
   const handleLanguageChange = async (languageCode: string) => {
     setSaving(true);
@@ -194,11 +172,11 @@ export function LanguageSelection({
     ? nameOf(selectedOption)
     : nameOf(LANGUAGES[0]);
 
-  // audioCpp and transcribe.cpp must not leave a stale translation preference
-  // active: the transcription would arrive untranslated while the UI claims
-  // English output. Parakeet's previous behaviour is untouched.
-  const staleTranslation =
-    (isAudioCpp || isTranscribeCpp) && selectedLanguage === AUTO_TRANSLATE_CODE && !translationAvailable;
+  // A "auto-translate" preference saved while Whisper existed must not keep
+  // the UI claiming English output: transcribe.cpp only transcribes, so the
+  // select falls back to auto-detect (the backend degrades the hint the same
+  // way).
+  const staleTranslation = selectedLanguage === 'auto-translate';
 
   return (
     <div className="space-y-4">
@@ -216,34 +194,16 @@ export function LanguageSelection({
           disabled={disabled || saving}
           className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-50 disabled:text-gray-500"
         >
-          {availableLanguages.map((language) => (
+          {LANGUAGES.map((language) => (
             <option key={language.code} value={language.code}>
               {nameOf(language)}
-              {language.code !== 'auto' && language.code !== AUTO_TRANSLATE_CODE && ` (${language.code})`}
+              {language.code !== 'auto' && ` (${language.code})`}
             </option>
           ))}
         </select>
 
-        {/* Parakeet language limitation warning */}
-        {isParakeet && (
-          <div className="p-2 bg-amber-50 border border-amber-200 rounded text-amber-800">
-            <p className="font-medium">ℹ️ {t('languageSelection.parakeetTitle')}</p>
-            <p className="mt-1 text-xs">{t('languageSelection.parakeetBody')}</p>
-          </div>
-        )}
-
-        {/* audioCpp: translation is Whisper-only */}
-        {isAudioCpp && (
-          <div className="p-2 bg-amber-50 border border-amber-200 rounded text-amber-800" data-testid="audiocpp-translation-notice">
-            <p className="font-medium">ℹ️ {t('languageSelection.audioCppTitle')}</p>
-            <p className="mt-1 text-xs">
-              {translationWhisperOnly}
-            </p>
-          </div>
-        )}
-
-        {/* transcribe.cpp: translation is Whisper-only, like audioCpp */}
-        {isTranscribeCpp && (
+        {/* transcribe.cpp: transcription keeps the spoken language */}
+        {provider === 'transcribeCpp' && (
           <div className="p-2 bg-amber-50 border border-amber-200 rounded text-amber-800" data-testid="transcribecpp-translation-notice">
             <p className="font-medium">ℹ️ {t('languageSelection.transcribeCppTitle')}</p>
             <p className="mt-1 text-xs">
@@ -257,25 +217,13 @@ export function LanguageSelection({
           <p className="text-gray-600">
             <strong>{t('languageSelection.current')}</strong> {selectedLanguageName}
           </p>
-          {staleTranslation && (
-            <div className="p-2 bg-amber-50 border border-amber-200 rounded text-amber-800">
-              <p className="font-medium">⚠️ {t('languageSelection.translationUnavailable')}</p>
-              <p className="mt-1">{translationWhisperOnly}</p>
-            </div>
-          )}
           {selectedLanguage === 'auto' && (
             <div className="p-2 bg-yellow-50 border border-yellow-200 rounded text-yellow-800">
               <p className="font-medium">⚠️ {t('languageSelection.autoWarningTitle')}</p>
               <p className="mt-1">{t('languageSelection.autoWarningBody')}</p>
             </div>
           )}
-          {selectedLanguage === AUTO_TRANSLATE_CODE && translationAvailable && (
-            <div className="p-2 bg-blue-50 border border-blue-200 rounded text-blue-800">
-              <p className="font-medium">🌐 {t('languageSelection.translationModeTitle')}</p>
-              <p className="mt-1">{t('languageSelection.translationModeBody')}</p>
-            </div>
-          )}
-          {selectedLanguage !== 'auto' && selectedLanguage !== AUTO_TRANSLATE_CODE && (
+          {selectedLanguage !== 'auto' && !staleTranslation && (
             <p className="text-gray-600">
               {t('languageSelection.optimizedFor')} <strong>{selectedLanguageName}</strong>
             </p>

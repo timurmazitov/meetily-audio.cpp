@@ -277,7 +277,7 @@ test('Continue does not complete onboarding when the ASR check throws', async ()
   await renderStep();
 
   invokeImpl = async command => {
-    if (command === 'audiocpp_has_transcription_model') {
+    if (command === 'transcribecpp_has_transcription_model') {
       throw new Error('manager not initialized');
     }
     return undefined;
@@ -308,7 +308,7 @@ test('Continue is blocked when the ASR model is not installed on disk', async ()
   await renderStep();
 
   invokeImpl = async command => {
-    if (command === 'audiocpp_has_transcription_model') return false;
+    if (command === 'transcribecpp_has_transcription_model') return false;
     return undefined;
   };
 

@@ -53,8 +53,6 @@ concurrency:
 env:
   RUST_BACKTRACE: 1
   CARGO_TERM_COLOR: always
-  WHISPER_NO_AVX: ON
-  WHISPER_NO_AVX2: ON
 
 jobs:
   release-clone:
@@ -162,11 +160,16 @@ jobs:
           workspaces: ". -> target"
           key: ${{ github.event.inputs.ubuntu-version || 'ubuntu-22.04' }}-x86_64-unknown-linux-gnu
 
+      # No Vulkan SDK / OpenBLAS install: the only transcription engine
+      # (transcribe.cpp) loads its prebuilt runtime at execution and uses the
+      # driver-provided system Vulkan loader, and the llama-helper below
+      # builds CPU-only. See docs/GPU_ACCELERATION.md (runtime Vulkan model).
+
       - name: Install dependencies (Ubuntu 24.04)
         if: github.event.inputs.ubuntu-version == 'ubuntu-24.04'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libappindicator3-dev librsvg2-dev patchelf libasound2-dev libopenblas-dev libx11-dev libxtst-dev libxrandr-dev \
+          sudo apt-get install -y libappindicator3-dev librsvg2-dev patchelf libasound2-dev libx11-dev libxtst-dev libxrandr-dev \
             libwebkit2gtk-4.1-0=2.44.0-2 \
             libwebkit2gtk-4.1-dev=2.44.0-2 \
             libjavascriptcoregtk-4.1-0=2.44.0-2 \
@@ -178,25 +181,7 @@ jobs:
         if: github.event.inputs.ubuntu-version == 'ubuntu-22.04' || github.event.inputs.ubuntu-version == ''
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libasound2-dev libopenblas-dev libx11-dev libxtst-dev libxrandr-dev
-
-      - name: Prepare Vulkan SDK (Ubuntu 24.04)
-        if: github.event.inputs.ubuntu-version == 'ubuntu-24.04'
-        run: |
-          wget -qO- https://packages.lunarg.com/lunarg-signing-key-pub.asc | sudo tee /etc/apt/trusted.gpg.d/lunarg.asc
-          sudo wget -qO /etc/apt/sources.list.d/lunarg-vulkan-1.3.290-noble.list https://packages.lunarg.com/vulkan/1.3.290/lunarg-vulkan-1.3.290-noble.list
-          sudo apt update
-          sudo apt install vulkan-sdk -y
-          sudo apt-get install -y mesa-vulkan-drivers
-
-      - name: Prepare Vulkan SDK (Ubuntu 22.04)
-        if: github.event.inputs.ubuntu-version == 'ubuntu-22.04' || github.event.inputs.ubuntu-version == ''
-        run: |
-          wget -qO- https://packages.lunarg.com/lunarg-signing-key-pub.asc | sudo tee /etc/apt/trusted.gpg.d/lunarg.asc
-          sudo wget -qO /etc/apt/sources.list.d/lunarg-vulkan-1.3.290-jammy.list https://packages.lunarg.com/vulkan/1.3.290/lunarg-vulkan-1.3.290-jammy.list
-          sudo apt update
-          sudo apt install vulkan-sdk -y
-          sudo apt-get install -y mesa-vulkan-drivers
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libasound2-dev libx11-dev libxtst-dev libxrandr-dev
 
       - name: Install FUSE for AppImage
         run: |
@@ -236,7 +221,7 @@ jobs:
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         with:
           projectPath: frontend
-          args: --target x86_64-unknown-linux-gnu --features openblas ${{ steps.build-profile.outputs.args }}
+          args: --target x86_64-unknown-linux-gnu ${{ steps.build-profile.outputs.args }}
 
       - name: Verify build artifacts
         run: |

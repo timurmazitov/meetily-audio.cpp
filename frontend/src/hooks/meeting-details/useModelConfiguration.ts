@@ -13,7 +13,7 @@ export function useModelConfiguration({ serverAddress }: UseModelConfigurationPr
   const [modelConfig, setModelConfig] = useState<ModelConfig>({
     provider: 'ollama',
     model: '', // Empty until loaded from DB
-    whisperModel: 'large-v3'
+    whisperModel: ''
   });
   const [isLoading, setIsLoading] = useState(true);
   const [, setError] = useState<string>('');

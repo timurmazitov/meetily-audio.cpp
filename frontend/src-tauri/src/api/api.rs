@@ -787,8 +787,8 @@ pub async fn api_get_transcript_config<R: Runtime>(
         Ok(None) => {
             log_info!("No transcript config found, returning default.");
             Ok(Some(TranscriptConfig {
-                provider: "parakeet".to_string(),
-                model: crate::config::DEFAULT_PARAKEET_MODEL.to_string(),
+                provider: crate::audio::transcription::engine::TRANSCRIBE_CPP_PROVIDER.to_string(),
+                model: crate::config::DEFAULT_TRANSCRIBE_CPP_MODEL.to_string(),
                 api_key: None,
                 transcribe_backend: Some(
                     crate::transcribe_cpp_engine::backend::ComputeMode::Auto

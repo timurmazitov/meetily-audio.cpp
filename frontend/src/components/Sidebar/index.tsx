@@ -11,6 +11,7 @@ import { ConfirmationModal } from '../ConfirmationModel/confirmation-modal';
 import { ModelConfig } from '@/components/ModelSettingsModal';
 import { SettingTabs } from '../SettingTabs';
 import { TranscriptModelProps } from '@/components/TranscriptSettings';
+import { DEFAULT_TRANSCRIBE_CPP_MODEL } from '@/constants/modelDefaults';
 import { invoke } from '@tauri-apps/api/core';
 import { getVersion } from '@tauri-apps/api/app';
 import { fromDateTimeInputValue, toDateTimeInputValue } from '@/lib/meeting-datetime';
@@ -70,8 +71,8 @@ const Sidebar: React.FC = () => {
     ollamaEndpoint: null
   });
   const [transcriptModelConfig, setTranscriptModelConfig] = useState<TranscriptModelProps>({
-    provider: 'parakeet',
-    model: 'parakeet-tdt-0.6b-v3-int8',
+    provider: 'transcribeCpp',
+    model: DEFAULT_TRANSCRIBE_CPP_MODEL,
   });
   const [settingsSaveSuccess, setSettingsSaveSuccess] = useState<boolean | null>(null);
   const [appVersion, setAppVersion] = useState<string>('');

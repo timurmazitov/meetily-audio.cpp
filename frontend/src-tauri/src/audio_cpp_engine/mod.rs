@@ -1,5 +1,5 @@
-//! audio.cpp (GigaAM + Nemotron) transcription engine module — FFI layer and
-//! model management.
+//! audio.cpp (Nemotron diarization) engine module — FFI layer and model
+//! management.
 //!
 //! Handwritten `extern "C"` binding to the audio.cpp C ABI (pinned release
 //! v0.9.5, ABI 0.3.0; minimum 0.2.x — there are no official Rust bindings). All
@@ -8,10 +8,14 @@
 //! [`AudioCpp`], its handle wrappers, [`AudioCppError`] and the diagnostic
 //! command.
 //!
+//! audio.cpp serves one purpose: speaker diarization (the Nemotron model)
+//! over a finished transcript. The ASR path (GigaAM) was removed with the
+//! transcribe.cpp consolidation, so nothing here can transcribe audio.
+//!
 //! Model management (`catalog`, `models`) is deliberately independent of the
 //! FFI layer: it lists, downloads, validates and deletes model files without
-//! loading the native library, so models can be managed before transcription
-//! support exists.
+//! loading the native library, so models can be managed before a diarization
+//! pass exists.
 //!
 //! Threading contract (docs/research/audio-cpp-c-api.md):
 //! - Handles are not thread-safe: one session is serviced by one thread.
@@ -32,25 +36,19 @@ pub mod engine;
 pub mod error;
 pub mod models;
 pub mod session_thread;
-pub mod transcription;
 pub mod wrapper;
 
 pub use backend::{autodetect_backend, session_config, AudioCppBackend};
 pub use catalog::{ModelInfo, ModelSpec, ModelStatus, ModelTask};
 pub use commands::*;
 pub use engine::{
-    AudioCppEngine, AudioCppModel, DiarizationOutput, NativeAudioCppEngine, TranscriptionOutput,
-    ASR_TASK, DIAR_TASK, MIN_SAMPLES, OFFLINE_MODE, SAMPLE_RATE,
+    load_native_engine, AudioCppEngine, AudioCppModel, DiarizationOutput, NativeAudioCppEngine,
+    DIAR_TASK, MIN_SAMPLES, OFFLINE_MODE, SAMPLE_RATE,
 };
 pub use error::{AbiVersion, AudioCppError, Status};
 pub use models::{AudioCppModelManager, CancelDownloadOutcome};
 pub use session_thread::{SessionHandle, SessionLoadError, SessionTask, SessionThread};
-pub use transcription::{
-    load_native_engine, load_native_provider, provider as audio_cpp_provider,
-    select_transcription_model, set_provider as set_audio_cpp_provider,
-    unload_provider as unload_audio_cpp_provider, ModelNotReady,
-};
 pub use wrapper::{
-    AudioCpp, AudioCppResult, BackendConfig, Model, Options, Registry, Request, Segment, Session,
+    AudioCpp, AudioCppResult, BackendConfig, Model, Options, Registry, Request, Session,
     SpeakerTurn,
 };

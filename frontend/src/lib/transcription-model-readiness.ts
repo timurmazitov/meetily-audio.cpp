@@ -1,4 +1,4 @@
-import { AUDIO_CPP_PROVIDER, TRANSCRIBE_CPP_PROVIDER } from './transcription-provider';
+import { TRANSCRIBE_CPP_PROVIDER } from './transcription-provider';
 
 export interface ModelWithStatus {
   status?: unknown;
@@ -11,38 +11,26 @@ interface ProviderCommands {
 }
 
 const PROVIDER_COMMANDS: Record<string, ProviderCommands> = {
-  localWhisper: {
-    initialize: 'whisper_init',
-    hasAvailableModels: 'whisper_has_available_models',
-    getAvailableModels: 'whisper_get_available_models',
-  },
-  parakeet: {
-    initialize: 'parakeet_init',
-    hasAvailableModels: 'parakeet_has_available_models',
-    getAvailableModels: 'parakeet_get_available_models',
-  },
-  [AUDIO_CPP_PROVIDER]: {
-    initialize: 'audiocpp_model_init',
-    // Only a transcription model can record: a downloaded diarization model
-    // alone is not enough, so this is not the generic catalog check.
-    hasAvailableModels: 'audiocpp_has_transcription_model',
-    getAvailableModels: 'audiocpp_get_available_models',
-  },
   [TRANSCRIBE_CPP_PROVIDER]: {
     initialize: 'transcribecpp_model_init',
-    // The transcribe.cpp catalog is ASR-only; this mirrors audio.cpp's gate
-    // so tightening it later does not need a frontend rename.
+    // The transcribe.cpp catalog is ASR-only: only an installed model can
+    // produce a transcript, so the gate is the transcription-model command.
     hasAvailableModels: 'transcribecpp_has_transcription_model',
     getAvailableModels: 'transcribecpp_get_available_models',
   },
 };
 
-export function getProviderCommands(provider: string): ProviderCommands | null {
-  return PROVIDER_COMMANDS[provider] ?? null;
+/**
+ * Commands that check whether the provider has a usable model.
+ *
+ * transcribe.cpp is the only local engine; any other provider string —
+ * including the removed `localWhisper`/`parakeet`/`audioCpp` values still
+ * found in saved configs that predate the soft migration — maps to the
+ * transcribe.cpp commands, mirroring the repository's read-side normalization.
+ */
+export function getProviderCommands(provider: string): ProviderCommands {
+  return PROVIDER_COMMANDS[provider] ?? PROVIDER_COMMANDS[TRANSCRIBE_CPP_PROVIDER];
 }
-
-/** Provider id of the audio.cpp engine, re-exported from the single source. */
-export { AUDIO_CPP_PROVIDER } from './transcription-provider';
 
 export function hasDownloadingModel(models: ModelWithStatus[]): boolean {
   return models.some(({ status }) => (

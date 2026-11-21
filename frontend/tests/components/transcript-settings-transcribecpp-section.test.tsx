@@ -8,8 +8,6 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 // suites that run later.
 const originalPaths = [
   '../../src/components/ui/select',
-  '../../src/components/WhisperModelManager',
-  '../../src/components/ParakeetModelManager',
   '../../src/components/AudioCppModelManager',
   '../../src/components/TranscribeCppModelManager',
 ] as const;
@@ -22,7 +20,7 @@ afterAll(() => {
 
 // Radix Select needs a DOM and a portal; the component under test only wires
 // values and callbacks, so plain containers keep that wiring observable —
-// and record the provider selector's props so a test can drive a change.
+// and record each Select's props so a test can drive a change.
 interface SelectRender {
   value: unknown;
   onValueChange?: (value: string) => void;
@@ -48,14 +46,6 @@ mock.module('../../src/components/ui/select', () => {
 
 // Each manager has its own suite; stubbing them keeps this test free of Tauri
 // listeners and of the model catalogs.
-mock.module('../../src/components/WhisperModelManager', () => ({
-  ModelManager: () => <div data-testid="fake-whisper-model-manager" />,
-}));
-
-mock.module('../../src/components/ParakeetModelManager', () => ({
-  ParakeetModelManager: () => <div data-testid="fake-parakeet-model-manager" />,
-}));
-
 const managerRenders: Array<Record<string, unknown>> = [];
 mock.module('../../src/components/AudioCppModelManager', () => ({
   AudioCppModelManager: (props: Record<string, unknown>) => {
@@ -71,8 +61,8 @@ mock.module('../../src/components/TranscribeCppModelManager', () => ({
   },
 }));
 
-// Provider switching persists the config through the Tauri bridge; capture
-// that invoke. Sibling suites can leave a partial mock of the bridge
+// Provider and mode changes persist the config through the Tauri bridge;
+// capture that invoke. Sibling suites can leave a partial mock of the bridge
 // registered (or restore the real module) around this file's run, so the
 // pristine exports are loaded through the file URL — that resolution bypasses
 // the mock registry — the fake is re-applied before every test, and
@@ -115,12 +105,10 @@ await import('../../src/i18n');
 // imported it (and bound its Tauri bridge) before this file ran, and a cached
 // module keeps the bridge it captured at its own import time. The specifier is
 // a variable so TypeScript does not try to resolve the cache-busting query.
-const settingsPath = '../../src/components/TranscriptSettings?v=tcp-04';
+const settingsPath = '../../src/components/TranscriptSettings?v=tcp-05';
 const settingsModule: typeof import('../../src/components/TranscriptSettings') =
   await import(settingsPath);
 const { TranscriptSettings } = settingsModule;
-
-type Provider = 'localWhisper' | 'parakeet' | 'audioCpp' | 'transcribeCpp';
 
 let renderer: ReactTestRenderer | undefined;
 let savedConfig: { provider: string; model: string; transcribeBackend?: string } | undefined;
@@ -135,14 +123,13 @@ afterEach(async () => {
 });
 
 async function render(
-  provider: Provider,
   model = 'some-model',
   transcribeBackend?: 'auto' | 'vulkan' | 'cpu',
 ) {
   await act(async () => {
     renderer = create(
       <TranscriptSettings
-        transcriptModelConfig={{ provider, model, transcribeBackend }}
+        transcriptModelConfig={{ provider: 'transcribeCpp', model, transcribeBackend }}
         setTranscriptModelConfig={config => { savedConfig = config; }}
       />,
     );
@@ -154,75 +141,49 @@ function textOf(node: ReactTestRenderer) {
   return JSON.stringify(node.toJSON());
 }
 
-/** The provider dropdown: the Select whose value is the current provider. */
-function providerSelect() {
-  return selectRenders.find(entry => entry.value === 'localWhisper'
-    || entry.value === 'parakeet'
-    || entry.value === 'audioCpp'
-    || entry.value === 'transcribeCpp');
-}
+test('the engine selector is gone: no dropdown offers a removed provider', async () => {
+  const view = await render('parakeet-ultra-Q8_0');
 
-test('the transcribeCpp provider is offered in the selector', async () => {
-  const view = await render('parakeet');
-
-  expect(textOf(view)).toContain('Transcribe.cpp');
+  // The selector's labels and options must not appear anywhere.
+  const text = textOf(view);
+  expect(text).not.toContain('Select provider');
+  for (const removedLabel of ['Local Whisper', 'Parakeet (Recommended', 'audioCpp']) {
+    expect(text).not.toContain(removedLabel);
+  }
 });
 
-test('selecting transcribeCpp mounts its manager and persists the config', async () => {
-  await render('parakeet');
+test('the Transcribe.CPP model table shows without any engine choice', async () => {
+  await render('parakeet-ultra-Q8_0');
 
-  const select = providerSelect();
-  expect(select?.onValueChange).toBeDefined();
-  await act(async () => { select!.onValueChange?.('transcribeCpp'); });
-
-  // The manager branch for the new provider is mounted (plus the shared
-  // diarization section, which stays audio.cpp's). State changes re-render the
-  // stubs, so assert on presence rather than render counts.
   const transcription = managerRenders.filter(props => props.manager === 'transcribeCpp');
   expect(transcription.length).toBeGreaterThan(0);
   expect(transcription.at(-1)!.autoSave).toBe(true);
   expect(typeof transcription.at(-1)!.onModelSelect).toBe('function');
-  expect(managerRenders.some(props => props.manager === 'audioCpp' && props.task === 'diar'))
-    .toBe(true);
-
-  // Switching to a local provider saves it immediately, without an API key.
-  // The compute mode travels with the save: without it the backend would
-  // normalize the saved mode back to 'auto'.
-  const saveCall = invokeCalls.find(
-    call => call.command === 'api_save_transcript_config',
-  );
-  expect(saveCall).toBeDefined();
-  expect(saveCall!.args).toEqual({
-    provider: 'transcribeCpp',
-    model: '',
-    apiKey: null,
-    transcribeBackend: 'auto',
-  });
-  expect(savedConfig?.provider).toBe('transcribeCpp');
+  // The shared diarization section stays audio.cpp's.
+  expect(managerRenders.some(props => props.manager === 'audioCpp')).toBe(true);
 });
 
-test('a transcribeCpp selection receives the configured model only while it is the provider', async () => {
-  await render('transcribeCpp', 'parakeet-ultra-Q8_0');
+test('the transcribeCpp manager receives the configured model', async () => {
+  await render('parakeet-ultra-Q8_0');
 
   const [transcription] = managerRenders.filter(props => props.manager === 'transcribeCpp');
   expect(transcription.selectedModel).toBe('parakeet-ultra-Q8_0');
 });
 
-test('the transcribeCpp provider renders no cloud model dropdown', async () => {
-  // Every rendered Select is a dropdown; a third one would be the cloud
-  // model list, which local providers must not show. transcribeCpp renders
-  // exactly two: the provider selector and its compute-mode selector.
-  await render('transcribeCpp', 'parakeet-ultra-Q8_0');
+test('exactly one dropdown remains: the compute-mode selector', async () => {
+  // Every rendered Select is a dropdown. With the engine selector gone only
+  // the compute-mode selector is left: no cloud model list, no provider list.
+  await render('parakeet-ultra-Q8_0');
 
-  expect(selectRenders).toHaveLength(2);
+  expect(selectRenders).toHaveLength(1);
   const values = selectRenders.map(entry => entry.value);
-  expect(values).toContain('transcribeCpp'); // provider selector
   expect(values).toContain('auto'); // compute-mode selector
+  expect(values).not.toContain('transcribeCpp'); // no provider selector
   expect(values).not.toContain('parakeet-ultra-Q8_0'); // no cloud model list
 });
 
 test('the compute-mode selector offers Auto, Vulkan and CPU', async () => {
-  const view = await render('transcribeCpp', 'parakeet-ultra-Q8_0');
+  const view = await render('parakeet-ultra-Q8_0');
 
   const text = textOf(view);
   expect(text).toContain('Compute mode');
@@ -232,7 +193,7 @@ test('the compute-mode selector offers Auto, Vulkan and CPU', async () => {
 });
 
 test('choosing Vulkan persists the mode through the transcript config save', async () => {
-  await render('transcribeCpp', 'parakeet-ultra-Q8_0');
+  await render('parakeet-ultra-Q8_0');
 
   const modeSelect = selectRenders.find(entry => entry.value === 'auto');
   expect(modeSelect?.onValueChange).toBeDefined();
@@ -252,7 +213,7 @@ test('choosing Vulkan persists the mode through the transcript config save', asy
 });
 
 test('the manager autoSave carries the saved mode so a model change keeps it', async () => {
-  await render('transcribeCpp', 'parakeet-ultra-Q8_0', 'vulkan');
+  await render('parakeet-ultra-Q8_0', 'vulkan');
 
   const [transcription] = managerRenders.filter(props => props.manager === 'transcribeCpp');
   const saveSelection = transcription!.saveSelection as (config: {

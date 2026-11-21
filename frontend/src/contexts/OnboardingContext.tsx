@@ -7,7 +7,7 @@ import type { PermissionStatus, OnboardingPermissions } from '@/types/onboarding
 import { resolveOnboardingSummaryModelStatus } from '@/lib/onboarding-summary-model';
 import {
   AUDIOCPP_DIARIZATION_MODEL,
-  AUDIOCPP_TRANSCRIPTION_MODEL,
+  ONBOARDING_TRANSCRIPTION_MODEL,
   applyAudioCppCompleteEvent,
   applyAudioCppErrorEvent,
   applyAudioCppProgressEvent,
@@ -33,6 +33,14 @@ import {
   type AudioCppDownloadProgressEvent,
   type AudioCppModelInfo,
 } from '@/lib/audiocpp';
+import {
+  TRANSCRIBECPP_COMMANDS,
+  TRANSCRIBECPP_EVENTS,
+  type TranscribeCppDownloadCompleteEvent,
+  type TranscribeCppDownloadErrorEvent,
+  type TranscribeCppDownloadProgressEvent,
+  type TranscribeCppModelInfo,
+} from '@/lib/transcribeCpp';
 
 interface OnboardingStatus {
   version: string;
@@ -95,8 +103,8 @@ interface OnboardingContextType {
 }
 
 interface StartBackgroundDownloadsOptions {
-  includeAudioCppTranscription: boolean;
-  includeAudioCppDiarization: boolean;
+  includeTranscription: boolean;
+  includeDiarization: boolean;
   includeSummary: boolean;
   summaryModel?: string;
 }
@@ -267,7 +275,9 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
     };
   }, [currentStep, transcriptionModelDownloaded, diarizationModelDownloaded, summaryModelDownloaded, completed]);
 
-  // Listen to audio.cpp model download events (transcription + diarization)
+  // Listen to the two onboarding downloads: the transcribe.cpp transcription
+  // model and the audio.cpp diarization model. The card-state reducers match
+  // on model name, so each engine's events move only its own card.
   useEffect(() => {
     const unlistenProgress = listen<AudioCppDownloadProgressEvent>(
       AUDIOCPP_EVENTS.progress,
@@ -294,10 +304,38 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
       }
     );
 
+    const unlistenTcpProgress = listen<TranscribeCppDownloadProgressEvent>(
+      TRANSCRIBECPP_EVENTS.progress,
+      (event) => {
+        if (event.payload.status === 'cancelled') {
+          setIsBackgroundDownloading(false);
+        }
+        setAudioCppModelStates(states => applyAudioCppProgressEvent(states, event.payload));
+      }
+    );
+
+    const unlistenTcpComplete = listen<TranscribeCppDownloadCompleteEvent>(
+      TRANSCRIBECPP_EVENTS.complete,
+      (event) => {
+        setAudioCppModelStates(states => applyAudioCppCompleteEvent(states, event.payload));
+      }
+    );
+
+    const unlistenTcpError = listen<TranscribeCppDownloadErrorEvent>(
+      TRANSCRIBECPP_EVENTS.error,
+      (event) => {
+        console.error('transcribe.cpp model download error:', event.payload.modelName, event.payload.error);
+        setAudioCppModelStates(states => applyAudioCppErrorEvent(states, event.payload));
+      }
+    );
+
     return () => {
       unlistenProgress.then(fn => fn());
       unlistenComplete.then(fn => fn());
       unlistenError.then(fn => fn());
+      unlistenTcpProgress.then(fn => fn());
+      unlistenTcpComplete.then(fn => fn());
+      unlistenTcpError.then(fn => fn());
     };
   }, []);
 
@@ -403,13 +441,29 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
     let summaryModelDownloaded = false;
     let selectedSummaryModel = '';
 
-    // Verify the audio.cpp transcription model (ASR gate) and diarization
-    // model (advisory: a missing Nemotron must not block onboarding).
+    // Verify the transcribe.cpp transcription model (ASR gate) and the
+    // audio.cpp diarization model (advisory: a missing Nemotron must not
+    // block onboarding).
+    try {
+      transcriptionModelDownloaded = await invoke<boolean>(
+        TRANSCRIBECPP_COMMANDS.hasTranscriptionModel
+      );
+      const tcpModels = await invoke<TranscribeCppModelInfo[]>(
+        TRANSCRIBECPP_COMMANDS.getAvailableModels
+      );
+      // Catalogued sizes make the cards readable before any progress event.
+      setAudioCppModelStates(states => seedAudioCppModelSizes(states, tcpModels));
+      console.log(
+        '[OnboardingContext] transcribe.cpp model verified on disk:',
+        transcriptionModelDownloaded
+      );
+    } catch (error) {
+      console.warn('[OnboardingContext] Failed to verify the transcribe.cpp model:', error);
+      transcriptionModelDownloaded = false;
+    }
+
     try {
       await invoke(AUDIOCPP_COMMANDS.init);
-      transcriptionModelDownloaded = await invoke<boolean>(
-        AUDIOCPP_COMMANDS.hasTranscriptionModel
-      );
       const models = await invoke<AudioCppModelInfo[]>(
         AUDIOCPP_COMMANDS.getAvailableModels
       );
@@ -420,12 +474,11 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
       // Catalogued sizes make the cards readable before any progress event.
       setAudioCppModelStates(states => seedAudioCppModelSizes(states, models));
       console.log(
-        '[OnboardingContext] audio.cpp models verified on disk:',
-        { transcriptionModelDownloaded, diarizationModelDownloaded }
+        '[OnboardingContext] audio.cpp model verified on disk:',
+        diarizationModelDownloaded
       );
     } catch (error) {
       console.warn('[OnboardingContext] Failed to verify audio.cpp models:', error);
-      transcriptionModelDownloaded = false;
       diarizationModelDownloaded = false;
     }
 
@@ -531,16 +584,24 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
 
       // Re-check the ASR gate and the diarization install here instead of
       // blindly marking both cards installed: the completion command writes
-      // the audioCpp transcript config, so a missing GigaAM must not be
+      // the transcript config, so a missing transcribe.cpp model must not be
       // remembered as downloaded.
       try {
-        await invoke(AUDIOCPP_COMMANDS.init);
         const transcriptionReady = await invoke<boolean>(
-          AUDIOCPP_COMMANDS.hasTranscriptionModel
+          TRANSCRIBECPP_COMMANDS.hasTranscriptionModel
         );
         if (!transcriptionReady) {
-          console.warn('[OnboardingContext] audio.cpp transcription model is not installed on completion');
+          console.warn('[OnboardingContext] transcribe.cpp transcription model is not installed on completion');
         }
+        setAudioCppModelStates(states =>
+          setAudioCppCardDownloaded(states, 'transcription', transcriptionReady)
+        );
+      } catch (error) {
+        console.warn('[OnboardingContext] Failed to verify the transcribe.cpp model on completion:', error);
+      }
+
+      try {
+        await invoke(AUDIOCPP_COMMANDS.init);
         const models = await invoke<AudioCppModelInfo[]>(
           AUDIOCPP_COMMANDS.getAvailableModels
         );
@@ -549,10 +610,7 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
           AUDIOCPP_DIARIZATION_MODEL
         );
         setAudioCppModelStates(states =>
-          setAudioCppCardsDownloaded(states, {
-            transcription: transcriptionReady,
-            diarization: diarizationReady,
-          })
+          setAudioCppCardDownloaded(states, 'diarization', diarizationReady)
         );
       } catch (error) {
         console.warn('[OnboardingContext] Failed to verify audio.cpp models on completion:', error);
@@ -576,14 +634,14 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
 
   // Start background downloads for models.
   const startBackgroundDownloads = async ({
-    includeAudioCppTranscription,
-    includeAudioCppDiarization,
+    includeTranscription,
+    includeDiarization,
     includeSummary,
     summaryModel,
   }: StartBackgroundDownloadsOptions) => {
     console.log('[OnboardingContext] Starting background downloads:', {
-      includeAudioCppTranscription,
-      includeAudioCppDiarization,
+      includeTranscription,
+      includeDiarization,
       includeSummary,
       summaryModel,
     });
@@ -592,11 +650,11 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
       // A model already in flight (or installed) must not be requested again:
       // the native downloader rejects a duplicate request for the same model.
       const shouldStartTranscription =
-        includeAudioCppTranscription &&
+        includeTranscription &&
         !transcriptionModelDownloaded &&
         transcriptionModelStatus !== 'downloading';
       const shouldStartDiarization =
-        includeAudioCppDiarization &&
+        includeDiarization &&
         !diarizationModelDownloaded &&
         diarizationModelStatus !== 'downloading';
       const shouldStartSummary = includeSummary && !summaryModelDownloaded && !!summaryModel;
@@ -610,28 +668,25 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
 
       setIsBackgroundDownloading(true);
 
-      // audio.cpp downloads need the model manager, which is created lazily.
-      if (shouldStartTranscription || shouldStartDiarization) {
-        await invoke(AUDIOCPP_COMMANDS.init);
-        // The catalog list seeds each card's size before the first progress
-        // event, so the step shows "~422 MB" instead of a bare title.
-        const models = await invoke<AudioCppModelInfo[]>(
-          AUDIOCPP_COMMANDS.getAvailableModels
-        );
-        setAudioCppModelStates(states => reconcileAudioCppModelList(states, models));
-      }
-
-      // Transcription model first (speech recognition - always required).
+      // Transcription model first (speech recognition - always required). It
+      // comes from the transcribe.cpp catalog; the manager is created lazily.
       if (shouldStartTranscription) {
-        console.log('[OnboardingContext] Starting audio.cpp transcription model download');
+        console.log('[OnboardingContext] Starting transcribe.cpp transcription model download');
         setAudioCppModelStates(states => startAudioCppModelDownload(states, 'transcription'));
-        invoke(AUDIOCPP_COMMANDS.downloadModel, { modelName: AUDIOCPP_TRANSCRIPTION_MODEL })
+        // The catalog list seeds the card's size before the first progress
+        // event, so the step shows "~422 MB" instead of a bare title.
+        invoke<TranscribeCppModelInfo[]>(TRANSCRIBECPP_COMMANDS.getAvailableModels)
+          .then(models => {
+            setAudioCppModelStates(states => reconcileAudioCppModelList(states, models));
+          })
+          .catch(() => { /* sizes arrive with the progress events instead */ });
+        invoke(TRANSCRIBECPP_COMMANDS.downloadModel, { modelName: ONBOARDING_TRANSCRIPTION_MODEL })
           .catch(err => {
-            console.error('[OnboardingContext] audio.cpp transcription download failed:', err);
+            console.error('[OnboardingContext] transcribe.cpp transcription download failed:', err);
             if (String(err).includes('Download already in progress')) return;
             setAudioCppModelStates(states =>
               applyAudioCppErrorEvent(states, {
-                modelName: AUDIOCPP_TRANSCRIPTION_MODEL,
+                modelName: ONBOARDING_TRANSCRIPTION_MODEL,
                 error: String(err),
               })
             );
@@ -642,6 +697,14 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
       if (shouldStartDiarization) {
         console.log('[OnboardingContext] Starting audio.cpp diarization model download');
         setAudioCppModelStates(states => startAudioCppModelDownload(states, 'diarization'));
+        // audio.cpp downloads need the model manager, which is created lazily.
+        await invoke(AUDIOCPP_COMMANDS.init);
+        // The catalog list seeds the card's size before the first progress
+        // event, so the step shows "~422 MB" instead of a bare title.
+        const models = await invoke<AudioCppModelInfo[]>(
+          AUDIOCPP_COMMANDS.getAvailableModels
+        );
+        setAudioCppModelStates(states => reconcileAudioCppModelList(states, models));
         invoke(AUDIOCPP_COMMANDS.downloadModel, { modelName: AUDIOCPP_DIARIZATION_MODEL })
           .catch(err => {
             console.error('[OnboardingContext] audio.cpp diarization download failed:', err);
@@ -668,21 +731,31 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
 
   // Check if any models are currently downloading (for re-entry)
   const checkActiveDownloads = async () => {
+    let active = false;
+
+    try {
+      const tcpModels = await invoke<TranscribeCppModelInfo[]>(
+        TRANSCRIBECPP_COMMANDS.getAvailableModels
+      );
+      setAudioCppModelStates(states => reconcileAudioCppModelList(states, tcpModels));
+      active = hasActiveAudioCppDownload(tcpModels);
+    } catch (error) {
+      console.warn('[OnboardingContext] Failed to check transcribe.cpp downloads:', error);
+    }
+
     try {
       await invoke(AUDIOCPP_COMMANDS.init);
       const models = await invoke<AudioCppModelInfo[]>(AUDIOCPP_COMMANDS.getAvailableModels);
 
       setAudioCppModelStates(states => reconcileAudioCppModelList(states, models));
-
-      if (hasActiveAudioCppDownload(models)) {
-        console.log('[OnboardingContext] Detected active background downloads on mount');
-        setIsBackgroundDownloading(true);
-      }
-
-      // Also check for Built-in AI downloads if possible (though less critical as the transcription model is the main blocker)
-
+      active = active || hasActiveAudioCppDownload(models);
     } catch (error) {
       console.warn('[OnboardingContext] Failed to check active downloads:', error);
+    }
+
+    if (active) {
+      console.log('[OnboardingContext] Detected active background downloads on mount');
+      setIsBackgroundDownloading(true);
     }
   };
 

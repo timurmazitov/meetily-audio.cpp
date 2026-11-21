@@ -486,13 +486,6 @@ pub async fn start_recording_with_meeting_name<R: Runtime>(
         return Err("Recording already in progress".to_string());
     }
 
-    if let Err(error) = crate::ensure_onnx_runtime_available() {
-        return Err(map_recording_start_error(
-            &app,
-            RecordingStartError::TranscriptionRuntime(error),
-        ));
-    }
-
     // Validate that transcription models are available before starting recording
     info!("🔍 Validating transcription model availability before starting recording...");
     if let Err(validation_error) = transcription::validate_transcription_model_ready(&app).await {
@@ -746,13 +739,6 @@ pub async fn start_recording_with_devices_and_meeting<R: Runtime>(
     info!("🔍 IS_RECORDING state check: {}", current_recording_state);
     if current_recording_state || IS_RECORDING_STOPPING.load(Ordering::SeqCst) {
         return Err("Recording already in progress".to_string());
-    }
-
-    if let Err(error) = crate::ensure_onnx_runtime_available() {
-        return Err(map_recording_start_error(
-            &app,
-            RecordingStartError::TranscriptionRuntime(error),
-        ));
     }
 
     // Validate that transcription models are available before starting recording
@@ -1122,7 +1108,7 @@ async fn stop_recording_for_session<R: Runtime>(
         info!("ℹ️ No transcription task found to wait for");
     }
 
-    // Step 3: Now safely unload Whisper model after ALL chunks are processed
+    // Step 3: Now safely unload the transcribe.cpp model after ALL chunks are processed
     let _ = app.emit(
         "recording-shutdown-progress",
         serde_json::json!({
@@ -1154,21 +1140,6 @@ async fn stop_recording_for_session<R: Runtime>(
     };
 
     match config.as_deref() {
-        Some(crate::audio::transcription::engine::AUDIO_CPP_PROVIDER) => {
-            info!("🎙️ Unloading audioCpp model...");
-            let loaded = crate::audio_cpp_engine::transcription::provider();
-            if let Some(provider) = loaded {
-                let current_model = provider.model_name().to_string();
-                info!("Current audioCpp model before unload: '{}'", current_model);
-                crate::audio_cpp_engine::transcription::unload_provider();
-                info!(
-                    "✅ audioCpp model '{}' unloaded successfully",
-                    current_model
-                );
-            } else {
-                warn!("⚠️ No audioCpp provider found to unload model");
-            }
-        }
         Some(crate::audio::transcription::engine::TRANSCRIBE_CPP_PROVIDER) => {
             info!("🧠 Unloading transcribeCpp model...");
             let loaded = crate::transcribe_cpp_engine::transcription::provider();
@@ -1187,58 +1158,26 @@ async fn stop_recording_for_session<R: Runtime>(
                 warn!("⚠️ No transcribeCpp provider found to unload model");
             }
         }
-        Some("parakeet") => {
-            info!("🦜 Unloading Parakeet model...");
-            let engine_clone = {
-                let engine_guard = crate::parakeet_engine::commands::PARAKEET_ENGINE
-                    .lock()
-                    .unwrap();
-                engine_guard.as_ref().cloned()
-            };
-
-            if let Some(engine) = engine_clone {
-                let current_model = engine
-                    .get_current_model()
-                    .await
-                    .unwrap_or_else(|| "unknown".to_string());
-                info!("Current Parakeet model before unload: '{}'", current_model);
-
-                if engine.unload_model().await {
-                    info!(
-                        "✅ Parakeet model '{}' unloaded successfully",
-                        current_model
-                    );
-                } else {
-                    warn!("⚠️ Failed to unload Parakeet model '{}'", current_model);
-                }
-            } else {
-                warn!("⚠️ No Parakeet engine found to unload model");
-            }
-        }
         _ => {
-            // Default to Whisper
-            info!("🎤 Unloading Whisper model...");
-            let engine_clone = {
-                let engine_guard = crate::whisper_engine::commands::WHISPER_ENGINE
-                    .lock()
-                    .unwrap();
-                engine_guard.as_ref().cloned()
-            };
-
-            if let Some(engine) = engine_clone {
-                let current_model = engine
-                    .get_current_model()
-                    .await
-                    .unwrap_or_else(|| "unknown".to_string());
-                info!("Current Whisper model before unload: '{}'", current_model);
-
-                if engine.unload_model().await {
-                    info!("✅ Whisper model '{}' unloaded successfully", current_model);
-                } else {
-                    warn!("⚠️ Failed to unload Whisper model '{}'", current_model);
-                }
+            // Unrecognized or absent config: transcribe.cpp is the only
+            // local engine this build ships, and the soft migration reads
+            // removed providers as transcribeCpp, so this is the same model
+            // the recording would have used.
+            info!("🧠 Unloading transcribeCpp model...");
+            let loaded = crate::transcribe_cpp_engine::transcription::provider();
+            if let Some(provider) = loaded {
+                let current_model = provider.model_name().to_string();
+                info!(
+                    "Current transcribeCpp model before unload: '{}'",
+                    current_model
+                );
+                crate::transcribe_cpp_engine::transcription::unload_provider().await;
+                info!(
+                    "✅ transcribeCpp model '{}' unloaded successfully",
+                    current_model
+                );
             } else {
-                warn!("⚠️ No Whisper engine found to unload model");
+                warn!("⚠️ No transcribeCpp provider found to unload model");
             }
         }
     }

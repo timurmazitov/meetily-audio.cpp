@@ -901,7 +901,9 @@ test('the empty state keeps the hint and offers a manual run button', async () =
 
 test('without a diarization model the button is disabled and explains why', async () => {
   speakers = [];
-  availableModels = [diarizationModel({ name: 'gigaam', task: 'asr' })];
+  // A catalog entry that is not the diarization model: the install check must
+  // not mistake it for Nemotron. (A pre-migration ASR entry, hence the cast.)
+  availableModels = [diarizationModel({ name: 'gigaam', task: 'asr' as unknown as 'diar' })];
 
   const instance = await renderPanel();
 

@@ -1,5 +1,6 @@
 // Model manager for built-in AI models - handles downloads and lifecycle
-// Follows the same pattern as whisper_engine/whisper_engine.rs for consistency
+// Follows the download-and-lifecycle pattern of the model managers
+// (transcribe_cpp_engine::models) for consistency
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
