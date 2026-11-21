@@ -1,166 +1,116 @@
-<div align="center" style="border-bottom: none">
-    <h1>
-        Privacy-First AI Meeting Assistant
-    </h1>
+<div align="center">
+    <h1>Самобранка</h1>
+    <h3>Волшебный предмет, который в любое время и в любом месте помогает своему хозяину.</h3>
     <br>
-    <br>
-    <a href="https://github.com/timurmazitov/samobranka/releases/"><img src="https://img.shields.io/badge/Pre_Release-Link-brightgreen" alt="Pre-Release"></a>
-    <a href="https://github.com/timurmazitov/samobranka/releases"><img alt="GitHub Repo stars" src="https://img.shields.io/github/stars/timurmazitov/samobranka?style=flat">
-</a>
- <a href="https://github.com/timurmazitov/samobranka/releases"> <img alt="GitHub Downloads (all assets, all releases)" src="https://img.shields.io/github/downloads/timurmazitov/samobranka/total?style=plastic"> </a>
-    <a href="https://github.com/timurmazitov/samobranka/releases"><img src="https://img.shields.io/badge/License-MIT-blue" alt="License"></a>
-    <a href="https://github.com/timurmazitov/samobranka/releases"><img src="https://img.shields.io/badge/Supported_OS-Windows,_Linux-white" alt="Supported OS"></a>
-    <a href="https://github.com/timurmazitov/samobranka/releases"><img alt="GitHub Tag" src="https://img.shields.io/github/v/tag/timurmazitov/samobranka?include_prereleases&color=yellow">
-</a>
+    <a href="https://github.com/timurmazitov/samobranka/releases/"><img src="https://img.shields.io/badge/Скачать-релизы-brightgreen" alt="Releases"></a>
+    <a href="https://github.com/timurmazitov/samobranka/releases"><img alt="GitHub Repo stars" src="https://img.shields.io/github/stars/timurmazitov/samobranka?style=flat"></a>
+    <a href="https://github.com/timurmazitov/samobranka/releases"><img alt="GitHub Downloads (all assets, all releases)" src="https://img.shields.io/github/downloads/timurmazitov/samobranka/total?style=plastic"></a>
+    <a href="https://github.com/timurmazitov/samobranka/blob/main/LICENSE"><img src="https://img.shields.io/badge/Лицензия-MIT-blue" alt="License"></a>
+    <a href="https://github.com/timurmazitov/samobranka/releases"><img src="https://img.shields.io/badge/ОС-Windows,_Linux-white" alt="Supported OS"></a>
+    <a href="https://github.com/timurmazitov/samobranka/releases"><img alt="GitHub Tag" src="https://img.shields.io/github/v/tag/timurmazitov/samobranka?include_prereleases&color=yellow"></a>
     <br>
     <h3>
-    <br>
-    Open Source • Privacy-First • Enterprise-Ready
+    Открытый код • Приватность прежде всего • Русскоязычная версия
     </h3>
-    <p align="center">
-    <a href="https://samobranka.ai"><b>Website</b></a>
-</p>
-    <p align="center">
-
-A privacy-first AI meeting assistant that captures, transcribes, and summarizes meetings entirely on your infrastructure. Built by expert AI engineers passionate about data sovereignty and open source solutions. Perfect for enterprises that need advanced meeting intelligence without compromising on privacy, compliance, or control.
-
-</p>
-
 </div>
 
 ---
 
-<details>
-<summary>Table of Contents</summary>
+**Самобранка** — приватный помощник для встреч: записывает, расшифровывает и подводит итоги прямо на вашем компьютере. Всё распознавание идёт локально, аудио и текст встреч не покидают ваше устройство. Если для саммари выбран облачный ИИ-провайдер, ему отправляется только текст расшифровки.
 
-- [Introduction](#introduction)
-- [Why Samobranka?](#why-samobranka)
-- [Features](#features)
-- [Installation](#installation)
-- [Key Features in Action](#key-features-in-action)
-- [System Architecture](#system-architecture)
-- [For Developers](#for-developers)
-- [Contributing](#contributing)
-- [License](#license)
+Версия целиком рассчитана на русскоязычных пользователей: интерфейс и встроенные шаблоны саммари переведены на русский, каталог моделей распознавания собран вокруг лучших русских моделей — GigaAM, Parakeet, Qwen3-ASR, Whisper.
 
-</details>
+## Возможности
 
-## Introduction
+- 🎙️ **Автоматическая транскрибация** — в реальном времени во время встречи или после загрузки аудиофайла. Язык определяется автоматически.
+- 👥 **Разделение по спикерам** — diarization на модели NVIDIA Nemotron, чтобы было понятно, кто что сказал.
+- 📝 **Саммари** — краткие итоги встречи на выбранной языковой модели.
+- ✅ **Задачи** — выделение задач с привязкой к ответственным и сроку.
+- 📌 **Ключевые тезисы и решения** — отдельным блоком в саммари.
+- 📤 **Экспорт** — расшифровка и саммари во внешние файлы (`.txt`, `.md`).
 
-Samobranka is a privacy-first AI meeting assistant that runs entirely on your local machine. It captures your meetings, transcribes them in real-time, and generates summaries with a local model by default. Audio and transcription never leave your device. If you choose a cloud AI provider for summaries, only the transcript text is sent to it. This makes it the perfect solution for professionals and enterprises who need to maintain complete control over their sensitive information.
+## Почему Самобранка?
 
-## Why Samobranka?
+- **Приватность прежде всего.** Запись, распознавание и разделение по спикерам выполняются локально. Модели, записи и расшифровки хранятся на вашей машине.
+- **Русский язык.** Интерфейс, шаблоны саммари и каталог моделей распознавания ориентированы на русскую речь.
+- **Экономия.** Вместо платных API — открытые модели; для саммари рекомендуется локальный Ollama.
+- **Гибкость.** Работает офлайн; для саммари можно выбрать Ollama (локально), Claude, Groq, OpenRouter, OpenAI или собственный OpenAI-совместимый эндпоинт.
+- **Открытый код.** Самобранка бесплатна и открыта — можно собирать из исходников и дорабатывать под себя.
 
-While there are many meeting transcription tools available, this solution stands out by offering:
+> ⚠️ Официальные сборки выходят только в этом репозитории: [github.com/timurmazitov/samobranka/releases](https://github.com/timurmazitov/samobranka/releases).
 
-- **Privacy First:** All processing happens locally on your device.
-- **Cost-Effective:** Uses open-source AI models instead of expensive APIs.
-- **Flexible:** Works offline and supports multiple meeting platforms.
-- **Customizable:** Self-host and modify for your specific needs.
+## Возможности подробнее
 
-<details>
+### 🎯 Локальная транскрибация
 
-Note: Official builds are only on samobranka.ai and github.com/timurmazitov/samobranka/releases.
-    
-<summary>The Privacy Problem</summary>
+Распознавание полностью на вашем устройстве: движок **transcribe.cpp** и каталог GGUF-моделей с русским уклоном — GigaAM v3 (CTC и RNN-T), NVIDIA Parakeet, Qwen3-ASR, Whisper large-v3. Облако не нужно.
 
-Meeting AI tools create significant privacy and compliance risks across all sectors:
+### ⚡ Ускорение на GPU
 
-- **$4.4M average cost per data breach** (IBM 2024)
-- **€5.88 billion in GDPR fines** issued by 2025
-- **400+ unlawful recording cases** filed in California this year
+Режим вычислений выбирается в настройках: **Авто**, **Vulkan (GPU)** или **CPU**, с автоматическим откатом на CPU, если рабочего Vulkan-драйвера нет. Инструменты сборки для GPU не требуются: Vulkan-загрузчик берётся из системы вместе с драйверами. Подробнее — [руководство по GPU-ускорению](docs/GPU_ACCELERATION.md).
 
-Whether you're a defense consultant, enterprise executive, legal professional, or healthcare provider, your sensitive discussions shouldn't live on servers you don't control. Cloud meeting tools promise convenience but deliver privacy nightmares with unclear data storage practices and potential unauthorized access.
+### 👥 Разделение по спикерам
 
-**Samobranka solves this:** Complete data sovereignty on your infrastructure, zero vendor lock-in, and full control over your sensitive conversations.
+Отдельный stage на библиотеке audio.cpp с моделью NVIDIA Nemotron-3 Diarization: в расшифровке видно, кто и что сказал.
 
-</details>
+### 📥 Импорт и улучшение
 
-## Features
+Можно загрузить существующий аудиофайл и получить расшифровку, либо «улучшить» уже записанную встречу — расшифровать заново другой моделью. Всё локально, язык определяется автоматически.
 
-- **Local First:** All processing is done on your machine. No data ever leaves your computer.
-- **Real-time Transcription:** Get a live transcript of your meeting as it happens.
-- **AI-Powered Summaries:** Generate summaries of your meetings using powerful language models.
-- **Multi-Platform:** Native packages for Windows and Linux.
-- **Open Source:** Samobranka is open source and free to use.
-- **Flexible AI Provider Support:** Choose from Ollama (local), Claude, Groq, OpenRouter, or use your own OpenAI-compatible endpoint.
+### 🤖 Саммари на языковых моделях
 
-## Installation
+Краткие итоги, задачи с ответственными и сроками, ключевые тезисы и решения. Рекомендуется локальный **Ollama**; также поддерживаются Claude, Groq, OpenRouter, OpenAI и собственный OpenAI-совместимый эндпоинт — удобно для организаций со своей ИИ-инфраструктурой.
+
+### 🎧 Профессиональное сведение звука
+
+Одновременная запись микрофона и системного звука с интеллектуальным приглушением и защитой от клиппинга.
+
+### 🔄 Автообновление
+
+Приложение само проверяет обновления и устанавливает их.
+
+## Установка
 
 ### Windows
 
-| Platform | Download Link | Instructions |
-|----------|---------------|-------------|
-| **Windows (x64)** | [.exe installer](https://github.com/timurmazitov/samobranka/releases/latest) | Download and run the installer |
+| Платформа | Скачать | Установка |
+|-----------|---------|-----------|
+| **Windows (x64)** | [.exe-установщик](https://github.com/timurmazitov/samobranka/releases/latest) | Скачайте и запустите установщик |
 
-> **Windows compatibility:** The packaged installer targets a portable x64 baseline: an AVX2-capable CPU is required; AVX-512 is not required. Transcription runs on the prebuilt transcribe.cpp runtime and uses Vulkan through the Vulkan loader (`vulkan-1.dll`) installed with your GPU drivers; without a working driver it falls back to CPU automatically.
+> **Совместимость:** установщик рассчитан на портативную x64-базу — нужен процессор с AVX2; AVX-512 не требуется. Распознавание работает на готовом рантайме transcribe.cpp через Vulkan-загрузчик (`vulkan-1.dll`) из комплекта драйверов GPU; без рабочего драйвера происходит автоматический откат на CPU.
 
 ### Linux
 
-Requires x86_64 Linux with glibc 2.35 or newer (.deb preferred, otherwise AppImage).
+Требуется x86_64 Linux с glibc 2.35 или новее (предпочтителен `.deb`, иначе AppImage).
 
-1. Download the latest `.deb` or `.AppImage` package for Linux x64 from [Releases](https://github.com/timurmazitov/samobranka/releases/latest).
-2. Install or run your preferred package:
-   - **Debian/Ubuntu (.deb):** Open a terminal in the download folder and run `sudo apt install ./<downloaded-file>.deb`.
-   - **AppImage:** Open the file’s properties, allow it to run as a program, then double-click it to launch **Samobranka**.
+1. Скачайте последний `.deb` или `.AppImage` для Linux x64 со страницы [Releases](https://github.com/timurmazitov/samobranka/releases/latest).
+2. Установите или запустите выбранный пакет:
+   - **Debian/Ubuntu (.deb):** в папке загрузки выполните `sudo apt install ./<файл>.deb`.
+   - **AppImage:** в свойствах файла разрешите исполнение как программы, затем запустите двойным щелчком.
 
-To build from source, see [Building on Linux](docs/building_in_linux.md) or [General Build Instructions](docs/BUILDING.md).
+Сборка из исходников: [Building on Linux](docs/building_in_linux.md) или [общие инструкции](docs/BUILDING.md).
 
-## Key Features in Action
+## Архитектура
 
-### 🎯 Local Transcription
+Самобранка — единое самодостаточное приложение на [Tauri](https://tauri.app/): ядро на Rust отвечает за запись звука, распознавание, diarization, хранение и саммари, интерфейс построен на Next.js. Подробнее — [документация по архитектуре](docs/architecture.md).
 
-Transcribe meetings entirely on your device with the **transcribe.cpp** engine and its GGUF model catalog (GigaAM, Parakeet, Qwen3-ASR, Whisper large-v3 conversions). No cloud required.
+## Для разработчиков
 
-### 📥 Import & Enhance `Beta`
+Чтобы внести вклад или собрать приложение из исходников, понадобится Rust и Node.js (pnpm 9.15.9). Подробные инструкции — в [руководстве по сборке](docs/BUILDING.md).
 
-Import existing audio files to generate transcripts, or enhance to re-transcribe any recorded meeting with a different model, all processed locally. The language is detected automatically.
+## Участие в проекте
 
-> Contributed by [Jeremi Joslin](https://github.com/jeremi), improved by [Vishnu P S](https://github.com/p-s-vishnu) and [Mohammed Safvan](https://github.com/mohammedsafvan)
+Будем рады вашему вкладу! Перед началом поищите похожие задачи и PR и прочитайте [CONTRIBUTING.md](CONTRIBUTING.md). Сообщения об ошибках, предложения функций и проблемы документации — через [формы задач](https://github.com/timurmazitov/samobranka/issues/new/choose).
 
-### 🤖 AI-Powered Summaries
+История изменений каждого релиза — на странице [Releases](https://github.com/timurmazitov/samobranka/releases).
 
-Generate meeting summaries with your choice of AI provider. **Ollama** (local) is recommended, with support for Claude, Groq, OpenRouter, and OpenAI.
+## Лицензия
 
-### 🔒 Privacy-First Design
+MIT License — используйте проект в своих целях.
 
-All data stays on your machine. Transcription models, recordings, and transcripts are stored locally.
+## Благодарности
 
-### 🌐 Custom OpenAI Endpoint Support
-
-Use your own OpenAI-compatible endpoint for AI summaries. Perfect for organizations with custom AI infrastructure or preferred providers.
-
-### 🎙️ Professional Audio Mixing
-
-Capture microphone and system audio simultaneously with intelligent ducking and clipping prevention.
-
-### ⚡ GPU Acceleration
-
-Transcription runs on the prebuilt transcribe.cpp runtime and picks its compute mode from your settings — **Auto**, **Vulkan (GPU)**, or **CPU** — with an automatic CPU fallback when no usable Vulkan driver is present. No GPU toolchain is needed at build time: the Vulkan loader (`libvulkan.so.1` / `vulkan-1.dll`) comes from the system with your GPU drivers. See the [GPU acceleration guide](docs/GPU_ACCELERATION.md).
-
-## System Architecture
-
-Samobranka is a single, self-contained application built with [Tauri](https://tauri.app/). It uses a Rust-based backend to handle all the core logic, and a Next.js frontend for the user interface.
-
-For more details, see the [Architecture documentation](docs/architecture.md).
-
-## For Developers
-
-If you want to contribute to Samobranka or build it from source, you'll need to have Rust and Node.js installed. For detailed build instructions, please see the [Building from Source guide](docs/BUILDING.md).
-
-## Contributing
-
-We welcome contributions to Samobranka! Before starting, search existing issues and PRs and read [CONTRIBUTING.md](CONTRIBUTING.md). Coding agents should also follow [AGENTS.md](AGENTS.md). Use the [issue forms](https://github.com/timurmazitov/samobranka/issues/new/choose) for actionable bug reports, feature requests, and documentation problems.
-
-Thanks for all the contributions. Our community is what makes this project possible.
-
-## License
-
-MIT License - Feel free to use this project for your own purposes.
-
-## Acknowledgments
-
-- We borrowed some code from [Screenpipe](https://github.com/mediar-ai/screenpipe).
-- We borrowed some code from [transcribe-rs](https://crates.io/crates/transcribe-rs).
-- Transcription runs on [transcribe.cpp](https://github.com/handy-computer/transcribe.cpp) (MIT); its GGUF model catalog downloads models from Hugging Face `handy-computer/*-gguf`.
-- Diarization runs on [audio.cpp](https://github.com/0xShug0/audio.cpp) (Apache-2.0) with the NVIDIA Nemotron-3 Diarization model.
+- Часть кода заимствована у [Screenpipe](https://github.com/mediar-ai/screenpipe).
+- Часть кода заимствована у [transcribe-rs](https://crates.io/crates/transcribe-rs).
+- Распознавание работает на [transcribe.cpp](https://github.com/handy-computer/transcribe.cpp) (MIT); каталог GGUF-моделей загружает модели с Hugging Face `handy-computer/*-gguf`.
+- Разделение по спикерам работает на [audio.cpp](https://github.com/0xShug0/audio.cpp) (Apache-2.0) с моделью NVIDIA Nemotron-3 Diarization.
