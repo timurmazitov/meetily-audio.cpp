@@ -356,56 +356,74 @@ mod tests {
         }
     }
 
-    #[test]
-    fn qwen3_asr_1_7b_is_listed_under_its_capitalised_package_but_lowercase_family() {
-        let entry = spec("Qwen3-ASR-1.7B-Q8_0");
+    /// Shared assertions for the two Qwen entries: display name, lowercase
+    /// family, the capitalised package filename, the artifact size and digest
+    /// pinned from the Hugging Face LFS metadata of the listed commit, the
+    /// commit-pinned source URL and the common description wording.
+    fn assert_qwen_entry(
+        name: &str,
+        display_name: &str,
+        family: &str,
+        filename: &str,
+        exact_bytes: u64,
+        size_mb: u32,
+        sha256: &str,
+        repo: &str,
+        commit: &str,
+        description_fragment: &str,
+    ) {
+        let entry = spec(name);
 
-        assert_eq!(entry.display_name, "Qwen3-ASR 1.7B");
-        assert_eq!(entry.family, "qwen3-asr-1.7b");
+        assert_eq!(entry.display_name, display_name);
+        assert_eq!(entry.family, family);
         assert_eq!(entry.quantization, "Q8_0");
-        assert_eq!(entry.filename, "Qwen3-ASR-1.7B-Q8_0.gguf");
+        assert_eq!(entry.filename, filename);
         // Pinned from the Hugging Face LFS metadata of the commit below.
-        assert_eq!(entry.exact_bytes, 2_185_030_624);
-        assert_eq!(entry.size_mb, 2084);
-        assert_eq!(
-            entry.sha256,
-            "9a0d81792dfea2d5f278b8a63deb3ea6e02139ce42c2301f32ea19c4f77526b7"
-        );
+        assert_eq!(entry.exact_bytes, exact_bytes);
+        assert_eq!(entry.size_mb, size_mb);
+        assert_eq!(entry.sha256, sha256);
         assert_eq!(
             entry.source_url,
-            "https://huggingface.co/handy-computer/Qwen3-ASR-1.7B-gguf/resolve/0e0a596e3959c3f3f2ab7d443a5b6f0f4a4bba6f/Qwen3-ASR-1.7B-Q8_0.gguf"
+            format!("https://huggingface.co/handy-computer/{repo}/resolve/{commit}/{filename}")
         );
         assert!(
-            entry
-                .description
-                .contains("Multilingual speech recognition (Qwen3-ASR 1.7B)"),
-            "description must follow the 0.6B wording: {}",
+            entry.description.contains(description_fragment),
+            "description must follow the shared Qwen wording for {name}: {}",
             entry.description
         );
     }
 
     #[test]
-    fn qwen3_asr_1_7b_is_listed_right_after_the_0_6b_variant() {
-        let families: Vec<&str> = catalog().iter().map(|spec| spec.family).collect();
-        let last_0_6b = families
-            .iter()
-            .rposition(|family| *family == "qwen3-asr-0.6b")
-            .expect("qwen3-asr-0.6b must be catalogued");
-        assert_eq!(
-            families.get(last_0_6b + 1).copied(),
-            Some("qwen3-asr-1.7b"),
-            "the 1.7B variant must sit next to the 0.6B one in display order"
+    fn qwen3_asr_1_7b_is_listed_under_its_capitalised_package_but_lowercase_family() {
+        assert_qwen_entry(
+            "Qwen3-ASR-1.7B-Q8_0",
+            "Qwen3-ASR 1.7B",
+            "qwen3-asr-1.7b",
+            "Qwen3-ASR-1.7B-Q8_0.gguf",
+            2_185_030_624,
+            2084,
+            "9a0d81792dfea2d5f278b8a63deb3ea6e02139ce42c2301f32ea19c4f77526b7",
+            "Qwen3-ASR-1.7B-gguf",
+            "0e0a596e3959c3f3f2ab7d443a5b6f0f4a4bba6f",
+            "Multilingual speech recognition (Qwen3-ASR 1.7B)",
         );
     }
 
     #[test]
     fn qwen_variant_is_listed_under_its_capitalised_package_but_lowercase_family() {
-        let entry = spec("Qwen3-ASR-0.6B-Q8_0");
-
-        assert_eq!(entry.family, "qwen3-asr-0.6b");
-        assert_eq!(entry.quantization, "Q8_0");
-        // The published package keeps upstream capitalization; no BF16 entry.
-        assert_eq!(entry.filename, "Qwen3-ASR-0.6B-Q8_0.gguf");
+        assert_qwen_entry(
+            "Qwen3-ASR-0.6B-Q8_0",
+            "Qwen3-ASR 0.6B",
+            "qwen3-asr-0.6b",
+            "Qwen3-ASR-0.6B-Q8_0.gguf",
+            850_423_456,
+            811,
+            "f081b2d5e23bd669d92cc331d722a8a0681943b8e6f34b48996fd5c319b5acd8",
+            "Qwen3-ASR-0.6B-gguf",
+            "7e7c69a577fa2725dfedbe34b5e999336e30a19b",
+            "Multilingual speech recognition (Qwen3-ASR 0.6B)",
+        );
+        // No BF16 entry.
         assert!(
             catalog()
                 .iter()
@@ -492,7 +510,11 @@ mod tests {
                 spec.name
             );
             assert!(
-                spec.sha256.len() == 64 && spec.sha256.chars().all(|c| c.is_ascii_hexdigit()),
+                spec.sha256.len() == 64
+                    && spec
+                        .sha256
+                        .chars()
+                        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()),
                 "model {} must pin a lowercase hex SHA-256",
                 spec.name
             );
